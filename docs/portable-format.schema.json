@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/flytomoon/al-buddy-memory/docs/portable-format.schema.json",
+  "title": "Portable Memory Export, format 1.0.0",
+  "description": "One documented, lossless interchange format for an agent's memory: every fact with its provenance, its valid-time window, its confidence, and the edges between facts. Nothing in it is specific to a model, a vendor, or a runtime.",
+  "type": "object",
+  "required": [
+    "formatVersion",
+    "exportedAt",
+    "projects"
+  ],
+  "properties": {
+    "formatVersion": {
+      "const": "1.0.0"
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/project"
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "description": "Optional: an MCP knowledge-graph view (entities and relations) derived from the nodes, for runtimes that speak that shape.",
+      "properties": {
+        "entities": {
+          "type": "array"
+        },
+        "relations": {
+          "type": "array"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "required": [
+        "project",
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "The scope this memory belongs to \u2014 a product, a person, a workspace."
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "description": "One fact. Never deleted: when it stops being true, validTo closes it and the record stays.",
+      "required": [
+        "nodeId",
+        "provenance",
+        "encryptionKeyRef",
+        "memoryType",
+        "privacyClassification",
+        "retentionTier",
+        "content",
+        "contextualMetadata",
+        "temporalAnchors",
+        "validFrom",
+        "validTo",
+        "confidenceWeight",
+        "decayRate"
+      ],
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "provenance": {
+          "type": "string",
+          "enum": [
+            "UserInput",
+            "AIInferred",
+            "GuardianAdded",
+            "SystemGenerated"
+          ],
+          "description": "Who asserted it: the person, the AI (a derived fact says so), a guardian acting for the person, or the system."
+        },
+        "encryptionKeyRef": {
+          "type": "string"
+        },
+        "memoryType": {
+          "type": "string"
+        },
+        "privacyClassification": {
+          "type": "string",
+          "enum": [
+            "Public",
+            "Private",
+            "Sensitive",
+            "Sealed"
+          ]
+        },
+        "retentionTier": {
+          "type": "string",
+          "enum": [
+            "FullRetention",
+            "Summarized",
+            "Archived"
+          ]
+        },
+        "content": {
+          "type": "object",
+          "required": [
+            "text"
+          ],
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "Raw text is the source of truth; it is never replaced by a summary."
+            },
+            "structuredData": {
+              "type": "object"
+            },
+            "attachmentRefs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "contextualMetadata": {
+          "type": "object"
+        },
+        "temporalAnchors": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Transaction time, append-only: when the SYSTEM did something to this fact.",
+          "items": {
+            "type": "object",
+            "required": [
+              "timestamp",
+              "event"
+            ],
+            "properties": {
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "event": {
+                "type": "string",
+                "enum": [
+                  "created",
+                  "recalled",
+                  "reinforced",
+                  "modified",
+                  "summarized",
+                  "archived"
+                ]
+              }
+            }
+          }
+        },
+        "validFrom": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Valid time: when the fact became true in the world."
+        },
+        "validTo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "null while still true; set (never deleted) when superseded."
+        },
+        "confidenceWeight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "decayRate": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "edgeId",
+        "sourceNodeId",
+        "targetNodeId",
+        "relationshipType",
+        "strength",
+        "provenance",
+        "createdAt"
+      ],
+      "properties": {
+        "edgeId": {
+          "type": "string"
+        },
+        "sourceNodeId": {
+          "type": "string"
+        },
+        "targetNodeId": {
+          "type": "string"
+        },
+        "relationshipType": {
+          "type": "string",
+          "enum": [
+            "Cause",
+            "Analogy",
+            "Reinforcement",
+            "Contradiction",
+            "Temporal",
+            "Emotional"
+          ]
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "provenance": {
+          "type": "string",
+          "enum": [
+            "UserAsserted",
+            "AIInferred"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
