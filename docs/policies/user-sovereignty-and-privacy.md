@@ -344,7 +344,7 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 ### 8.4 Ownership
 
 **Primary owner:** the maintainers
-**Secondary owner:** CEO (escalation path if the maintainers is unavailable)
+**Secondary owner:** the maintainers (escalation path if the maintainers is unavailable)
 **EAB liaison:** EAB Privacy & Data Law Specialist
 **Operational contact:** the maintainers (open an issue)
 
