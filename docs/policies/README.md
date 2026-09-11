@@ -10,5 +10,7 @@ so anyone building on the memory inherits a spine rather than a blank.
 - [lifecycle-and-age-appropriate.md](lifecycle-and-age-appropriate.md) — how tone, content and authority change across a life, and how guardianship hands over.
 - [data-stewardship.md](data-stewardship.md) — retention tiers, archival, deletion procedures, portability requirements, schema evolution.
 
+"The operator" throughout means whoever runs the memory as a service for others; for a person running it for themselves, that is the person, and the organisational obligations (boards, audits, notification windows) do not apply until there is an organisation.
+
 They change in the open. Open an issue with the "Scoring objection" template if a rule is
 wrong, or a pull request with the change and, where one is possible, a test.
