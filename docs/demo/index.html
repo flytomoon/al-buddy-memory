@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory conformance score</title>
+<meta name="description" content="Paste any AI-memory export and see whether it says who asserted each fact, since when, whether it is still true, and whether it survives leaving the vendor.">
+<style>
+  :root { color-scheme: light dark; --ink:#1b1b1f; --mute:#6b6b76; --line:#e2e2e8; --bg:#fbfbfd; --card:#fff; --ok:#1e8e4e; --mid:#c98a00; --bad:#c43c3c; --accent:#3a5bd9; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#ececf1; --mute:#9a9aa6; --line:#2c2c33; --bg:#121216; --card:#1a1a20; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--mute); margin: 0 0 24px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin: 12px 0; }
+  button, select, label.file { font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; min-height: 44px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  textarea { width: 100%; min-height: 180px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-top: 20px; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .grade { font-size: 44px; font-weight: 700; line-height: 1; }
+  .grade.A, .grade.B { color: var(--ok); } .grade.C { color: var(--mid); } .grade.D, .grade.F { color: var(--bad); }
+  .dim { display: grid; grid-template-columns: 64px 1fr; gap: 6px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: start; }
+  .dim .pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .dim .pct.ok { color: var(--ok); } .dim .pct.mid { color: var(--mid); } .dim .pct.bad { color: var(--bad); } .dim .pct.na { color: var(--mute); }
+  .dim .why { color: var(--mute); font-size: 14px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
+  .bar i { display:block; height:100%; background: var(--accent); }
+  .err { color: var(--bad); }
+  .notes { color: var(--mute); font-size: 14px; margin-top: 12px; }
+  footer { color: var(--mute); font-size: 13px; margin-top: 40px; }
+  a { color: var(--accent); }
+  input[type=file] { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Does your agent's memory know where its facts came from?</h1>
+  <p class="sub">Paste any memory export. Seven questions, each scored with its reason: who asserted the fact, since when, can it be retired without erasing, are superseded facts kept, how sure, how related, and does it leave the vendor intact. Nothing leaves your browser.</p>
+
+  <div class="row">
+    <span>Try a sample:</span>
+    <button data-sample="demo">al-buddy-memory</button>
+    <button data-sample="samples/blocks-sample.json">Block-style agent file</button>
+    <button data-sample="samples/records-sample.json">Flat memory records</button>
+    <label class="file">Open a file… <input type="file" id="file" accept=".json,.af,application/json"></label>
+  </div>
+  <textarea id="src" placeholder='{"formatVersion": "1.0.0", "projects": [...]}  —  or a block-style agent file, or flat memory records' spellcheck="false"></textarea>
+  <div class="row">
+    <button class="primary" id="score">Score it</button>
+    <select id="format"><option value="">Detect format</option><option value="portable">al-buddy-memory portable</option><option value="blocks">Block-style agent file</option><option value="records">Flat memory records</option></select>
+    <span id="status" class="err" role="status"></span>
+  </div>
+
+  <section id="out" class="card" hidden></section>
+
+  <footer>
+    The scorer is the same code as <code>npx al-buddy-memory conformance</code>. Adapters map only what a format records, so a system that starts recording provenance scores higher — that is the point.
+    <a href="https://github.com/flytomoon/al-buddy-memory">Source, spec and the MCP server on GitHub</a> · Apache-2.0.
+  </footer>
+</main>
+<script type="module">
+  import { scoreConformance, toConformanceInput, demoInput } from "./conformance.js";
+  const $ = (s) => document.querySelector(s);
+  const src = $("#src"), status = $("#status"), out = $("#out");
+  const cls = (v) => v === null ? "na" : v >= 0.9 ? "ok" : v >= 0.5 ? "mid" : "bad";
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function render(input, r) {
+    const provable = r.dimensions.filter((d) => d.score !== null).length;
+    out.innerHTML = `
+      <div class="head"><div><strong>${esc(r.system)}</strong> <span style="color:var(--mute)">· ${r.facts} facts, ${r.edges} relationships</span></div>
+      <div class="grade ${r.grade}" data-grade="${r.grade}">${r.grade}</div></div>
+      <div style="color:var(--mute)">${Math.round(r.total * 100)}% across ${provable} provable dimensions</div>
+      ${r.dimensions.map((d) => `<div class="dim"><div class="pct ${cls(d.score)}">${d.score === null ? "—" : Math.round(d.score * 100) + "%"}</div>
+        <div><div>${esc(d.title)}</div><div class="why">${esc(d.reason)}</div>${d.score === null ? "" : `<div class="bar"><i style="width:${Math.round(d.score * 100)}%"></i></div>`}</div></div>`).join("")}
+      ${input.traits.notes?.length ? `<div class="notes">${input.traits.notes.map((n) => "• " + esc(n)).join("<br>")}</div>` : ""}`;
+    out.hidden = false;
+  }
+  async function score(inputOverride) {
+    status.textContent = "";
+    try {
+      const input = inputOverride ?? await toConformanceInput(src.value, $("#format").value || undefined);
+      render(input, scoreConformance(input));
+    } catch (e) { out.hidden = true; status.textContent = e && e.message ? e.message : String(e); }
+  }
+  $("#score").addEventListener("click", () => score());
+  for (const b of document.querySelectorAll("[data-sample]")) b.addEventListener("click", async () => {
+    status.textContent = "";
+    if (b.dataset.sample === "demo") { const input = await demoInput(); src.value = "(demo store: three facts, one superseded, two relationships — generated in this page)"; $("#format").value = ""; return score(input); }
+    const text = await (await fetch(b.dataset.sample)).text();
+    src.value = text; $("#format").value = ""; score();
+  });
+  $("#file").addEventListener("change", async (ev) => { const f = ev.target.files?.[0]; if (!f) return; src.value = await f.text(); score(); });
+  window.__demoReady = true;
+</script>
+</body>
+</html>

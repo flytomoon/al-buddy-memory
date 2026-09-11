@@ -98,11 +98,56 @@ Three lessons. (1) None of them charge for the library; the money is hosting plu
 
 ---
 
+## The conformance score
+
+Recall benchmarks are saturated. Nobody scores whether a memory system can say **who**
+asserted a fact, **since when**, whether it is **still true**, and whether the fact
+**survives leaving the vendor**. This does, on any export you paste in:
+
+```sh
+npx al-buddy-memory conformance my-export.json          # format auto-detected
+npx al-buddy-memory conformance agent.af --format blocks     # block-style agent files
+npx al-buddy-memory conformance memories.json --format records  # flat memory records
+npx al-buddy-memory conformance --demo                  # a small governed store, for comparison
+```
+
+Seven dimensions, each 0–100% with the reason spelled out; a dimension the sample cannot
+prove (no retired facts present, say) is reported as unproven and left out of the total
+instead of counted as a failure. Scores on real exports, as of v0.2.0:
+
+| Export | Provenance | Since when | Retire without erasing | Confidence | Relations | Portability | Grade |
+|---|---|---|---|---|---|---|---|
+| al-buddy-memory (demo store) | 100% | 100% | 100% | 100% | 100% | 100% | **A** |
+| Letta — their published `memgpt_agent.af` example, scored with the `blocks` adapter | 0% | 0% | 0% (blocks rewritten in place) | 0% | 0% | 67% | **F** |
+| Mem0 — a `get_all` response in their documented shape, scored with the `records` adapter | 0% | 100% | 50% (expiry only) | 0% | 0% | 67% | **D** |
+
+The adapters are written against export *shapes*, not vendors, and map only what the shape
+records. If a system starts recording provenance, its score goes up — that is the point.
+Adapters live in `src/conformance/adapters.ts`; add one for your shape and open a PR.
+
+## The governance MCP server
+
+There are more than two hundred memory MCP servers. All of them hand the agent a fact.
+This one hands it a fact **it can weigh**: every `recall` result carries `provenance`,
+`validFrom`, `validTo`, `current`, `confidence`, and — for a superseded fact — the id of
+what replaced it. `invalidate` closes a fact's validity and keeps the record; nothing is
+ever deleted.
+
+```json
+{ "mcpServers": { "memory": { "command": "npx", "args": ["al-buddy-memory-mcp"],
+    "env": { "AL_BUDDY_MEMORY_DB": "~/.al-buddy-memory/brain.db" } } } }
+```
+
+Tools: `remember`, `recall`, `invalidate`, `pin`, `unpin`, `pinned`. SQLite on disk, no
+service, no key. The tool bodies are a plain function over a `MemoryStore`
+(`governanceTools(...)`, exported), so they run against any backend and test without a
+transport.
+
 ## Roadmap
 
 - [x] The spec and the portable format, published and versioned (this repo)
-- [ ] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records
-- [ ] The governance MCP server: the first memory server that returns provenance and validity with every fact
+- [x] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records (v0.2.0)
+- [x] The governance MCP server: the first memory server that returns provenance and validity with every fact (v0.2.0)
 - [ ] A comparison table across the incumbents, and a live paste-your-export demo
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
 
@@ -113,4 +158,4 @@ npm ci
 npm run typecheck && npm test && npm run build
 ```
 
-Tests: 118, including a behavioural conformance suite every backend runs against itself.
+Tests: 128, including a behavioural conformance suite every backend runs against itself.
