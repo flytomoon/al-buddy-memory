@@ -92,7 +92,7 @@ Three lessons. (1) None of them charge for the library; the money is hosting plu
 **Automation.** Everything below is scripted or scheduled; nothing depends on remembering.
 
 - `.github/workflows/ci.yml`: typecheck, tests and build on Node 20, 22, 24, on every push and PR.
-- Release: tag `vX.Y.Z` → `.github/workflows/release.yml` builds, tests, publishes to npm with provenance, and cuts a GitHub Release with notes.
+- Release: tag `vX.Y.Z` → `.github/workflows/release.yml` builds, tests, stages the version on npm with provenance (trusted publishing, no token), and cuts a GitHub Release with notes. A maintainer approves the staged version with 2FA before it goes public; no automated path can publish on its own.
 - Sync from Al Buddy: `scripts/sync-memory-lib.sh` in the main repo mirrors the memory core into this repo and runs this repo's own gates. A change that breaks them is a breaking change, caught before it ships. Next step: Al Buddy consumes this package as a dependency, so the library is the source of truth and the mirror script retires.
 - Publicity: the Show HN draft and the MCP-registry submission checklist live in `docs/publishing/`.
 
