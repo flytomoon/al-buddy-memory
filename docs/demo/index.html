@@ -79,6 +79,7 @@
   }
   async function score(inputOverride) {
     status.textContent = "";
+    out.hidden = true; // never show a stale grade while a new one computes
     try {
       const input = inputOverride ?? await toConformanceInput(src.value, $("#format").value || undefined);
       render(input, scoreConformance(input));
@@ -86,7 +87,7 @@
   }
   $("#score").addEventListener("click", () => score());
   for (const b of document.querySelectorAll("[data-sample]")) b.addEventListener("click", async () => {
-    status.textContent = "";
+    status.textContent = ""; out.hidden = true;
     if (b.dataset.sample === "demo") { const input = await demoInput(); src.value = "(demo store: three facts, one superseded, two relationships — generated in this page)"; $("#format").value = ""; return score(input); }
     const text = await (await fetch(b.dataset.sample)).text();
     src.value = text; $("#format").value = ""; score();
