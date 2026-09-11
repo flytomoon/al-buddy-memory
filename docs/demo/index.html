@@ -13,15 +13,15 @@
     --ember:#b0492a; --amber:#85621b; --sage:#387056; --code:rgba(38,35,29,.06); }
   @media (prefers-color-scheme: dark) { :root { --paper:#0b0c0b; --panel:#16161c; --panel-2:#1c1c24; --fg:#eeeae1; --fg-dim:#c0bbb1; --fg-faint:#98928a; --line:rgba(233,226,211,.10); --ember:#d9704a; --amber:#d3a04a; --sage:#6faa8f; --code:rgba(233,226,211,.08); } }
   * { box-sizing:border-box }
-  html { scroll-behavior:smooth }
   body { margin:0; background:var(--paper); color:var(--fg); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing:antialiased }
   a { color:var(--ember) }
   .wrap { max-width:960px; margin:0 auto; padding:0 20px }
-  header { position:sticky; top:0; background:color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); z-index:5 }
+  header { position:static; background:var(--paper); border-bottom:1px solid var(--line) }
+  @media (min-width:700px) { header { position:sticky; top:0; z-index:5 } }
   .bar { display:flex; align-items:center; gap:12px; min-height:60px }
   .bar img { width:34px; height:34px; border-radius:9px }
   .bar b { font-size:18px; letter-spacing:-.01em; white-space:nowrap }
-  .bar nav { margin-left:auto; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  .bar nav { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end }
   .bar nav a { color:var(--fg-dim); text-decoration:none; padding:8px 10px; border-radius:8px; font-size:15px }
   .bar nav a:hover { color:var(--fg); background:var(--code) }
   .hero { padding:56px 0 36px; text-align:center }
@@ -62,7 +62,7 @@
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
   footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
   footer a { color:var(--fg-dim) }
-  @media (max-width:520px) { .bar { gap:8px } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav a { padding:8px 6px; font-size:13px; white-space:nowrap } .hero { padding:40px 0 28px } }
+  @media (max-width:520px) { .bar { gap:8px; flex-wrap:wrap; padding:8px 0 } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav { width:100%; justify-content:flex-start; margin-left:0 } .bar nav a { padding:6px 8px; font-size:14px } .hero { padding:36px 0 28px } }
 </style>
 </head>
 <body>
