@@ -22,6 +22,12 @@ Every agent-memory product on the market answers one question well: *what does t
 
 That fourth column is the wedge. Recall benchmarks (LOCOMO, LongMemEval, DMR) are saturated: Mem0 published the paper, Zep published the rebuttal, and every 2026 entrant re-runs the same tables. **No public benchmark scores a memory system on provenance, invalidation or portability.** This library is built for exactly that axis, so it can publish the first one.
 
+## Start here
+
+An empty memory gives an assistant nothing to stand on. [docs/STARTER.md](docs/STARTER.md) seeds
+yours in ten minutes: pin who the person is and how they want to be treated (including "never a
+yes-person"), choose the rules the store enforces, and let it derive the rest nightly.
+
 ## What is in the box
 
 - `MemoryStore`: a storage-agnostic interface; `SqliteMemoryStore` and `InMemoryStore` ship, with a **conformance suite** any backend can run against itself.
