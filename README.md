@@ -1,7 +1,6 @@
 # al-buddy-memory
 
-> **Al Buddy** — that's *Al*, a name, said like "pal". Not A.I. The lowercase l that looks
-> like an i is the joke; the name is Al.
+> **Al Buddy** — that's *Al*, a name, said like "pal". Not A.I.
 
 
 **Portable, governed, model-agnostic memory for AI agents.**
