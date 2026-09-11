@@ -3,78 +3,137 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Al Buddy memory — conformance score</title>
-<meta name="description" content="Paste any AI-memory export and see whether it says who asserted each fact, since when, whether it is still true, and whether it survives leaving the vendor.">
+<title>Al Buddy — a memory that's yours</title>
+<meta name="description" content="Al Buddy is an open memory for AI assistants. It never forgets on purpose, knows where every fact came from, and leaves with you.">
+<link rel="icon" href="al-icon.png"><link rel="apple-touch-icon" href="al-icon.png">
+<meta property="og:title" content="Al Buddy — a memory that's yours"><meta property="og:description" content="An open memory for AI assistants: never deletes, knows where every fact came from, leaves with you."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
 <style>
-  :root { color-scheme: light dark; --ink:#1b1b1f; --mute:#6b6b76; --line:#e2e2e8; --bg:#fbfbfd; --card:#fff; --ok:#1e8e4e; --mid:#c98a00; --bad:#c43c3c; --accent:#3a5bd9; }
-  @media (prefers-color-scheme: dark) { :root { --ink:#ececf1; --mute:#9a9aa6; --line:#2c2c33; --bg:#121216; --card:#1a1a20; } }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
-  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .sub { color: var(--mute); margin: 0 0 24px; }
-  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin: 12px 0; }
-  button, select, label.file { font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; min-height: 44px; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  textarea { width: 100%; min-height: 180px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-top: 20px; }
-  .head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  .grade { font-size: 44px; font-weight: 700; line-height: 1; }
-  .grade.A, .grade.B { color: var(--ok); } .grade.C { color: var(--mid); } .grade.D, .grade.F { color: var(--bad); }
-  .dim { display: grid; grid-template-columns: 64px 1fr; gap: 6px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: start; }
-  .dim .pct { font-weight: 700; font-variant-numeric: tabular-nums; }
-  .dim .pct.ok { color: var(--ok); } .dim .pct.mid { color: var(--mid); } .dim .pct.bad { color: var(--bad); } .dim .pct.na { color: var(--mute); }
-  .dim .why { color: var(--mute); font-size: 14px; }
-  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
-  .bar i { display:block; height:100%; background: var(--accent); }
-  .err { color: var(--bad); }
-  .notes { color: var(--mute); font-size: 14px; margin-top: 12px; }
-  footer { color: var(--mute); font-size: 13px; margin-top: 40px; }
-  a { color: var(--accent); }
-  input[type=file] { display:none; }
+  :root { color-scheme: light dark;
+    --paper:#f4efe5; --panel:#fffdf8; --panel-2:#faf6ec; --fg:#26231d; --fg-dim:#57534a; --fg-faint:#6e6a5f; --line:rgba(38,35,29,.10);
+    --ember:#b0492a; --amber:#85621b; --sage:#387056; --code:rgba(38,35,29,.06); }
+  @media (prefers-color-scheme: dark) { :root { --paper:#0b0c0b; --panel:#16161c; --panel-2:#1c1c24; --fg:#eeeae1; --fg-dim:#c0bbb1; --fg-faint:#98928a; --line:rgba(233,226,211,.10); --ember:#d9704a; --amber:#d3a04a; --sage:#6faa8f; --code:rgba(233,226,211,.08); } }
+  * { box-sizing:border-box }
+  html { scroll-behavior:smooth }
+  body { margin:0; background:var(--paper); color:var(--fg); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing:antialiased }
+  a { color:var(--ember) }
+  .wrap { max-width:960px; margin:0 auto; padding:0 20px }
+  header { position:sticky; top:0; background:color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); z-index:5 }
+  .bar { display:flex; align-items:center; gap:12px; min-height:60px }
+  .bar img { width:34px; height:34px; border-radius:9px }
+  .bar b { font-size:18px; letter-spacing:-.01em; white-space:nowrap }
+  .bar nav { margin-left:auto; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  .bar nav a { color:var(--fg-dim); text-decoration:none; padding:8px 10px; border-radius:8px; font-size:15px }
+  .bar nav a:hover { color:var(--fg); background:var(--code) }
+  .hero { padding:56px 0 36px; text-align:center }
+  .hero img { width:112px; height:112px; border-radius:26px; box-shadow:0 10px 30px rgba(0,0,0,.12) }
+  .hero h1 { font-size:clamp(34px, 6vw, 56px); line-height:1.05; letter-spacing:-.02em; margin:26px 0 14px }
+  .hero p.lead { font-size:clamp(18px, 2.4vw, 22px); color:var(--fg-dim); max-width:640px; margin:0 auto 10px }
+  .hero p.say { color:var(--fg-faint); font-size:15px; margin:0 auto 26px }
+  .cta { display:flex; gap:10px; justify-content:center; flex-wrap:wrap }
+  .btn { display:inline-flex; align-items:center; min-height:46px; padding:0 18px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--fg); text-decoration:none; font-weight:600; font-size:16px }
+  .btn.primary { background:var(--ember); border-color:var(--ember); color:#fff }
+  section.block { padding:44px 0; border-top:1px solid var(--line) }
+  section.block h2 { font-size:clamp(24px, 3.4vw, 32px); letter-spacing:-.01em; margin:0 0 6px }
+  section.block p.sub { color:var(--fg-dim); margin:0 0 22px; font-size:17px; max-width:680px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px 22px }
+  .card h3 { margin:0 0 6px; font-size:18px }
+  .card p { margin:0; color:var(--fg-dim); font-size:15.5px }
+  .card .k { display:inline-block; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--ember); margin-bottom:8px }
+  /* the scorer (unchanged ids: the script drives them) */
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:12px 0 }
+  button, select, label.file { font:inherit; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--fg); cursor:pointer; min-height:44px }
+  button.primary { background:var(--ember); border-color:var(--ember); color:#fff; font-weight:600 }
+  textarea { width:100%; min-height:150px; font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--fg); resize:vertical }
+  input[type=file] { display:none }
+  #out { margin-top:18px }
+  .head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap }
+  .grade { font-size:44px; font-weight:700; line-height:1 }
+  .grade.A, .grade.B { color:var(--sage) } .grade.C { color:var(--amber) } .grade.D, .grade.F { color:var(--ember) }
+  .dim { display:grid; grid-template-columns:64px 1fr; gap:6px 14px; padding:10px 0; border-top:1px solid var(--line); align-items:start }
+  .dim .pct { font-weight:700; font-variant-numeric:tabular-nums }
+  .dim .pct.ok { color:var(--sage) } .dim .pct.mid { color:var(--amber) } .dim .pct.bad { color:var(--ember) } .dim .pct.na { color:var(--fg-faint) }
+  .dim .why { color:var(--fg-dim); font-size:14px }
+  .bar-w { height:6px; border-radius:3px; background:var(--line); overflow:hidden; margin-top:6px }
+  .bar-w i { display:block; height:100%; background:var(--ember) }
+  .err { color:var(--ember) }
+  .notes { color:var(--fg-dim); font-size:14px; margin-top:12px }
+  pre { margin:0; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--code); overflow-x:auto; font-size:13.5px; line-height:1.5 }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
+  footer a { color:var(--fg-dim) }
+  @media (max-width:520px) { .bar { gap:8px } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav a { padding:8px 6px; font-size:13px; white-space:nowrap } .hero { padding:40px 0 28px } }
 </style>
 </head>
 <body>
-<main>
-  <h1>Does your agent's memory know where its facts came from?</h1>
-  <p class="sub" style="margin-bottom:6px"><strong>Al Buddy</strong> — that's <em>Al</em>, a name, said like "pal". Not A.I. The lowercase l that looks like an i is the joke; the name is Al.</p>
-  <p class="sub">Paste any memory export. Seven questions, each scored with its reason: who asserted the fact, since when, can it be retired without erasing, are superseded facts kept, how sure, how related, and does it leave the vendor intact. Nothing leaves your browser.</p>
+<header><div class="wrap bar"><img src="al-icon.png" alt=""><b>Al Buddy</b>
+  <nav><a href="#why">Why</a><a href="#try">Try it</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
-  <div class="row">
-    <span>Try a sample:</span>
-    <button data-sample="demo">al-buddy-memory (3 facts)</button>
-    <button data-sample="realistic">al-buddy-memory (26 facts, 2.5 years)</button>
-    <button data-sample="samples/blocks-sample.json">Block-style agent file</button>
-    <button data-sample="samples/records-sample.json">Flat memory records</button>
-    <label class="file">Open a file… <input type="file" id="file" accept=".json,.af,application/json"></label>
-  </div>
-  <textarea id="src" placeholder='{"formatVersion": "1.0.0", "projects": [...]}  —  or a block-style agent file, or flat memory records' spellcheck="false"></textarea>
-  <div class="row">
-    <button class="primary" id="score">Score it</button>
-    <select id="format"><option value="">Detect format</option><option value="portable">al-buddy-memory portable</option><option value="blocks">Block-style agent file</option><option value="records">Flat memory records</option></select>
-    <span id="status" class="err" role="status"></span>
-  </div>
-
-  <section id="out" class="card" hidden></section>
-
-  <section class="card" style="margin-top:28px">
-    <h2 style="margin:0 0 10px;font-size:20px">What the library underneath does differently</h2>
-    <ul style="margin:0;padding-left:20px;line-height:1.6">
-      <li><strong>Nothing is ever deleted.</strong> A fact that stops being true gets a <code>validTo</code> and stays, with what replaced it. Ask what was true last March.</li>
-      <li><strong>Every fact says who asserted it</strong> — user, AI-inferred, guardian, system — and every relation carries provenance too.</li>
-      <li><strong>Raw text is the source of truth.</strong> Embeddings are a disposable cache tagged with the model that made them. Switch models, lose nothing.</li>
-      <li><strong>It leaves the vendor intact.</strong> One documented export format with a schema and a proven lossless round-trip. No service, no key, no account.</li>
-      <li><strong>Governance is enforced, not implied.</strong> Policies in front of every write, read and export, with an append-only audit trail.</li>
-    </ul>
-    <p style="margin:14px 0 6px">Give your agent facts it can weigh — the MCP server returns provenance and validity with every recall:</p>
-    <pre style="margin:0;padding:12px;border-radius:10px;border:1px solid var(--line);overflow-x:auto;font-size:13px">{ "mcpServers": { "memory": { "command": "npx", "args": ["al-buddy-memory-mcp"] } } }</pre>
+<main class="wrap">
+  <section class="hero">
+    <img src="al-icon.png" alt="The Al Buddy mark: a lowercase al">
+    <h1>A memory that's yours.</h1>
+    <p class="lead">Al Buddy is an open memory for AI assistants. It never forgets on purpose, it knows where every fact came from, and it leaves with you.</p>
+    <p class="say"><strong>Al</strong> — a name, said like "pal". Not A.I. The lowercase l that looks like an i is the joke.</p>
+    <div class="cta"><a class="btn primary" href="#try">Score your assistant's memory</a><a class="btn" href="https://github.com/flytomoon/al-buddy-memory">Read the code</a></div>
   </section>
 
-  <footer>
-    The scorer is the same code as <code>npx al-buddy-memory conformance</code>. Adapters map only what a format records, so a system that starts recording provenance scores higher — that is the point.
-    <a href="https://github.com/flytomoon/al-buddy-memory">Source, spec and the MCP server on GitHub</a> · Apache-2.0.
-  </footer>
+  <section class="block" id="why">
+    <h2>What we believe a memory owes you</h2>
+    <p class="sub">Most AI memory is a scratchpad the vendor owns: facts get overwritten, nobody can say who claimed what, and you can't take it with you. We built the opposite.</p>
+    <div class="grid">
+      <div class="card"><span class="k">Never deleted</span><h3>Change is kept, not erased</h3><p>When something stops being true, it gets an end date and stays. You moved cities; your Al still knows where you used to live, and when that changed.</p></div>
+      <div class="card"><span class="k">Provenance</span><h3>Every fact says who said it</h3><p>You, the assistant's guess, a guardian, or the system. And how sure it was. So an assistant can weigh a fact instead of just repeating it.</p></div>
+      <div class="card"><span class="k">Portable</span><h3>It leaves with you</h3><p>One documented export format with a schema and a proven round-trip. Switch assistants, switch models, switch vendors. Nothing is lost.</p></div>
+      <div class="card"><span class="k">Raw text is the truth</span><h3>Models come and go</h3><p>Your words are the record. The vectors a model builds from them are a cache: throw them away, rebuild them with a better model, keep everything.</p></div>
+      <div class="card"><span class="k">Governed</span><h3>Rules you can read</h3><p>Who may write, who may see, what may leave, with an audit trail. Sensitive things stay sensitive. A guardian can protect what needs protecting.</p></div>
+      <div class="card"><span class="k">Open</span><h3>Apache-2.0, one dependency</h3><p>A single SQLite file on your machine. No account, no key, no service. Read every line on GitHub.</p></div>
+    </div>
+  </section>
+
+  <section class="block" id="try">
+    <h2>Does your assistant's memory know where its facts came from?</h2>
+    <p class="sub">Paste any memory export. Seven questions, each scored with its reason. Nothing leaves your browser.</p>
+    <div class="row">
+      <span>Try a sample:</span>
+      <button data-sample="demo">Al Buddy (3 facts)</button>
+      <button data-sample="realistic">Al Buddy (26 facts, 2.5 years)</button>
+      <button data-sample="samples/blocks-sample.json">Block-style agent file</button>
+      <button data-sample="samples/records-sample.json">Flat memory records</button>
+      <label class="file">Open a file… <input type="file" id="file" accept=".json,.af,application/json"></label>
+    </div>
+    <textarea id="src" placeholder='{"formatVersion": "1.0.0", "projects": [...]}  —  or a block-style agent file, or flat memory records' spellcheck="false"></textarea>
+    <div class="row">
+      <button class="primary" id="score">Score it</button>
+      <select id="format"><option value="">Detect format</option><option value="portable">Al Buddy portable</option><option value="blocks">Block-style agent file</option><option value="records">Flat memory records</option></select>
+      <span id="status" class="err" role="status"></span>
+    </div>
+    <section id="out" class="card" hidden></section>
+    <p class="notes">The rules are public: <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/SCORING.md">how each question is scored and what the score does not measure</a>. The adapters map only what an export records, so any system that starts recording provenance scores higher. That's the point.</p>
+  </section>
+
+  <section class="block" id="install">
+    <h2>Use it</h2>
+    <p class="sub">For people who build assistants. If that's not you, skip to what's next.</p>
+    <div class="grid">
+      <div class="card"><h3>Score an export from the terminal</h3><pre><code>npx al-buddy-memory conformance my-export.json</code></pre></div>
+      <div class="card"><h3>Give your agent a memory it can weigh</h3><p style="margin-bottom:8px">An MCP server whose every recall returns provenance and validity:</p><pre><code>{ "mcpServers": { "memory": {
+    "command": "npx", "args": ["al-buddy-memory-mcp"] } } }</code></pre></div>
+      <div class="card"><h3>Build on the library</h3><pre><code>npm install al-buddy-memory</code></pre><p style="margin-top:8px">TypeScript, SQLite, governance hooks, the portable format. <a href="https://github.com/flytomoon/al-buddy-memory#readme">Docs on GitHub.</a></p></div>
+    </div>
+  </section>
+
+  <section class="block" id="next">
+    <h2>What's next</h2>
+    <p class="sub">The memory is the foundation. What we're building on it:</p>
+    <div class="grid">
+      <div class="card"><span class="k">Soon</span><h3>Talk to your Al</h3><p>A real conversation, by voice, with an assistant that remembers what you said last week and can tell you where it learned it. The memory is the part that makes it yours.</p></div>
+      <div class="card"><span class="k">Soon</span><h3>An assistant that learns you</h3><p>How you decide, what you always ask for, what you'd rather skip. Written down as beliefs with a confidence, correctable in a sentence, never acted on without your yes.</p></div>
+      <div class="card"><span class="k">Later</span><h3>Memory for teams</h3><p>The same governance, for organisations that need to answer who knew what and when.</p></div>
+    </div>
+  </section>
 </main>
+<footer><div class="wrap">Al Buddy · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · Apache-2.0</div></footer>
 <script type="module">
   import { scoreConformance, toConformanceInput, demoInput, realisticInput } from "./conformance.js";
   const $ = (s) => document.querySelector(s);
@@ -88,7 +147,7 @@
       <div class="grade ${r.grade}" data-grade="${r.grade}">${r.grade}</div></div>
       <div style="color:var(--mute)">${Math.round(r.total * 100)}% across ${provable} provable dimensions</div>
       ${r.dimensions.map((d) => `<div class="dim"><div class="pct ${cls(d.score)}">${d.score === null ? "—" : Math.round(d.score * 100) + "%"}</div>
-        <div><div>${esc(d.title)}</div><div class="why">${esc(d.reason)}</div>${d.score === null ? "" : `<div class="bar"><i style="width:${Math.round(d.score * 100)}%"></i></div>`}</div></div>`).join("")}
+        <div><div>${esc(d.title)}</div><div class="why">${esc(d.reason)}</div>${d.score === null ? "" : `<div class="bar-w"><i style="width:${Math.round(d.score * 100)}%"></i></div>`}</div></div>`).join("")}
       ${input.traits.notes?.length ? `<div class="notes">${input.traits.notes.map((n) => "• " + esc(n)).join("<br>")}</div>` : ""}`;
     out.hidden = false;
   }
