@@ -416,10 +416,10 @@ Internal violations are handled through standard HR and engineering accountabili
 
 ## Appendix B: Related Policies
 
-- `GOV-TECH-001` — [Technical Governance & Schema Evolution Policy](technical-governance-schema-evolution-policy.md)
-- `GOV-DAT-001` — [Data Governance & Memory Stewardship Policy](data-governance-memory-stewardship-policy.md)
-- `GOV-ETH-001` — [Ethical AI Behavior Governance Policy](ethical-ai-behavior-policy.md)
-- `GOV-LIF-001` — [Lifecycle & Age-Appropriate Governance Policy](lifecycle-age-appropriate-policy.md)
+- `GOV-TECH-001` — [Technical Governance & Schema Evolution Policy](technical-governance-and-schema-evolution.md)
+- `GOV-DAT-001` — [Data Governance & Memory Stewardship Policy](data-stewardship.md)
+- `GOV-ETH-001` — [Ethical AI Behavior Governance Policy](ethical-behaviour.md)
+- `GOV-LIF-001` — [Lifecycle & Age-Appropriate Governance Policy](lifecycle-and-age-appropriate.md)
 
 ---
 
