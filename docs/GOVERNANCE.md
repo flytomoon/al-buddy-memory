@@ -1,0 +1,50 @@
+# Governance: enforcing the vocabulary
+
+The store ships the words — `privacyClassification` (Public / Private / Sensitive /
+Sealed), `retentionTier`, `provenance` on every fact and relation. `govern()` is what
+enforces them.
+
+```ts
+import { SqliteMemoryStore, govern, personalDefaults, JsonlAudit } from "al-buddy-memory";
+
+const store = govern(new SqliteMemoryStore("brain.db"), {
+  policies: [personalDefaults({ owner: "chris" })],
+  context: () => ({ actor: currentActor() }),      // who is acting right now
+  audit: new JsonlAudit("~/.al-buddy-memory/audit.jsonl"),
+});
+```
+
+A policy is a plain object with up to four hooks:
+
+| Hook | Runs | Can |
+|---|---|---|
+| `beforeWrite(node, ctx)` | before a fact is stored | transform it (classify, tag) or refuse it |
+| `beforeUpdate(existing, patch, ctx)` | before a change or invalidation | refuse it |
+| `beforeRead(node, ctx)` | on the way out of `getNode`/`searchNodes` | hide it (`null`) or redact it |
+| `beforeExport(node, ctx)` | when an `exportView` is being exported | allow or refuse |
+
+`ctx` carries `actor`, optional `audience`, `purpose` (write / recall / invalidate / export)
+and `now`. Policies compose in order. Refusals throw `PolicyDenied` with the policy's name
+and reason. Every allow, hide and refusal lands in the audit sink as an append-only event.
+
+## The three samples
+
+- **personalDefaults({ owner })** — the owner sees everything; anything that looks like a
+  secret (API tokens, card numbers, "password: …", private keys) is written as Sensitive;
+  Sensitive and Sealed facts never reach another audience and never leave in an export
+  unless the owner is the one exporting.
+- **guardianMode({ guardians })** — only a guardian may write, change or invalidate a
+  `GuardianAdded` fact. Everyone may read them; that is what they are for.
+- **enterpriseAudit({ reviewers, exporters, minInferredConfidence })** — AI-inferred facts
+  below the confidence floor are hidden from everyone but reviewers; nothing leaves in an
+  export unless the actor is an exporter. The audit trail does the rest.
+
+Copy one, rename it, change the rule. Governance should read like a rule a person can
+check, not a framework.
+
+## What the store guarantees without any policy
+
+- Sealed facts never surface unless asked for by classification.
+- `nodeId`, `provenance`, `encryptionKeyRef` and the temporal-anchor trail are immutable
+  after write; an attempt to change them throws.
+- Nothing is deleted; invalidation closes `validTo` and keeps the record.

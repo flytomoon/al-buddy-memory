@@ -1,4 +1,5 @@
 import { effectiveConfidence } from "./decay.js";
+import { assertPatchMutable } from "./immutable.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -123,6 +124,7 @@ export class InMemoryStore implements MemoryStore {
   ): Promise<MemoryNode> {
     const existing = this.nodes.get(nodeId);
     if (!existing) throw new Error(`Memory node not found: ${nodeId}`);
+    assertPatchMutable(patch);
     const updated: MemoryNode = {
       ...existing,
       ...patch,
