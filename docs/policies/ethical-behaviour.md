@@ -177,6 +177,8 @@ User interaction data and behavior logs may never be used for AI model training 
 
 ## 6. Independent Ethical Oversight Structure
 
+> **Scope.** This section binds an operator that offers the memory to the public as a service, in proportion to its scale. A single maintainer satisfies it by keeping these policies and their enforcement ledger open to review (issues and pull requests); an operator with paying users names an independent external reviewer; an operator serving children or vulnerable people convenes the full board below. A person running the memory for themselves has no obligation here.
+
 ### 6.1 Ethics Advisory Board
 
 The operator requires an independent Ethics Advisory Board (EAB) with no reporting obligation to commercial leadership. The EAB is not an internal review body — it is an external accountability structure.
@@ -185,15 +187,15 @@ The operator requires an independent Ethics Advisory Board (EAB) with no reporti
 
 | Role | Qualifications |
 |---|---|
-| AI Ethics Researcher | Active practitioner in AI ethics; no the operator equity |
+| AI Ethics Researcher | Active practitioner in AI ethics; no equity in the operator |
 | Child Development Expert | Licensed developmental psychologist or researcher |
 | Privacy & Data Law Specialist | Legal practitioner specializing in digital privacy, preferably with COPPA/GDPR background |
 | User Advocate | Representative of a non-profit focused on digital rights or child safety |
 | Lifelong Learning Educator | Practitioner in pedagogy across age groups |
 
 **Independence requirements:**
-- No EAB member holds the operator equity or receives compensation beyond a fixed annual stipend
-- EAB members may not hold current advisory roles with the operator commercial partners
+- No EAB member holds equity in the operator or receives compensation beyond a fixed annual stipend
+- EAB members may not hold current advisory roles with the operator's commercial partners
 - EAB chair is elected by EAB members, not appointed by the operator
 
 ### 6.2 EAB Authority
