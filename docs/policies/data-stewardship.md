@@ -1,12 +1,12 @@
 # Data stewardship: retention, deletion, portability
 
-> Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
+> Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. "The operator" is whoever runs the service the memory lives in; for a single person on their own machine, that is the person. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
 
 ## 1. Purpose and Scope
 
-This policy governs how this memory creates, stores, retains, archives, exports, evolves, replicates, and deletes user memory data across the entire lifecycle of the platform. It translates this memory masterplan's memory stewardship principles into specific, actionable rules that bind all system components, engineers, and operational teams.
+This policy governs how the operator creates, stores, retains, archives, exports, evolves, replicates, and deletes user memory data across the entire lifecycle of the platform. It translates the operator masterplan's memory stewardship principles into specific, actionable rules that bind all system components, engineers, and operational teams.
 
-This policy operates within this memory governance framework across all four domains:
+This policy operates within the this governance framework across all four domains:
 
 | Governance Domain | Relevance to This Policy |
 |---|---|
@@ -16,13 +16,13 @@ This policy operates within this memory governance framework across all four dom
 | **AI Behavior** | AI's role as a memory steward agent — proposing consolidations, summarizations, and schema changes under human governance authority |
 
 This policy applies to:
-- All user memory data stored in this memory memory graph (on-device and cloud layers)
+- All user memory data stored in the memory graph (on-device and cloud layers)
 - All AI-generated summarizations, consolidations, and schema proposals
 - All data export, portability, and deletion operations
 - All replication, backup, and disaster recovery infrastructure
-- All this memory employees, contractors, and third-party partners who operate, access, or maintain memory data infrastructure
+- All the operator's staff, contractors and third-party partners who operate, access, or maintain memory data infrastructure
 
-**Foundational principle:** Memory belongs to the user. this memory is a steward, not an owner. Every architectural and operational decision in this policy flows from that principle.
+**Foundational principle:** Memory belongs to the user. The operator is a steward, not an owner. Every architectural and operational decision in this policy flows from that principle.
 
 ---
 
@@ -30,7 +30,7 @@ This policy applies to:
 
 ### 2.1 Memory Node Anatomy
 
-Every memory node in this memory graph has the following defined attributes. This schema is the canonical reference for all storage, export, and governance operations.
+Every memory node in the operator graph has the following defined attributes. This schema is the canonical reference for all storage, export, and governance operations.
 
 | Attribute | Type | Mutability | Description |
 |---|---|---|---|
@@ -164,17 +164,17 @@ Users have the unconditional right to request complete erasure of all their data
 #### 3.8.1 Erasure Procedure
 
 1. User submits an account deletion and erasure request via the in-app Account Settings or by contacting the maintainers (open an issue)
-2. this memory acknowledges the request within **24 hours** with a unique request reference number
+2. The operator acknowledges the request within **24 hours** with a unique request reference number
 3. The user is offered a **30-day export window** before final erasure. During this window the user may download a full data export. This window is offered, not imposed — the user may waive it and proceed immediately.
 4. Erasure execution begins at the end of the export window (or immediately if waived):
    - All memory nodes, edges, behavior logs, conversation transcripts, summarizations, and user preferences are deleted from all local and cloud storage layers
-   - All encryption keys stored in this memory-managed key infrastructure are destroyed
+   - All encryption keys stored in operator-managed key infrastructure are destroyed
    - Cloud-layer deletion is certified complete within **30 days** of erasure execution
-5. this memory provides a written erasure confirmation within **35 days** of the original request
+5. The operator provides a written erasure confirmation within **35 days** of the original request
 
 #### 3.8.2 Retained Records
 
-Upon erasure, this memory retains only:
+Upon erasure, the operator retains only:
 - The erasure request audit record (request date, completion date, reference number — no content)
 - Financial transaction records required by applicable law (e.g., billing history), retained only for the legally mandated period
 
@@ -182,12 +182,12 @@ These retained records do not include any memory content, conversation data, or 
 
 #### 3.8.3 Erasure and Third Parties
 
-If any user data has been shared with third-party services through explicitly user-authorized integrations, this memory will:
+If any user data has been shared with third-party services through explicitly user-authorized integrations, the operator will:
 1. Notify those services of the erasure request within **48 hours**
 2. Provide the user with a list of all third parties notified
 3. Request confirmation of deletion from each party within 30 days
 
-this memory cannot guarantee erasure enforcement on third-party systems but will document all notifications and confirmations in the erasure audit record.
+The operator cannot guarantee erasure enforcement on third-party systems but will document all notifications and confirmations in the erasure audit record.
 
 ---
 
@@ -195,7 +195,7 @@ this memory cannot guarantee erasure enforcement on third-party systems but will
 
 ### 4.1 Governing Principle
 
-Data portability is a first-class feature, not a compliance checkbox. Users must be able to export a complete, well-structured, human-readable, and machine-readable representation of their memory graph at any time, in formats that allow import into other systems without requiring this memory software.
+Data portability is a first-class feature, not a compliance checkbox. Users must be able to export a complete, well-structured, human-readable, and machine-readable representation of their memory graph at any time, in formats that allow import into other systems without requiring the operator software.
 
 ### 4.2 Mandatory Export Formats
 
@@ -206,11 +206,11 @@ All user exports must be available in both of the following formats simultaneous
 | **JSON-LD** | W3C JSON-LD 1.1 | Machine-readable, semantically typed, importable into standard RDF tooling and graph databases |
 | **RDF/Turtle** | W3C RDF 1.1 Turtle | Compact, human-readable RDF serialization; compatible with Amazon Neptune, Apache Jena, and all standard triple stores |
 
-Proprietary-only export formats are prohibited as the sole export option. this memory may offer additional formats (e.g., plain-text narrative, CSV for tabular data) as supplementary options, but JSON-LD and RDF/Turtle must always be available.
+Proprietary-only export formats are prohibited as the sole export option. The operator may offer additional formats (e.g., plain-text narrative, CSV for tabular data) as supplementary options, but JSON-LD and RDF/Turtle must always be available.
 
 ### 4.3 Export Package Specification
 
-A complete this memory data export package must contain:
+A complete the operator data export package must contain:
 
 ```
 albuddy-export-{userId}-{timestamp}/
@@ -267,13 +267,13 @@ albuddy-export-{userId}-{timestamp}/
 
 - Export schemas are versioned independently of application versions, using semantic versioning (`MAJOR.MINOR.PATCH`)
 - Every export package embeds the schema version used at export time
-- this memory maintains published migration guides for all `MAJOR` version changes to export schemas
+- the operator maintains published migration guides for all `MAJOR` version changes to export schemas
 - Export schema versions are maintained for a minimum of **5 years** after the version is superseded, to ensure users can always interpret historical exports
 - Schema changelogs are published at `docs/governance/export-schema-changelog.md`
 
 ### 4.6 Export Tooling Requirements
 
-The this memory data export tool must satisfy the following requirements:
+The the operator data export tool must satisfy the following requirements:
 
 | Requirement | Specification |
 |---|---|
@@ -284,7 +284,7 @@ The this memory data export tool must satisfy the following requirements:
 | **Delivery** | Direct download to device; large exports (>500 MB) may be prepared asynchronously with a notification when ready (maximum preparation time: 4 hours) |
 | **No account deletion required** | Exporting data must not require or trigger account deletion |
 | **Frequency** | No limit on export frequency; minimum 1 export per 24-hour period guaranteed without throttling |
-| **Migration tooling** | A separate import/migration tool must be able to round-trip a JSON-LD or RDF/Turtle export back into a valid this memory memory graph |
+| **Migration tooling** | A separate import/migration tool must be able to round-trip a JSON-LD or RDF/Turtle export back into a valid the memory graph |
 
 ### 4.7 Portability Testing Schedule
 
@@ -303,7 +303,7 @@ The this memory data export tool must satisfy the following requirements:
 
 ### 5.1 Governing Principle
 
-The this memory memory ontology is a living system. As the platform learns what kinds of memories matter to users, the schema will need to expand, refine, and occasionally restructure. This evolution must be AI-assisted but human-governed: the AI may observe patterns and propose changes; humans decide what changes are adopted and when.
+The the operator memory ontology is a living system. As the platform learns what kinds of memories matter to users, the schema will need to expand, refine, and occasionally restructure. This evolution must be AI-assisted but human-governed: the AI may observe patterns and propose changes; humans decide what changes are adopted and when.
 
 The canonical ontology starts minimal and grows deliberately. Schema stability is a user trust asset — unnecessary or hasty changes impose migration burden and risk on every user's memory graph.
 
@@ -442,7 +442,7 @@ Every approved schema change must have a documented rollback plan before approva
 
 ### 5.7 Ontology Version Control
 
-- The canonical ontology is version-controlled in this memory repository at `src/types/memory.ts`
+- The canonical ontology is version-controlled with the library
 - Every change, regardless of tier, produces a new semantic version of the ontology
 - The version embedded in every exported user data package must correspond to the ontology version active at export time
 - Ontology history is never deleted; all prior versions remain accessible for export interpretation
@@ -453,7 +453,7 @@ Every approved schema change must have a documented rollback plan before approva
 
 ### 6.1 Architecture Overview
 
-this memory uses a local-first hybrid architecture:
+The operator uses a local-first hybrid architecture:
 
 | Layer | Technology | Role |
 |---|---|---|
@@ -461,7 +461,7 @@ this memory uses a local-first hybrid architecture:
 | **Cloud sync hub** | Amazon Neptune (managed graph database) | Long-term persistence, cross-device sync, and backup anchor |
 | **Key management** | User-controlled keys (described in Section 6.7) | Encryption layer applied before any data leaves the device |
 
-Data flows from device to cloud opportunistically (see Section 6.4). The cloud layer never holds unencrypted data. A user whose device is the only device and who never syncs still has a fully functional this memory experience — cloud sync is additive, not required.
+Data flows from device to cloud opportunistically (see Section 6.4). The cloud layer never holds unencrypted data. A user whose device is the only device and who never syncs still has a fully functional the operator experience — cloud sync is additive, not required.
 
 ### 6.2 Recovery Objectives
 
@@ -567,13 +567,13 @@ End-to-end encryption with user-controlled keys creates a specific DR challenge:
 
 | Rule | Specification |
 |---|---|
-| **Keys never stored on cloud layer unencrypted** | User-controlled keys are never transmitted to or stored by this memory cloud infrastructure in plaintext |
-| **Key backup is user responsibility** | this memory provides a secure, documented key backup mechanism (e.g., encrypted key export to a user-chosen location) and strongly encourages users to use it during onboarding |
-| **Key backup tooling** | The this memory app includes a key backup wizard that guides users through exporting their key to a secure location external to this memory; this is presented at account creation and periodically in the security settings |
-| **Key loss consequences disclosed** | Users are explicitly informed during onboarding and in the key backup flow that loss of their private key means loss of access to their encrypted memories; this memory cannot recover data without the key |
-| **Backup encryption keys** | Backup snapshots are encrypted with a separate, this memory-managed key that is independent of user keys; this allows backup integrity checks and DR restoration without user key material |
+| **Keys never stored on cloud layer unencrypted** | User-controlled keys are never transmitted to or stored by the operator cloud infrastructure in plaintext |
+| **Key backup is user responsibility** | the operator provides a secure, documented key backup mechanism (e.g., encrypted key export to a user-chosen location) and strongly encourages users to use it during onboarding |
+| **Key backup tooling** | The the operator app includes a key backup wizard that guides users through exporting their key to a secure location external to the operator; this is presented at account creation and periodically in the security settings |
+| **Key loss consequences disclosed** | Users are explicitly informed during onboarding and in the key backup flow that loss of their private key means loss of access to their encrypted memories; the operator cannot recover data without the key |
+| **Backup encryption keys** | Backup snapshots are encrypted with a separate, operator-managed key that is independent of user keys; this allows backup integrity checks and DR restoration without user key material |
 | **Key rotation** | Users may rotate their encryption key at any time; the platform re-encrypts all stored data under the new key transparently; the old key is destroyed after re-encryption is verified |
-| **Staff access prohibition** | No this memory staff member may access user-encrypted memory data; the architecture must make this technically impossible, not merely policy-prohibited |
+| **Staff access prohibition** | No the operator staff member may access user-encrypted memory data; the architecture must make this technically impossible, not merely policy-prohibited |
 
 ### 6.8 DR Testing Cadence
 
@@ -613,7 +613,7 @@ This policy is designed to satisfy the following regulatory requirements, though
 
 ### 7.3 All-Team Obligation
 
-Every person or system that designs, builds, configures, or operates any component of this memory memory system is obligated to comply with this policy. This includes:
+Every person or system that designs, builds, configures, or operates any component of the operator memory system is obligated to comply with this policy. This includes:
 - Engineers implementing storage, sync, and export features
 - AI teams building summarization, consolidation, and schema proposal systems
 - Operations teams managing cloud infrastructure
@@ -670,19 +670,19 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 
 | Term | Definition |
 |---|---|
-| **Memory steward** | this memory's operational role with respect to user memory: custodian and operator, not owner |
-| **Memory node** | A single unit in this memory memory graph representing one memory entity (Experience, Lesson, Conversation, Belief, Relationship, or Skill) |
+| **Memory steward** | the operator's operational role with respect to user memory: custodian and operator, not owner |
+| **Memory node** | A single unit in the memory graph representing one memory entity (Experience, Lesson, Conversation, Belief, Relationship, or Skill) |
 | **Retention tier** | The current archival state of a memory node: Full Retention, Summarized, Archived, Pending Deletion, or Deleted |
 | **Confidence weight** | A float value [0.0–1.0] representing the estimated current relevance and freshness of a memory node |
 | **Decay rate** | The rate at which a node's confidence weight decreases over time without reinforcement |
 | **Sealed node** | A memory node with `privacyClassification: Sealed`; excluded from AI processing and cloud sync |
-| **Schema Change Request (SCR)** | The structured proposal document used to govern changes to this memory memory ontology |
+| **Schema Change Request (SCR)** | The structured proposal document used to govern changes to the operator memory ontology |
 | **Approval tier** | The governance pathway for an SCR: Tier 1 (Auto), Tier 2 (Staged), or Tier 3 (Manual) |
 | **RPO** | Recovery Point Objective — the maximum acceptable data loss measured in time |
 | **RTO** | Recovery Time Objective — the maximum acceptable time to restore service after a disaster |
 | **PITR** | Point-in-Time Recovery — Neptune capability to restore data to any second within the backup retention window |
 | **Local-first** | An architecture where the device is the primary data store and cloud is additive; full functionality does not require cloud connectivity |
-| **Right to erasure** | The user's unconditional right to request complete deletion of all their data from all this memory systems |
+| **Right to erasure** | The user's unconditional right to request complete deletion of all their data from all the operator systems |
 | **JSON-LD** | JSON-based Linked Data format; W3C standard for structured, semantically typed data exchange |
 | **RDF/Turtle** | Resource Description Framework serialization format; W3C standard; human-readable and widely supported |
 | **Narrative preservation summary** | A first-person prose account of a memory, generated by AI and confirmed by the user, for long-term human-readable preservation |
