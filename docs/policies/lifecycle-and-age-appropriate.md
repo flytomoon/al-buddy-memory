@@ -1,24 +1,24 @@
 # Lifecycle and age-appropriate behaviour, including guardians
 
-> Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
+> Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. "The operator" is whoever runs the service the memory lives in; for a single person on their own machine, that is the person. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
 
 ## 1. Purpose and Scope
 
-This policy governs how this memory adapts its companion relationship, content, tone, and authority across a user's entire lifespan. It defines lifecycle phase transitions driven by demonstrated maturity rather than fixed age, the guardian control framework that protects younger users, content appropriateness rules per phase, and the companion tone and authority style that evolves with each user.
+This policy governs how the operator adapts its companion relationship, content, tone, and authority across a user's entire lifespan. It defines lifecycle phase transitions driven by demonstrated maturity rather than fixed age, the guardian control framework that protects younger users, content appropriateness rules per phase, and the companion tone and authority style that evolves with each user.
 
 This policy applies to:
 - All AI companion interactions across every lifecycle phase
 - All content filtering, curriculum generation, and interaction style decisions
 - All guardian-managed accounts and the handoff process to autonomous user control
-- All operators of this memory and the assistants built on it who configure or deploy lifecycle-aware features
+- All the operator's staff, contractors and partners who configure or deploy lifecycle-aware features
 
-**Foundational principle:** this memory accompanies the user across an entire lifetime, evolving from playful guide to reflective partner to legacy steward. Developmental appropriateness is a safety requirement, not a product preference.
+**Foundational principle:** the operator accompanies the user across an entire lifetime, evolving from playful guide to reflective partner to legacy steward. Developmental appropriateness is a safety requirement, not a product preference.
 
 ---
 
 ## 2. Lifecycle Phase Definitions
 
-this memory organizes the human lifespan into six phases. Age ranges are **reference guidelines, not hard boundaries**. Phase transitions are governed by demonstrated maturity milestones defined in Section 3.
+The operator organizes the human lifespan into six phases. Age ranges are **reference guidelines, not hard boundaries**. Phase transitions are governed by demonstrated maturity milestones defined in Section 3.
 
 ### 2.1 Phase Table
 
@@ -83,7 +83,7 @@ The companion functions as archivist and legacy steward. Its primary role is to 
 
 Phase transitions are triggered by **demonstrated maturity milestones**, not calendar age. Age ranges in Section 2.1 are starting reference points, not automatic upgrade thresholds.
 
-**Why this matters:** A 10-year-old may demonstrate readiness for Adolescence-phase engagement in some domains. A 16-year-old may benefit from continued Childhood-phase scaffolding in others. A single age-based cutoff fails both users. this memory adapts to the whole person.
+**Why this matters:** A 10-year-old may demonstrate readiness for Adolescence-phase engagement in some domains. A 16-year-old may benefit from continued Childhood-phase scaffolding in others. A single age-based cutoff fails both users. The operator adapts to the whole person.
 
 ### 3.2 Maturity Milestone Framework
 
@@ -121,7 +121,7 @@ Phase-downs are temporary by default (maximum 90 days) and must be revisited. Th
 
 ### 3.5 Persistence Across Domains
 
-this memory may operate at different phases simultaneously across domains. A user may be in Adolescence-phase for academic content and Childhood-phase for emotional support, if the evidence supports that configuration. The system explicitly tracks and logs phase-level by domain when operating in a mixed configuration.
+The operator may operate at different phases simultaneously across domains. A user may be in Adolescence-phase for academic content and Childhood-phase for emotional support, if the evidence supports that configuration. The system explicitly tracks and logs phase-level by domain when operating in a mixed configuration.
 
 ---
 
@@ -204,7 +204,7 @@ The transition from guardian-managed to autonomous accounts requires a structure
 
 1. **Readiness signal:** AI generates a maturity milestone report covering all five dimensions (Section 3.2) over the prior 90-day window
 2. **Review period:** Guardian and user have a 30-day joint review window
-3. **Handoff meeting:** (Optional but encouraged) this memory facilitates a structured three-way conversation — AI, user, and guardian — to discuss the transition
+3. **Handoff meeting:** (Optional but encouraged) the operator facilitates a structured three-way conversation — AI, user, and guardian — to discuss the transition
 4. **Control migration:** Guardian administrative permissions are transferred to the user incrementally (preferences first, then logs, then account controls)
 5. **Completion:** Guardian access reverts to Emergency Contact level unless the user explicitly grants Trusted Advisor status
 
@@ -446,7 +446,7 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 
 ### 8.1 All-Team Obligation
 
-Every person or system that designs, builds, configures, or deploys lifecycle-aware features within this memory is obligated to comply with this policy. This includes external contractors and integration partners.
+Every person or system that designs, builds, configures, or deploys lifecycle-aware features within the operator is obligated to comply with this policy. This includes external contractors and integration partners.
 
 ### 8.2 Violation Reporting
 

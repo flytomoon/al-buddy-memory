@@ -1,6 +1,6 @@
 # Ethical behaviour of an assistant on this memory
 
-> Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
+> Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. "The operator" is whoever runs the service the memory lives in; for a single person on their own machine, that is the person. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
 
 ## 1. Purpose and Scope
 
@@ -10,7 +10,7 @@ This policy applies to:
 - All AI model interactions with users
 - All AI-driven recommendation, reflection, and summarization features
 - All lifecycle phases and guardian-managed accounts
-- All operators of this memory and the assistants built on it who build or configure AI behavior
+- All the operator's staff, contractors and partners who build or configure AI behavior
 
 **Foundational principle:** The AI is a collaborator, not an authority. It guides, suggests, and reflects. It does not dictate, coerce, or create dependency.
 
@@ -157,7 +157,7 @@ Users (and guardians for managed accounts) have the following rights regarding b
 - **Delete:** Delete individual entries or all entries at any time, with immediate effect
 - **Query:** Search logs by date range, action type, or topic
 
-Logs are stored encrypted. The encryption key is user-controlled. this memory staff may not access logs without explicit user consent, except under a documented legal obligation.
+Logs are stored encrypted. The encryption key is user-controlled. The operator staff may not access logs without explicit user consent, except under a documented legal obligation.
 
 ### 5.3 Default Retention
 
@@ -179,22 +179,22 @@ User interaction data and behavior logs may never be used for AI model training 
 
 ### 6.1 Ethics Advisory Board
 
-this memory requires an independent Ethics Advisory Board (EAB) with no reporting obligation to commercial leadership. The EAB is not an internal review body — it is an external accountability structure.
+The operator requires an independent Ethics Advisory Board (EAB) with no reporting obligation to commercial leadership. The EAB is not an internal review body — it is an external accountability structure.
 
 **Minimum composition:**
 
 | Role | Qualifications |
 |---|---|
-| AI Ethics Researcher | Active practitioner in AI ethics; no this memory equity |
+| AI Ethics Researcher | Active practitioner in AI ethics; no the operator equity |
 | Child Development Expert | Licensed developmental psychologist or researcher |
 | Privacy & Data Law Specialist | Legal practitioner specializing in digital privacy, preferably with COPPA/GDPR background |
 | User Advocate | Representative of a non-profit focused on digital rights or child safety |
 | Lifelong Learning Educator | Practitioner in pedagogy across age groups |
 
 **Independence requirements:**
-- No EAB member holds this memory equity or receives compensation beyond a fixed annual stipend
-- EAB members may not hold current advisory roles with this memory commercial partners
-- EAB chair is elected by EAB members, not appointed by this memory
+- No EAB member holds the operator equity or receives compensation beyond a fixed annual stipend
+- EAB members may not hold current advisory roles with the operator commercial partners
+- EAB chair is elected by EAB members, not appointed by the operator
 
 ### 6.2 EAB Authority
 
@@ -262,7 +262,7 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 
 ### 8.1 All-Team Obligation
 
-Every person or system that designs, builds, configures, or deploys AI behavior within this memory is obligated to comply with this policy. This includes external contractors and integration partners.
+Every person or system that designs, builds, configures, or deploys AI behavior within the operator is obligated to comply with this policy. This includes external contractors and integration partners.
 
 ### 8.2 Violation Reporting
 
