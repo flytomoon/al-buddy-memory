@@ -73,7 +73,7 @@ While the schema is at `0.x.x`, MINOR increments may include breaking changes. T
 
 ### 3.2 Schema Registry and Catalog
 
-The schema registry is the authoritative record of all schema versions. It is a Git-managed artifact stored in the the platform monorepo.
+The schema registry is the authoritative record of all schema versions. It is a Git-managed artifact stored in the library repository.
 
 **Registry location:** `schema/memory-graph/registry/`
 
@@ -428,7 +428,7 @@ ADR-YYYY-NNN-{kebab-case-title}.md
 
 - All ADRs are version-controlled in the platform monorepo
 - ADRs are immutable once their status is `Accepted`: corrections require a new ADR that supersedes the prior one
-- The the library docs file maintains a running index of all ADRs, their status, and cross-references to related SCPs and schema versions
+- The library docs maintains a running index of all ADRs, their status, and cross-references to related SCPs and schema versions
 - All SCPs must reference the ADR(s) that authorized the change in the `adr-ref.txt` file in the schema registry (see Section 3.2)
 - ADRs are searchable via the platform's internal documentation system
 
@@ -845,4 +845,4 @@ Policy version history is maintained in Git. All changes to this document requir
 
 ---
 
-*This document is version-controlled. The authoritative source is the the platform monorepo at `docs/governance/technical-governance-schema-evolution-policy.md`. Questions or proposed amendments should be directed to the maintainers.*
+*This document is version-controlled. The authoritative source is the library repository at `docs/governance/technical-governance-schema-evolution-policy.md`. Questions or proposed amendments should be directed to the maintainers.*
