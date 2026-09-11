@@ -411,11 +411,11 @@ Changes that meet any of the following criteria require full manual review with 
 
 **Process:**
 
-1. SCR is submitted and assigned a governance review panel consisting of: CTO, the maintainers, and a senior engineer not involved in the proposal
+1. SCR is submitted and assigned a governance review panel of the maintainers
 2. Panel has **10 business days** to review the SCR, request additional analysis, and reach a decision
 3. The maintainers must sign off on all Tier 3 changes  before any staging begins
 4. If approved, the change proceeds through a Tier 2-equivalent staged rollout process, plus an additional **30-day post-deployment monitoring period** before the SCR is closed
-5. If the panel cannot reach consensus within the review window, the SCR is automatically escalated to the CEO for a final decision within **5 additional business days**
+5. If the panel cannot reach consensus within the review window, the SCR is automatically decided by the maintainers
 6. Rejected SCRs are documented with a rationale and closed; they may be resubmitted after **90 days** if the underlying concern is addressed
 
 **User notification:** For Tier 3 changes that affect the schema in a user-visible way (e.g., existing memories are re-categorized or display differently), users must be notified in advance of the deployment, in plain language, describing what is changing and why. Notification must be sent at least **14 days** before the change reaches any production account.
@@ -426,7 +426,7 @@ Every approved schema change must have a documented rollback plan before approva
 
 - A staged rollout produces an error rate above the defined threshold
 - A post-deployment monitoring period surfaces unexpected data integrity issues
-- The maintainers, the maintainers, or CEO orders a rollback for any reason
+- A maintainer orders a rollback for any reason
 - A user-reported issue reveals a critical defect in the deployed change
 
 **Rollback SLAs:**
@@ -530,7 +530,7 @@ The Neptune cluster operates in Multi-AZ configuration:
 - Read replicas are maintained in each active AZ
 - Writes are acknowledged only after being committed to at least two AZs
 - Automated failover to a healthy replica occurs within **30 seconds** of a primary instance failure (Neptune standard)
-- Regional failover (cross-region) is a manual procedure requiring CTO authorization; target activation time for regional failover is ≤ 2 hours
+- Regional failover (cross-region) is a manual procedure requiring the maintainers authorization; target activation time for regional failover is ≤ 2 hours
 
 ### 6.6 Disaster Recovery Procedures
 
@@ -548,7 +548,7 @@ The Neptune cluster operates in Multi-AZ configuration:
 1. **Detection and declaration (target: ≤ 15 minutes):** Automated monitoring alerts the on-call engineer. If the outage is confirmed as P1, the maintainers (or designated backup) declares a DR event and notifies the engineering incident channel.
 2. **User communication (target: ≤ 30 minutes after declaration):** Users are notified via in-app banner and status page that cloud sync is unavailable; local-first operation continues unaffected.
 3. **Failover assessment (target: ≤ 45 minutes):** Engineering assesses whether Neptune Multi-AZ automatic failover has resolved the issue. If not, manual failover or regional failover is initiated.
-4. **Regional failover (if required, target: ≤ 2 hours):** CTO authorizes promotion of the standby region. Neptune PITR is used to restore to the most recent clean state within the RPO window.
+4. **Regional failover (if required, target: ≤ 2 hours):** the maintainers authorizes promotion of the standby region. Neptune PITR is used to restore to the most recent clean state within the RPO window.
 5. **Key management validation (target: ≤ 2 hours):** Before restoring user data access, engineering verifies that the key management service is operational and that encrypted data can be decrypted correctly. A canary account is used for validation before general access is restored.
 6. **Data integrity verification (target: ≤ 3 hours):** Automated integrity checks run against the restored dataset. Any nodes failing integrity checks are quarantined and flagged for user notification.
 7. **Service restoration (target: ≤ 4 hours):** Cloud sync is re-enabled. Users are notified of restoration. Sync backlog processing begins.
@@ -581,8 +581,8 @@ End-to-end encryption with user-controlled keys creates a specific DR challenge:
 |---|---|---|---|
 | **Neptune failover drill** | Quarterly | Engineering lead | Automatic Multi-AZ failover completes within Neptune SLA; no data loss confirmed by checksum comparison |
 | **PITR restoration test** | Quarterly | Engineering lead | A point-in-time restore of a synthetic test cluster completes within 2 hours; restored data matches source checksums |
-| **Full DR tabletop exercise** | Semi-annual | CTO + Engineering | Engineering team walks through the full P1 DR procedure against a simulated outage scenario; gaps are documented and remediated within 30 days |
-| **Regional failover test** | Annual | CTO + Engineering | Full regional failover to standby region is executed against non-production infrastructure; RTO target is validated |
+| **Full DR tabletop exercise** | Semi-annual | the maintainers + Engineering | Engineering team walks through the full P1 DR procedure against a simulated outage scenario; gaps are documented and remediated within 30 days |
+| **Regional failover test** | Annual | the maintainers + Engineering | Full regional failover to standby region is executed against non-production infrastructure; RTO target is validated |
 | **Key management DR test** | Semi-annual | Engineering lead | Key rotation and key-loss recovery procedures are validated in a test environment; data accessibility confirmed post-rotation |
 | **User notification test** | Semi-annual | Engineering + Product | Automated user notification system is verified to deliver in-app and status page updates within the required SLAs for a P1 scenario |
 
@@ -631,10 +631,10 @@ Suspected violations of this policy may be reported to the maintainers (open an 
 
 | Review Type | Frequency | Owner | Output |
 |---|---|---|---|
-| Quarterly internal review | Quarterly | CTO + the maintainers | Internal audit covering: retention schedule compliance, export tool status, schema SCR log, DR test results |
+| Quarterly internal review | Quarterly | the maintainers + the maintainers | Internal audit covering: retention schedule compliance, export tool status, schema SCR log, DR test results |
 | EAB review | Semi-annual | EAB Chair | Public summary findings covering data governance and memory stewardship practices |
-| Full policy revision | Annual | CTO + the maintainers + EAB | Versioned policy update |
-| Emergency review | As needed (24h trigger) | CTO (primary), the maintainers (co-lead) | Incident report + remediation plan |
+| Full policy revision | Annual | the maintainers + the maintainers + EAB | Versioned policy update |
+| Emergency review | As needed (24h trigger) | the maintainers (primary), the maintainers (co-lead) | Incident report + remediation plan |
 
 ### 8.2 Emergency Review Triggers
 
@@ -650,7 +650,7 @@ An emergency review is triggered immediately by:
 
 This policy is versioned. All changes require:
 1. A documented rationale
-2. CTO sign-off
+2. the maintainers sign-off
 3. the maintainers co-sign on any changes to ethical data handling provisions
 4. EAB notification (EAB has **14 days** to object before changes take effect for non-emergency revisions)
 5. Version increment and changelog entry
@@ -659,9 +659,9 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 
 ### 8.4 Ownership
 
-**Primary owner:** Chief Technology Officer (CTO)
+**Primary owner:** Chief Technology Officer (the maintainers)
 **Ethical data provisions co-owner:** the maintainers
-**Secondary owner:** CEO (escalation path when CTO is unavailable)
+**Secondary owner:** the maintainers (escalation path when the maintainers is unavailable)
 **EAB liaison:** EAB Chair
 
 ---
