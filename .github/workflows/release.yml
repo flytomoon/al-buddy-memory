@@ -6,28 +6,21 @@ permissions:
   contents: write
   id-token: write
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           registry-url: https://registry.npmjs.org
-          cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      # Provenance attaches a signed build record to the package on npm. The
-      # publish step runs only once the NPM_TOKEN secret exists; a tag always
-      # cuts the GitHub Release, so the dated spec is public either way.
-      - id: npm
-        run: echo "enabled=${{ secrets.NPM_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
-      - if: steps.npm.outputs.enabled == 'true'
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm run typecheck && npm test && npm run build
+      # Trusted publishing: npm verifies this workflow's OIDC identity (configured once in
+      # the package's settings on npmjs.com), signs the release with provenance, and no
+      # token is stored anywhere. Needs npm >= 11.5.
+      - run: npm install -g npm@latest
+      - run: npm publish --provenance --access public
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
