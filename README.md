@@ -1,5 +1,9 @@
 # al-buddy-memory
 
+> **Al Buddy** — that's *Al*, a name, said like "pal". Not A.I. The lowercase l that looks
+> like an i is the joke; the name is Al.
+
+
 **Portable, governed, model-agnostic memory for AI agents.**
 
 A fact is never deleted, only invalidated. Raw text is the source of truth. Embeddings are a disposable, model-tagged cache. Everything exports to one documented format. The memory outlives whatever model, runtime or company produced it.
@@ -98,6 +102,51 @@ Three lessons. (1) None of them charge for the library; the money is hosting plu
 
 ---
 
+## Governance is enforced, not implied
+
+The vocabulary — Public / Private / Sensitive / Sealed, retention tiers, provenance on
+every fact and relation — ships with the store. `govern()` is what enforces it: policies
+in front of every write, update, read and export, and an append-only audit trail of who
+read what and why.
+
+```ts
+import { SqliteMemoryStore, govern, personalDefaults, JsonlAudit } from "al-buddy-memory";
+
+const store = govern(new SqliteMemoryStore("brain.db"), {
+  policies: [personalDefaults({ owner: "chris" })],
+  context: () => ({ actor: currentActor() }),
+  audit: new JsonlAudit("audit.jsonl"),
+});
+```
+
+Three policies ship to copy: personal defaults (secrets auto-classified Sensitive and
+never exported by anyone but the owner), guardian mode (only a guardian may write or
+change a guardian's fact), enterprise audit (low-confidence inferences hidden from
+non-reviewers; exports gated to exporters). A policy is a plain object with four
+optional hooks; see [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
+
+Without any policy the store still guarantees: Sealed facts never surface unless asked
+for by classification; `provenance`, `nodeId`, `encryptionKeyRef` and the anchor trail
+are immutable after write; nothing is deleted.
+
+## Limits, measured
+
+One SQLite file, one process, one writer. Measured on an M1 Pro laptop with 100,000
+facts (`bench/bench.mjs`, better-sqlite3, WAL):
+
+| Operation (100,000 facts) | Measured |
+|---|---|
+| Insert, one fact per call | 5,400 facts/s (18.6 s for all 100k) |
+| Keyword recall, top 10 (FTS5 + decay re-rank) | 25 ms median, 74 ms worst of five terms; first query after open ~360 ms (cold cache) |
+| Recall by filters only, top 10 | 8 ms |
+| Get by id | 0.2 ms |
+| Invalidate a fact | 0.3 ms |
+| File size | 62 MB |
+
+What that means: a personal assistant or a single-tenant service will not notice the
+store; a multi-tenant SaaS needs the Postgres backend on the roadmap. Node/TypeScript
+only for now; the optional on-device embedder is a 25 MB model download.
+
 ## The conformance score
 
 Recall benchmarks are saturated. Nobody scores whether a memory system can say **who**
@@ -121,7 +170,8 @@ instead of counted as a failure. Scores on real exports, as of v0.2.0:
 | Letta — their published `memgpt_agent.af` example, scored with the `blocks` adapter | 0% | 0% | 0% (blocks rewritten in place) | 0% | 0% | 67% | **F** |
 | Mem0 — a `get_all` response in their documented shape, scored with the `records` adapter | 0% | 100% | 50% (expiry only) | 0% | 0% | 67% | **D** |
 
-The adapters are written against export *shapes*, not vendors, and map only what the shape
+The rulebook, including what the score does **not** measure (recall quality, truth, latency),
+is [docs/SCORING.md](docs/SCORING.md). The adapters are written against export *shapes*, not vendors, and map only what the shape
 records. If a system starts recording provenance, its score goes up — that is the point.
 Adapters live in `src/conformance/adapters.ts`; add one for your shape and open a PR.
 
@@ -138,6 +188,13 @@ ever deleted.
     "env": { "AL_BUDDY_MEMORY_DB": "~/.al-buddy-memory/brain.db" } } } }
 ```
 
+A `recall` result looks like this — every field an agent needs to decide how much to trust the fact:
+
+```json
+{ "id": "…", "text": "Lives in Tokyo", "provenance": "UserInput", "validFrom": "2026-06-01T00:00:00Z",
+  "validTo": null, "current": true, "confidence": 1, "supersededBy": null, "derivedFrom": [] }
+```
+
 Tools: `remember`, `recall`, `invalidate`, `pin`, `unpin`, `pinned`. SQLite on disk, no
 service, no key. The tool bodies are a plain function over a `MemoryStore`
 (`governanceTools(...)`, exported), so they run against any backend and test without a
@@ -148,6 +205,7 @@ transport.
 - [x] The spec and the portable format, published and versioned (this repo)
 - [x] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records (v0.2.0)
 - [x] The governance MCP server: the first memory server that returns provenance and validity with every fact (v0.2.0)
+- [x] Governance hooks with an audit trail and three sample policies; provenance immutable at runtime; measured limits at 100k facts (v0.3.0)
 - [ ] A comparison table across the incumbents, and a live paste-your-export demo
 - [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
@@ -159,4 +217,4 @@ npm ci
 npm run typecheck && npm test && npm run build
 ```
 
-Tests: 128, including a behavioural conformance suite every backend runs against itself.
+Tests: 135, including a behavioural conformance suite every backend runs against itself.

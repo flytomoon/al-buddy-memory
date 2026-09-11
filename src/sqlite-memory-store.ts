@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 
 import Database from "better-sqlite3";
 
+import { assertPatchMutable } from "./immutable.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -213,7 +214,19 @@ const MIGRATION_V2 = [
 ];
 
 /** Ordered migrations; array length is the latest schema version. */
-const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2];
+/**
+ * v3 — the two indexes the 100k-fact measurement asked for: the FTS join
+ * column, and a covering index for the no-query ORDER BY so LIMIT stops early
+ * instead of sorting the table. The single-column confidence index is
+ * subsumed by the covering one and dropped so the planner cannot prefer it.
+ */
+const MIGRATION_V3 = [
+  `CREATE INDEX IF NOT EXISTS idx_nodes_fts_rowid ON memory_nodes (fts_rowid)`,
+  `CREATE INDEX IF NOT EXISTS idx_nodes_rank      ON memory_nodes (confidence_weight DESC, created_at DESC)`,
+  `DROP INDEX IF EXISTS idx_nodes_confidence`,
+];
+
+const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3];
 
 // ---------------------------------------------------------------------------
 // SqliteMemoryStore
@@ -227,6 +240,11 @@ const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2];
  *
  * Uses SQLite FTS5 for full-text search on node content.
  */
+/** With a query, SQLite hands JS this many candidates per requested result to re-rank with decay. */
+const FTS_POOL_MULTIPLIER = 10;
+const FTS_POOL_MIN = 200;
+const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
+
 export class SqliteMemoryStore implements MemoryStore {
   private readonly db: Database.Database;
 
@@ -237,6 +255,12 @@ export class SqliteMemoryStore implements MemoryStore {
       mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
     }
     this.db = new Database(dbPath);
+    // WAL + synchronous=NORMAL: the standard setting for a local store. Readers
+    // never block the writer, and a row insert no longer waits for an fsync
+    // (durable at process crash; the last transactions can be lost only at
+    // power loss). Measured: inserts went from ~1.7k/s to the README "Limits" figure.
+    this.db.pragma("journal_mode = WAL");
+    this.db.pragma("synchronous = NORMAL");
     if (dbPath !== ":memory:") {
       try {
         chmodSync(dbPath, 0o600);
@@ -432,25 +456,21 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
     // --- Full-text search via FTS5 (keep the BM25 rank — it IS the relevance) ---
-    let ftsRowids: Set<number> | null = null;
-    let ftsRank: Map<number, number> | null = null;
+    // The match is a JOIN, not an IN-list of rowids: a common term over a
+    // large store matched more rows than SQLite allows bound variables
+    // (found at 100k facts: "too many SQL variables"), and the join lets
+    // SQLite order by rank and stop at the candidate pool instead of
+    // materialising every hit.
+    let match: string | null = null;
+    const conditions: string[] = [];
+    const params: Record<string, unknown> = {};
     if (options.query !== undefined) {
       // The raw query may be a natural-language sentence; FTS5 MATCH treats
       // commas/quotes/etc. as query syntax, so build a safe OR-of-terms.
-      const match = toFtsMatch(options.query);
+      match = toFtsMatch(options.query);
       if (match === null) return []; // no usable search terms
-      const ftsRows = this.db
-        .prepare(`SELECT rowid, rank FROM memory_fts WHERE content_text MATCH ?`)
-        .all(match) as { rowid: number; rank: number }[];
-      if (ftsRows.length === 0) return [];
-      ftsRowids = new Set(ftsRows.map((r) => r.rowid));
-      // FTS5 rank is BM25 where MORE NEGATIVE means MORE relevant.
-      ftsRank = new Map(ftsRows.map((r) => [r.rowid, r.rank]));
+      params["match"] = match;
     }
-
-    // --- Build WHERE clauses ---
-    const conditions: string[] = [];
-    const params: Record<string, unknown> = {};
 
     if (options.memoryType !== undefined) {
       const types = Array.isArray(options.memoryType) ? options.memoryType : [options.memoryType];
@@ -497,15 +517,6 @@ export class SqliteMemoryStore implements MemoryStore {
       params["validAt"] = options.validAt;
     }
 
-    if (ftsRowids !== null) {
-      const ids = [...ftsRowids];
-      const placeholders = ids.map((_, i) => `@fts${i}`).join(", ");
-      ids.forEach((id, i) => {
-        params[`fts${i}`] = id;
-      });
-      conditions.push(`fts_rowid IN (${placeholders})`);
-    }
-
     if (options.after !== undefined) {
       conditions.push(`created_at > (SELECT created_at FROM memory_nodes WHERE node_id = @after)`);
       params["after"] = options.after;
@@ -518,22 +529,43 @@ export class SqliteMemoryStore implements MemoryStore {
     // here would be interpolated into SQL (review 2026-09-01, F5).
     const limitN = options.limit !== undefined ? Math.max(0, Math.floor(Number(options.limit))) : undefined;
     // Ranking happens in JS so decay can apply (decay.ts): the SQL limit would
-    // cut by stored confidence before age had a say. The whole valid set is
-    // read; at this store's size (hundreds to low thousands) that is cheap.
-    const rows = this.db
-      .prepare(`SELECT * FROM memory_nodes ${where} ORDER BY confidence_weight DESC, created_at ASC`)
-      .all(params) as NodeRow[];
+    // cut by stored confidence before age had a say. With a query, SQLite
+    // orders by BM25 and hands over a candidate pool (a multiple of the
+    // limit) that JS re-ranks with decay; without one, the whole valid set is
+    // read — at a store of hundreds to low thousands that is cheap, and the
+    // measured cost at 100k facts is in README "Limits".
+    let rows: (NodeRow & { fts_rank?: number })[];
+    if (match !== null) {
+      const pool = limitN !== undefined && Number.isFinite(limitN) ? Math.max(limitN * FTS_POOL_MULTIPLIER, FTS_POOL_MIN) : FTS_POOL_UNLIMITED;
+      params["pool"] = pool;
+      rows = this.db
+        .prepare(
+          `SELECT n.*, f.rank AS fts_rank FROM memory_nodes n
+             JOIN (SELECT rowid AS fts_id, rank FROM memory_fts WHERE content_text MATCH @match) f ON n.fts_rowid = f.fts_id
+             ${where} ORDER BY f.rank ASC, n.confidence_weight DESC LIMIT @pool`,
+        )
+        .all(params) as (NodeRow & { fts_rank: number })[];
+    } else if (limitN !== undefined && Number.isFinite(limitN)) {
+      // No query, but a limit: read a candidate pool ordered by stored
+      // confidence and re-rank it with decay. Decay only lowers, so a fact
+      // outside the pool can outrank a pool member only when the whole pool
+      // has decayed below it — approximate past the pool, exact within it.
+      params["pool"] = Math.max(limitN * FTS_POOL_MULTIPLIER, FTS_POOL_MIN);
+      rows = this.db
+        .prepare(`SELECT * FROM memory_nodes ${where} ORDER BY confidence_weight DESC, created_at DESC LIMIT @pool`)
+        .all(params) as NodeRow[];
+    } else {
+      rows = this.db
+        .prepare(`SELECT * FROM memory_nodes ${where} ORDER BY confidence_weight DESC, created_at DESC`)
+        .all(params) as NodeRow[];
+    }
 
     const now = Date.now();
     const nodes = rows.map((row) => ({ row, node: rowToNode(row), eff: 0 }));
     for (const n of nodes) n.eff = effectiveConfidence(n.node, now);
-    if (ftsRank !== null) {
-      const rank = ftsRank;
+    if (match !== null) {
       // Ascending BM25 (more negative = better), effective confidence as tiebreak.
-      nodes.sort(
-        (a, b) =>
-          (rank.get(a.row.fts_rowid) ?? 0) - (rank.get(b.row.fts_rowid) ?? 0) || b.eff - a.eff,
-      );
+      nodes.sort((a, b) => (a.row.fts_rank ?? 0) - (b.row.fts_rank ?? 0) || b.eff - a.eff);
     } else {
       nodes.sort((a, b) => b.eff - a.eff || a.node.validFrom.localeCompare(b.node.validFrom));
     }
@@ -567,6 +599,7 @@ export class SqliteMemoryStore implements MemoryStore {
       throw new Error(`MemoryNode not found: ${nodeId}`);
     }
 
+    assertPatchMutable(patch);
     const existing = rowToNode(existingRow);
     const now = new Date().toISOString();
     const newAnchors: TemporalAnchor[] = [
