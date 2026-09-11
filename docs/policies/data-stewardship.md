@@ -372,7 +372,7 @@ Changes that meet **all** of the following criteria may be auto-approved without
 
 **Process:** The AI or engineering team submits the SCR. An automated governance check confirms all five criteria. The change is applied to the staging ontology, validated by schema tests, and promoted to production within **48 hours**. The SCR is logged in the governance audit trail.
 
-**Human notification:** The CTO and the maintainers are notified of auto-approved changes in the weekly governance digest. Either may raise an objection within **7 days**; if an objection is raised, the change is immediately rolled back and the SCR is re-classified as Tier 2.
+**Human notification:** The maintainers are notified of auto-approved changes in the weekly governance digest. Either may raise an objection within **7 days**; if an objection is raised, the change is immediately rolled back and the SCR is re-classified as Tier 2.
 
 #### Tier 2: Staged Rollout
 
@@ -386,13 +386,13 @@ Changes that do not qualify for Tier 1 and do not require Tier 3 review proceed 
 
 **Process:**
 
-1. SCR is submitted and reviewed by the CTO (or designated schema governance lead) within **5 business days**
-2. If the CTO approves proceeding to staging, the change is deployed to a limited rollout population (maximum 5% of accounts, randomly selected from opted-in beta participants) for a **21-day observation period**
+1. SCR is submitted and reviewed by the maintainers within **5 business days**
+2. If the maintainers approve proceeding to staging, the change is deployed to a limited rollout population (maximum 5% of accounts, randomly selected from opted-in beta participants) for a **21-day observation period**
 3. During the observation period, the following metrics are monitored:
    - Migration error rate (target: < 0.1%)
    - User-reported memory display errors related to affected node types
    - AI-reported retrieval accuracy on affected nodes (measured against a held-out test set)
-4. At the end of the observation period, the CTO reviews the metrics and makes a proceed/rollback decision
+4. At the end of the observation period, the maintainers reviews the metrics and makes a proceed/rollback decision
 5. If proceeding, the change is applied to all accounts over a rolling **7-day deployment window**
 6. If rolling back, the migration is reversed using the rollback plan in the SCR; affected beta accounts are restored to their prior state within **24 hours**
 
@@ -426,7 +426,7 @@ Every approved schema change must have a documented rollback plan before approva
 
 - A staged rollout produces an error rate above the defined threshold
 - A post-deployment monitoring period surfaces unexpected data integrity issues
-- The CTO, the maintainers, or CEO orders a rollback for any reason
+- The maintainers, the maintainers, or CEO orders a rollback for any reason
 - A user-reported issue reveals a critical defect in the deployed change
 
 **Rollback SLAs:**
@@ -545,7 +545,7 @@ The Neptune cluster operates in Multi-AZ configuration:
 
 #### 6.6.2 P1 Full Cloud Outage — DR Activation Procedure
 
-1. **Detection and declaration (target: ≤ 15 minutes):** Automated monitoring alerts the on-call engineer. If the outage is confirmed as P1, the CTO (or designated backup) declares a DR event and notifies the engineering incident channel.
+1. **Detection and declaration (target: ≤ 15 minutes):** Automated monitoring alerts the on-call engineer. If the outage is confirmed as P1, the maintainers (or designated backup) declares a DR event and notifies the engineering incident channel.
 2. **User communication (target: ≤ 30 minutes after declaration):** Users are notified via in-app banner and status page that cloud sync is unavailable; local-first operation continues unaffected.
 3. **Failover assessment (target: ≤ 45 minutes):** Engineering assesses whether Neptune Multi-AZ automatic failover has resolved the issue. If not, manual failover or regional failover is initiated.
 4. **Regional failover (if required, target: ≤ 2 hours):** CTO authorizes promotion of the standby region. Neptune PITR is used to restore to the most recent clean state within the RPO window.
@@ -621,7 +621,7 @@ Every person or system that designs, builds, configures, or operates any compone
 
 ### 7.4 Violation Reporting
 
-Suspected violations of this policy may be reported to the maintainers (open an issue). Reports are reviewed by the CTO and the maintainers within **5 business days**. Reports involving potential data loss or unauthorized access are escalated to a 24-hour response track.
+Suspected violations of this policy may be reported to the maintainers (open an issue). Reports are reviewed by the maintainers and the maintainers within **5 business days**. Reports involving potential data loss or unauthorized access are escalated to a 24-hour response track.
 
 ---
 
