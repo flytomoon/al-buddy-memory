@@ -7,7 +7,7 @@
 This policy governs the technical architecture, schema lifecycle, infrastructure decision-making, open standards compliance, and migration tooling requirements for the memory graph and supporting platform infrastructure. It translates the operator's core technical principles into specific, actionable rules that bind all engineering decisions from initial design through decades of operation.
 
 This policy applies to:
-- The the memory graph schema and all versioned changes to it
+- The memory graph schema and all versioned changes to it
 - AI-proposed schema expansions and the review gates governing their approval
 - Infrastructure decisions that affect the memory layer, storage backends, LLM adapters, and data portability
 - All migration tooling and runbooks used to evolve schema or data in production
@@ -46,7 +46,7 @@ These principles are non-negotiable constraints. No architecture decision, schem
 
 ### 3.1 Semantic Versioning for the Memory Graph Schema
 
-The the memory graph schema uses Semantic Versioning (`MAJOR.MINOR.PATCH`) as defined by semver.org. The schema version is a first-class artifact: it is stored in the schema registry, embedded in all export files, and checked by all migration tooling.
+The memory graph schema uses Semantic Versioning (`MAJOR.MINOR.PATCH`) as defined by semver.org. The schema version is a first-class artifact: it is stored in the schema registry, embedded in all export files, and checked by all migration tooling.
 
 **Schema version location:** `schema/memory-graph/schema.json` — field `schemaVersion`
 
@@ -478,7 +478,7 @@ Any evaluation of a new technology for the memory graph layer (graph database, L
 
 ### 6.1 Mandatory Standards
 
-The the memory graph must comply with the following standards at all times:
+The memory graph must comply with the following standards at all times:
 
 | Standard | Version Required | Applies To | Governing Body |
 |---|---|---|---|
