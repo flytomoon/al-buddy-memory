@@ -16,11 +16,15 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run typecheck && npm test && npm run build
-      # Trusted publishing: npm verifies this workflow's OIDC identity (configured once in
-      # the package's settings on npmjs.com), signs the release with provenance, and no
-      # token is stored anywhere. Needs npm >= 11.5.
+      # Trusted publishing, staged: npm verifies this workflow's OIDC identity (configured
+      # once in the package's settings on npmjs.com), the version is STAGED with provenance,
+      # and it goes public only when a maintainer approves it with 2FA — on npmjs.com under
+      # "Staged Packages", or `npm stage approve <stage-id>`. No token is stored anywhere and
+      # no automated path can publish on its own. Needs npm >= 11.19.
       - run: npm install -g npm@latest
-      - run: npm publish --provenance --access public
+      - run: npm stage publish --provenance --access public
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          body: |
+            The npm version is **staged**, not yet public. To release it: npmjs.com → al-buddy-memory → Staged Packages → Approve (2FA), or `npm stage approve` from a logged-in terminal.
