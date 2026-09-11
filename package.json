@@ -74,7 +74,7 @@
   },
   "author": "Chris Canfield",
   "bin": {
-    "al-buddy-memory-mcp": "./bin/al-buddy-memory-mcp.js",
-    "al-buddy-memory": "./bin/al-buddy-memory.js"
+    "al-buddy-memory-mcp": "bin/al-buddy-memory-mcp.js",
+    "al-buddy-memory": "bin/al-buddy-memory.js"
   }
 }
