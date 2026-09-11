@@ -149,6 +149,8 @@ only for now; the optional on-device embedder is a 25 MB model download.
 
 ## The conformance score
 
+**Try it: [albuddy.com](https://albuddy.com/)** — paste any memory export, nothing leaves your browser.
+
 Recall benchmarks are saturated. Nobody scores whether a memory system can say **who**
 asserted a fact, **since when**, whether it is **still true**, and whether the fact
 **survives leaving the vendor**. This does, on any export you paste in:
