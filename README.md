@@ -149,6 +149,7 @@ transport.
 - [x] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records (v0.2.0)
 - [x] The governance MCP server: the first memory server that returns provenance and validity with every fact (v0.2.0)
 - [ ] A comparison table across the incumbents, and a live paste-your-export demo
+- [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
 
 ## Development
