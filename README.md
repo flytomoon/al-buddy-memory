@@ -48,6 +48,13 @@ Full contract: [docs/SPEC.md](docs/SPEC.md). Design record: [docs/DECISION-2026-
 
 ---
 
+## Python, and other languages
+
+The MCP server and the portable format are the language-neutral surface: a Python agent can
+use the governance server today, and any language can read the export (it is plain JSON with
+a [schema](docs/portable-format.schema.json)). A native Python package is planned; open an
+issue if you need it sooner and say what you would use first.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
