@@ -8,7 +8,8 @@ so anyone building on the memory inherits a spine rather than a blank.
 - [ethical-behaviour.md](ethical-behaviour.md) — authority boundaries, anti-manipulation guardrails, intellectual humility, transparency.
 - [user-sovereignty-and-privacy.md](user-sovereignty-and-privacy.md) — the user owns the data; consent; default privacy; guardian stewardship; rights.
 - [lifecycle-and-age-appropriate.md](lifecycle-and-age-appropriate.md) — how tone, content and authority change across a life, and how guardianship hands over.
-- [data-stewardship.md](data-stewardship.md) — retention tiers, archival, deletion procedures, portability requirements, schema evolution.
+- [data-stewardship.md](data-stewardship.md) — retention tiers, archival, deletion procedures, portability requirements.
+- [technical-governance-and-schema-evolution.md](technical-governance-and-schema-evolution.md) — how the memory schema may change, the review process, versioning and rollback.
 
 "The operator" throughout means whoever runs the memory as a service for others; for a person running it for themselves, that is the person, and the organisational obligations (boards, audits, notification windows) do not apply until there is an organisation.
 

@@ -1,13 +1,13 @@
 # The Build-Companion Memory Loop (Version 1)
 
 **Status:** Shipped (2026-07-07)
-**Decision record:** [Memory architecture decision](./memory-architecture-decision.md)
+**Decision record:** [Memory architecture decision](./DECISION-2026-07-07.md)
 
 The first working version of Al Buddy's memory: the coding agent you talk to (today, Claude Code over Telegram) reads and writes Al Buddy's real memory store, so it stops forgetting between sessions. Al Buddy here is the memory _underneath_ the conversation, not a separate voice in the path (that's Version 2).
 
 ## The loop
 
-1. **Load at session start.** A `SessionStart` hook ([`.claude/settings.json`](../../.claude/settings.json)) runs `al-buddy memory session-start` and injects the project's **memory block** into the agent's context. The block is the dense, currently-valid digest, grouped by type, ranked by confidence.
+1. **Load at session start.** A `SessionStart` hook (`.claude/settings.json`) runs `al-buddy memory session-start` and injects the project's **memory block** into the agent's context. The block is the dense, currently-valid digest, grouped by type, ranked by confidence.
 2. **Capture as you talk.** When something salient is decided, the agent runs `al-buddy memory capture "<text>" [--type ...]`. Raw text is preserved verbatim, never summarized away.
 3. **Recall on demand.** `al-buddy memory recall "<query>"` full-text searches the whole archive when the block isn't enough.
 
@@ -40,7 +40,7 @@ Verified end-to-end with the real model: Al thought, auto-remembered 5 typed fac
 
 ## Version 3 foundation (shipped 2026-07-07)
 
-Tool use: Al can now call tools, starting with its own memory (`recall_memory`, `remember`). See [tool-use.md](./tool-use.md). The pluggable next tool is `delegate_to_coding_agent` — Al orchestrating the build agents rather than just talking.
+Tool use: Al can now call tools, starting with its own memory (`recall_memory`, `remember`). See tool-use.md. The pluggable next tool is `delegate_to_coding_agent` — Al orchestrating the build agents rather than just talking.
 
 ## Self-maintaining memory (shipped 2026-07-08)
 
