@@ -1,0 +1,7 @@
+{
+  "results": [
+    { "id": "rec-01", "memory": "Priya is a marine biologist based in Lisbon", "hash": "0a1b2c3d", "metadata": { "category": "profile" }, "created_at": "2026-08-01T10:00:00.000000-07:00", "updated_at": null, "user_id": "priya" },
+    { "id": "rec-02", "memory": "Prefers metric units and short answers", "hash": "4e5f6a7b", "metadata": {}, "created_at": "2026-08-02T11:30:00.000000-07:00", "updated_at": "2026-08-15T09:00:00.000000-07:00", "user_id": "priya" },
+    { "id": "rec-03", "memory": "Planning a free-diving trip to the Azores in October", "hash": "8c9d0e1f", "metadata": { "source": "chat" }, "created_at": "2026-08-20T08:15:00.000000-07:00", "updated_at": null, "user_id": "priya", "expiration_date": "2026-11-01" }
+  ]
+}

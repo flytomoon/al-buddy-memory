@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+
+import { InMemoryStore } from "../in-memory-store.js";
+import { governanceTools } from "./governance-server.js";
+
+const clock = (iso: string) => () => new Date(iso);
+
+describe("governance MCP tools — every answer carries provenance and validity", () => {
+  it("remember → recall returns provenance, validFrom, current=true, confidence", async () => {
+    const store = new InMemoryStore();
+    const t = governanceTools({ store, now: clock("2026-09-10T12:00:00Z") });
+    const saved = await t.remember({ text: "Chris prefers Pacific time in reports", provenance: "UserInput" });
+    expect(saved).toMatchObject({ provenance: "UserInput", validFrom: "2026-09-10T12:00:00.000Z", validTo: null, current: true, confidence: 1, supersededBy: null });
+    const found = await t.recall({ query: "Pacific" });
+    expect(found.map((f) => f.id)).toEqual([saved.id]);
+  });
+
+  it("invalidate closes validity, keeps the record, names the successor; recall hides it unless asked", async () => {
+    const store = new InMemoryStore();
+    const t = governanceTools({ store, now: clock("2026-09-10T12:00:00Z") });
+    const london = await t.remember({ text: "Lives in London" });
+    const tokyo = await t.remember({ text: "Lives in Tokyo" });
+    const later = governanceTools({ store, now: clock("2026-09-11T00:00:00Z") });
+    const closed = await later.invalidate({ id: london.id, replacedBy: tokyo.id, reason: "moved" });
+    expect(closed).toMatchObject({ id: london.id, validTo: "2026-09-11T00:00:00.000Z", current: false, supersededBy: tokyo.id });
+    expect(await store.getNode(london.id)).not.toBeNull();
+    const current = await later.recall({ query: "Lives" });
+    expect(current.map((f) => f.text)).toEqual(["Lives in Tokyo"]);
+    const all = await later.recall({ query: "Lives", includeSuperseded: true });
+    expect(all.map((f) => f.text).sort()).toEqual(["Lives in London", "Lives in Tokyo"]);
+  });
+
+  it("invalidate is idempotent and refuses unknown ids; remember refuses empty text", async () => {
+    const t = governanceTools({ store: new InMemoryStore() });
+    await expect(t.invalidate({ id: "nope" })).rejects.toThrow(/no fact nope/);
+    await expect(t.remember({ text: "   " })).rejects.toThrow(/text is required/);
+    const a = await t.remember({ text: "x" });
+    const once = await t.invalidate({ id: a.id });
+    const twice = await t.invalidate({ id: a.id });
+    expect(twice.validTo).toBe(once.validTo);
+  });
+
+  it("pin / pinned / unpin ride the same store", async () => {
+    const t = governanceTools({ store: new InMemoryStore() });
+    const p = await t.pin({ text: "Al has no gender", label: "identity" });
+    expect((await t.pinned()).rendered).toContain("[identity] Al has no gender");
+    expect(await t.unpin({ id: p.nodeId })).toEqual({ unpinned: true });
+    expect((await t.pinned()).blocks).toHaveLength(0);
+  });
+});

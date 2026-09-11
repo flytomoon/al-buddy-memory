@@ -25,3 +25,7 @@ export { PinnedBlocks, PINNED_TAG, DEFAULT_PINNED_BUDGET } from "./pinned.js";
 export type { PinInput, PinnedBlock } from "./pinned.js";
 export { consolidate } from "./consolidation.js";
 export type { ConsolidateOptions, ConsolidationReport, DerivedFact, RawExcerpt } from "./consolidation.js";
+export { governanceTools, toGovernedFact } from "./mcp/governance-server.js";
+export type { GovernedFact, GovernanceDeps } from "./mcp/governance-server.js";
+export { scoreConformance, formatReport, toConformanceInput, detectFormat, fromPortable, fromBlocks, fromRecords, proveRoundTrip } from "./conformance/index.js";
+export type { ConformanceReport, ConformanceInput, ConformanceFact, Dimension, ExportFormat } from "./conformance/index.js";

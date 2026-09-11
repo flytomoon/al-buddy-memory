@@ -1,5 +1,4 @@
 import { effectiveConfidence } from "./decay.js";
-import { randomUUID } from "node:crypto";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -26,7 +25,7 @@ export class InMemoryStore implements MemoryStore {
     const now = new Date().toISOString();
     const full: MemoryNode = {
       ...node,
-      nodeId: randomUUID(),
+      nodeId: globalThis.crypto.randomUUID(),
       temporalAnchors: [{ timestamp: now, event: "created" }],
       // Valid-time defaults: fact is true from creation, open-ended.
       validFrom: node.validFrom ?? now,
@@ -160,7 +159,7 @@ export class InMemoryStore implements MemoryStore {
   async addEdge(edge: Omit<MemoryEdge, "edgeId" | "createdAt">): Promise<MemoryEdge> {
     const full: MemoryEdge = {
       ...edge,
-      edgeId: randomUUID(),
+      edgeId: globalThis.crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
     this.edges.set(full.edgeId, full);

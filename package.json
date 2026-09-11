@@ -1,6 +1,6 @@
 {
   "name": "al-buddy-memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Portable, governed, model-agnostic memory for AI agents: facts are invalidated never deleted, raw text is the source of truth, embeddings are a disposable cache, and everything exports to one documented format.",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,32 +9,45 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/governance-server.d.ts",
+      "import": "./dist/mcp/governance-server.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "import": "./dist/conformance/index.js"
     }
   },
   "files": [
-    "dist",
-    "docs",
+    "LICENSE",
     "README.md",
-    "LICENSE"
+    "bin",
+    "dist",
+    "docs"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build:demo",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "build:demo": "esbuild src/conformance/browser.ts --bundle --format=esm --platform=browser --target=es2022 --minify --outfile=docs/demo/conformance.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0"
   },
   "optionalDependencies": {
-    "@huggingface/transformers": "^4.2.0"
+    "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.27.7",
     "typescript": "^5.9.0",
     "vitest": "^4.1.0"
   },
@@ -58,5 +71,9 @@
   "bugs": {
     "url": "https://github.com/flytomoon/al-buddy-memory/issues"
   },
-  "author": "Chris Canfield"
+  "author": "Chris Canfield",
+  "bin": {
+    "al-buddy-memory-mcp": "./bin/al-buddy-memory-mcp.js",
+    "al-buddy-memory": "./bin/al-buddy-memory.js"
+  }
 }
