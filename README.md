@@ -48,58 +48,9 @@ Full contract: [docs/SPEC.md](docs/SPEC.md). Design record: [docs/DECISION-2026-
 
 ---
 
-## The business case
+## License
 
-**Goal.** Notoriety first, then a $10M+ outcome, on the same path the three incumbents took, improved at the two places they left open.
-
-**What the incumbents did (verified Sept 2026).**
-
-| | Letta (ex-MemGPT) | Mem0 | Zep |
-|---|---|---|---|
-| Traction artifact | arXiv paper → 363-point HN post → Discord demo bot; 24.7k stars | YC S24; arXiv benchmark paper (LOCOMO); 65k stars, 14M downloads | arXiv paper beating MemGPT on DMR; Graphiti 30.8k stars |
-| Money | $10M seed (Felicis, 2024), **pre-revenue, on traction** | $3.9M seed + **$24M Series A** (2025) citing 41k stars and API-call growth | $2.3M total; ~$1M ARR (third-party estimate) |
-| Kept open | Core framework, `.af` format (Apache-2.0) | Core SDK, MCP server, integrations (Apache-2.0) | Only the engine (Graphiti); retired self-hosting in 2025 |
-| Kept paid | Hosting: $20/mo + per-agent + per-compute-second | Hosting: $19 → $79 → $249/mo, metered on memory operations; enterprise SSO/audit/HIPAA/SLA | Cloud only: $125 / $375 / enterprise, credit-metered |
-
-Three lessons. (1) None of them charge for the library; the money is hosting plus **governance features** (SSO, audit, retention, SLAs). (2) Both funded companies raised on GitHub traction, not revenue. (3) Each won its moment by publishing a benchmark on the thing it was best at, and naming the competitors it beat.
-
-**The two open lanes, and why they are ours.**
-
-1. **The referee lane.** There is no interchange spec for a *single fact with provenance*, no conformance suite, and no benchmark on provenance, invalidation or portability. Publishing all three makes this project the referee of the category instead of the fourth entrant racing Mem0's own paper. Our architecture already optimizes for that axis; nobody else's does.
-2. **The governance-as-MCP lane.** 217 memory MCP servers exist; all of them hand the agent facts. None hand it *provenance and validity*. An MCP server that answers "who said this, since when, and what superseded it" is unclaimed.
-
-**Where the $10M comes from.** Open core, exactly like the three above, with the paid layer being what enterprises pay for anyway: hosted governed memory with audit trails, retention policies, portability guarantees and SSO, priced per fact-operation like Mem0. The arithmetic that gets there: ~350 teams at $2.5k/mo, or ~4,000 small teams at the $19–79 tiers plus a handful of enterprise contracts. The precedent that gets there faster: Mem0 raised $24M at a valuation well past $10M on 41k stars before that revenue existed. Both paths run through the same first milestone, which is being the named authority on memory governance.
-
-**The risk he named.** *"Other people are raising money off open source stuff you can just steal."* True, and the three above are the proof. The defences are the ones that worked for them: be first with the spec and the benchmark (authorship is public and dated), own the name and the conformance badge, ship faster than a fork can, and keep the hosted governance layer closed. A fork gets the code; it does not get the referee's chair.
-
----
-
-## Open-source plan
-
-**Where.** GitHub (this repo, made public), npm (`al-buddy-memory`), arXiv-style write-up hosted here (a benchmark note, not a paper), Hacker News (Show HN), the MCP registries (mcpservers.org, awesome-mcp-servers, Glama), and framework docs (LangChain / CrewAI / Vercel AI SDK integrations).
-
-**How, in order.** Each step has one artifact and one number that says it worked.
-
-| Week | Artifact | Proof it worked |
-|---|---|---|
-| 1 | The spec: `docs/SPEC.md` + `docs/portable-format.schema.json` + one worked example, public, versioned | Citable by URL |
-| 2–3 | This library public, plus a **conformance CLI** that scores any memory export (Letta `.af`, Mem0, Zep) on provenance / invalidation / portability, with a published comparison table | The CLI runs clean on at least one competitor's export |
-| 4 | **Show HN**: title states the mechanism, not the vision ("Show HN: a provenance benchmark for AI memory — Letta, Mem0 and Zep scored on portability, not recall"), with a live demo page where you paste an export and watch it score | Front page within four hours (~150+ points); if not, a second attempt, not a retreat |
-| Month 2 | The **MCP governance server**: the first memory MCP server that returns provenance and validity with every fact; listed in the registries; a Claude Code plugin if the directory is open | Stars cross an order of magnitude within 30 days of listing |
-| Month 3 | One framework partnership naming this as the recommended provenance layer | Partner traffic shows up as a referrer |
-
-**Automation.** Everything below is scripted or scheduled; nothing depends on remembering.
-
-- `.github/workflows/ci.yml`: typecheck, tests and build on Node 20, 22, 24, on every push and PR.
-- Release: tag `vX.Y.Z` → `.github/workflows/release.yml` builds, tests, stages the version on npm with provenance (trusted publishing, no token), and cuts a GitHub Release with notes. A maintainer approves the staged version with 2FA before it goes public; no automated path can publish on its own.
-- Sync from Al Buddy: `scripts/sync-memory-lib.sh` in the main repo mirrors the memory core into this repo and runs this repo's own gates. A change that breaks them is a breaking change, caught before it ships. Next step: Al Buddy consumes this package as a dependency, so the library is the source of truth and the mirror script retires.
-- Publicity: the Show HN draft and the MCP-registry submission checklist live in `docs/publishing/`.
-
-**What stays private.** The assistant itself: the Telegram brain, the console, the dispatched coders, the briefings, the money lane, the project registry. This repository holds only the memory contract and its reference implementation.
-
-**License.** Apache-2.0, the same as Letta, Mem0 and Zep's open engine — maximum adoption for the library; the hosted governance layer is the paid product.
-
----
+Apache-2.0. See [LICENSE](LICENSE).
 
 ## Governance is enforced, not implied
 
