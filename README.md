@@ -92,6 +92,11 @@ Without any policy the store still guarantees: Sealed facts never surface unless
 for by classification; `provenance`, `nodeId`, `encryptionKeyRef` and the anchor trail
 are immutable after write; nothing is deleted.
 
+The rules an assistant on this memory is held to are published in [docs/policies](docs/policies/README.md):
+ethical behaviour, user sovereignty and privacy, lifecycle and guardians, data stewardship — and
+[an honest ledger](docs/policies/ENFORCEMENT.md) of what the code enforces, what a prompt carries, and
+what is still a person's decision. They change in the open.
+
 ## Limits, measured
 
 One SQLite file, one process, one writer. Measured on an M1 Pro laptop with 100,000

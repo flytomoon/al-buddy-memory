@@ -4,8 +4,9 @@ Thank you. Three kinds of contribution are most useful right now, in this order:
 
 1. **A conformance adapter for your export shape** — see docs/SCORING.md "Adding an adapter".
    Hand-written fixtures only; never copy another project's files into this repo.
-2. **A benchmark objection** — open an issue with the "Scoring objection" template. If a rule
-   is wrong it changes in the open, in docs/SCORING.md, with a test.
+2. **A benchmark objection, or a policy objection** — open an issue with the "Scoring objection"
+   template. If a rule is wrong it changes in the open (docs/SCORING.md, docs/policies/), with a
+   test wherever one is possible.
 3. **A backend** — implement `MemoryStore` and make `src/memory-store-conformance.spec.ts`
    pass against it. That suite is the contract.
 
