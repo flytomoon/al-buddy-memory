@@ -350,7 +350,7 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 
 ### 8.5 Success Metrics
 
-The following metrics are tracked quarterly by the the maintainers and reported to the EAB:
+The following metrics are tracked quarterly by the maintainers and reported to the EAB:
 
 | Metric | Target | What It Measures |
 |---|---|---|
@@ -363,7 +363,7 @@ The following metrics are tracked quarterly by the the maintainers and reported 
 | User-reported privacy concerns | Tracked; root cause analyzed for any repeat pattern | User trust signal |
 | Time to complete account deletion | ≤ 30 days from cool-down expiry | Deletion rights execution |
 
-A quarterly audit report covering all metrics is prepared by the the maintainers, reviewed by the EAB, and retained for a minimum of 3 years.
+A quarterly audit report covering all metrics is prepared by the maintainers, reviewed by the EAB, and retained for a minimum of 3 years.
 
 ---
 
@@ -386,7 +386,7 @@ Vendors that cannot meet these requirements may not handle user data.
 
 ### 9.3 Violation Reporting
 
-Users may report suspected policy violations to the maintainers (open an issue). Reports are reviewed by the the maintainers within 5 business days.
+Users may report suspected policy violations to the maintainers (open an issue). Reports are reviewed by the maintainers within 5 business days.
 
 ### 9.4 Consequences of Non-Compliance
 
