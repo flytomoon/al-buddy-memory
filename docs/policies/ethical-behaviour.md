@@ -201,7 +201,7 @@ The operator requires an independent Ethics Advisory Board (EAB) with no reporti
 The EAB has authority to:
 - Request any AI behavior data, audit logs, or policy documents
 - Issue public findings if systemic violations are found and not remediated
-- Require a written response from the the maintainers to any finding within 30 days
+- Require a written response from the maintainers to any finding within 30 days
 - Recommend suspension of specific AI features pending investigation
 
 The EAB does not have authority to:
@@ -210,7 +210,7 @@ The EAB does not have authority to:
 
 ### 6.3 Internal Audit Mechanism
 
-The the maintainers conducts a quarterly internal audit including:
+The maintainers conduct a quarterly internal audit including:
 - Review of user-reported AI behavior complaints
 - Sampling of AI interaction logs for manipulation pattern detection
 - Review of any guardian escalations
@@ -266,7 +266,7 @@ Every person or system that designs, builds, configures, or deploys AI behavior 
 
 ### 8.2 Violation Reporting
 
-Users may report suspected policy violations to the maintainers (open an issue). Reports are reviewed by the the maintainers within 5 business days.
+Users may report suspected policy violations to the maintainers (open an issue). Reports are reviewed by the maintainers within 5 business days.
 
 ### 8.3 Consequences of Non-Compliance
 

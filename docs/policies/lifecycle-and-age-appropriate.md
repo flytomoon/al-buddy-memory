@@ -450,7 +450,7 @@ Every person or system that designs, builds, configures, or deploys lifecycle-aw
 
 ### 8.2 Violation Reporting
 
-Users and guardians may report suspected policy violations to the maintainers (open an issue). Reports are reviewed by the the maintainers within 5 business days. Reports involving minors are escalated to priority review within 24 hours.
+Users and guardians may report suspected policy violations to the maintainers (open an issue). Reports are reviewed by the maintainers within 5 business days. Reports involving minors are escalated to priority review within 24 hours.
 
 ### 8.3 Consequences of Non-Compliance
 

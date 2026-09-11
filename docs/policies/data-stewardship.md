@@ -413,7 +413,7 @@ Changes that meet any of the following criteria require full manual review with 
 
 1. SCR is submitted and assigned a governance review panel consisting of: CTO, the maintainers, and a senior engineer not involved in the proposal
 2. Panel has **10 business days** to review the SCR, request additional analysis, and reach a decision
-3. The the maintainers must sign off on all Tier 3 changes (in addition to the CTO) before any staging begins
+3. The maintainers must sign off on all Tier 3 changes  before any staging begins
 4. If approved, the change proceeds through a Tier 2-equivalent staged rollout process, plus an additional **30-day post-deployment monitoring period** before the SCR is closed
 5. If the panel cannot reach consensus within the review window, the SCR is automatically escalated to the CEO for a final decision within **5 additional business days**
 6. Rejected SCRs are documented with a rationale and closed; they may be resubmitted after **90 days** if the underlying concern is addressed
