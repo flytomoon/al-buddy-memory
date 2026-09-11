@@ -92,7 +92,7 @@ export function scoreConformance(input: ConformanceInput): ConformanceReport {
     key: "retention",
     title: "Superseded facts are still there, and say what replaced them",
     score: retired.length === 0 ? null : 0.5 + 0.5 * ratio(retiredWithSuccessor, retired.length),
-    reason: retired.length === 0 ? "no retired facts in the sample — unproven" : `${retired.length} retired facts retained; ${pct(retiredWithSuccessor, retired.length)} name their successor`,
+    reason: retired.length === 0 ? "no retired facts in the sample — unproven" : `${retired.length} retired ${retired.length === 1 ? "fact" : "facts"} retained; ${pct(retiredWithSuccessor, retired.length)} ${retiredWithSuccessor === 1 ? "names its" : "name their"} successor`,
   });
 
   const withConf = facts.filter((f) => typeof f.confidence === "number").length;
