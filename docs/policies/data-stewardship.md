@@ -30,7 +30,7 @@ This policy applies to:
 
 ### 2.1 Memory Node Anatomy
 
-Every memory node in the operator graph has the following defined attributes. This schema is the canonical reference for all storage, export, and governance operations.
+Every memory node in the memory graph has the following defined attributes. This schema is the canonical reference for all storage, export, and governance operations.
 
 | Attribute | Type | Mutability | Description |
 |---|---|---|---|
@@ -273,7 +273,7 @@ albuddy-export-{userId}-{timestamp}/
 
 ### 4.6 Export Tooling Requirements
 
-The the operator data export tool must satisfy the following requirements:
+The data export tool must satisfy the following requirements:
 
 | Requirement | Specification |
 |---|---|
@@ -303,7 +303,7 @@ The the operator data export tool must satisfy the following requirements:
 
 ### 5.1 Governing Principle
 
-The the operator memory ontology is a living system. As the platform learns what kinds of memories matter to users, the schema will need to expand, refine, and occasionally restructure. This evolution must be AI-assisted but human-governed: the AI may observe patterns and propose changes; humans decide what changes are adopted and when.
+The memory ontology is a living system. As the platform learns what kinds of memories matter to users, the schema will need to expand, refine, and occasionally restructure. This evolution must be AI-assisted but human-governed: the AI may observe patterns and propose changes; humans decide what changes are adopted and when.
 
 The canonical ontology starts minimal and grows deliberately. Schema stability is a user trust asset — unnecessary or hasty changes impose migration burden and risk on every user's memory graph.
 
@@ -569,7 +569,7 @@ End-to-end encryption with user-controlled keys creates a specific DR challenge:
 |---|---|
 | **Keys never stored on cloud layer unencrypted** | User-controlled keys are never transmitted to or stored by the operator cloud infrastructure in plaintext |
 | **Key backup is user responsibility** | the operator provides a secure, documented key backup mechanism (e.g., encrypted key export to a user-chosen location) and strongly encourages users to use it during onboarding |
-| **Key backup tooling** | The the operator app includes a key backup wizard that guides users through exporting their key to a secure location external to the operator; this is presented at account creation and periodically in the security settings |
+| **Key backup tooling** | The app includes a key backup wizard that guides users through exporting their key to a secure location external to the operator; this is presented at account creation and periodically in the security settings |
 | **Key loss consequences disclosed** | Users are explicitly informed during onboarding and in the key backup flow that loss of their private key means loss of access to their encrypted memories; the operator cannot recover data without the key |
 | **Backup encryption keys** | Backup snapshots are encrypted with a separate, operator-managed key that is independent of user keys; this allows backup integrity checks and DR restoration without user key material |
 | **Key rotation** | Users may rotate their encryption key at any time; the platform re-encrypts all stored data under the new key transparently; the old key is destroyed after re-encryption is verified |
@@ -613,7 +613,7 @@ This policy is designed to satisfy the following regulatory requirements, though
 
 ### 7.3 All-Team Obligation
 
-Every person or system that designs, builds, configures, or operates any component of the operator memory system is obligated to comply with this policy. This includes:
+Every person or system that designs, builds, configures, or operates any component of the memory system is obligated to comply with this policy. This includes:
 - Engineers implementing storage, sync, and export features
 - AI teams building summarization, consolidation, and schema proposal systems
 - Operations teams managing cloud infrastructure
@@ -676,7 +676,7 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 | **Confidence weight** | A float value [0.0–1.0] representing the estimated current relevance and freshness of a memory node |
 | **Decay rate** | The rate at which a node's confidence weight decreases over time without reinforcement |
 | **Sealed node** | A memory node with `privacyClassification: Sealed`; excluded from AI processing and cloud sync |
-| **Schema Change Request (SCR)** | The structured proposal document used to govern changes to the operator memory ontology |
+| **Schema Change Request (SCR)** | The structured proposal document used to govern changes to the memory ontology |
 | **Approval tier** | The governance pathway for an SCR: Tier 1 (Auto), Tier 2 (Staged), or Tier 3 (Manual) |
 | **RPO** | Recovery Point Objective — the maximum acceptable data loss measured in time |
 | **RTO** | Recovery Time Objective — the maximum acceptable time to restore service after a disaster |
