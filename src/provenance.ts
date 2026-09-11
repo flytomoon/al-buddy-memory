@@ -1,0 +1,60 @@
+/**
+ * Source provenance — grounding a belief in the conversation that produced it.
+ *
+ * When the curator distills an AIInferred fact ("lives in Tokyo") from a turn,
+ * it stashes the originating exchange under `contextualMetadata.sourceExchange`
+ * so the fact is auditable: you can always answer "why does Al believe this?"
+ * with "because on <date> you said <X> and Al replied <Y>." This is the trust
+ * surface — a governed memory you can trace, not just query.
+ *
+ * Stored in `contextualMetadata` (not a new column) so it rides the existing
+ * schema, export, and privacy tier automatically — the source exchange inherits
+ * the node's own classification, so a Sealed fact's source is Sealed too.
+ */
+
+/** A single turn an inferred fact was distilled from. */
+export interface SourceExchange {
+  user: string;
+  assistant: string;
+  /** ISO 8601 — when the exchange happened. */
+  at: string;
+}
+
+/** Cap stored turn text so one huge message can't bloat every derived fact. */
+const MAX_TURN_CHARS = 2000;
+
+const SOURCE_KEY = "sourceExchange";
+
+/**
+ * Build a `contextualMetadata` object carrying the source exchange, merged over
+ * any base metadata (e.g. the `source: "auto-curated"` label and tags).
+ */
+export function buildSourceProvenance(
+  exchange: { user: string; assistant: string },
+  at: string,
+  base: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const source: SourceExchange = {
+    user: exchange.user.slice(0, MAX_TURN_CHARS),
+    assistant: exchange.assistant.slice(0, MAX_TURN_CHARS),
+    at,
+  };
+  return { ...base, [SOURCE_KEY]: source };
+}
+
+/** Extract a typed source exchange from metadata, or undefined if absent/malformed. */
+export function readSourceProvenance(
+  metadata: Record<string, unknown>,
+): SourceExchange | undefined {
+  const raw = metadata[SOURCE_KEY];
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const record = raw as Record<string, unknown>;
+  if (
+    typeof record["user"] !== "string" ||
+    typeof record["assistant"] !== "string" ||
+    typeof record["at"] !== "string"
+  ) {
+    return undefined;
+  }
+  return { user: record["user"], assistant: record["assistant"], at: record["at"] };
+}

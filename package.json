@@ -1,0 +1,62 @@
+{
+  "name": "al-buddy-memory",
+  "version": "0.1.0",
+  "description": "Portable, governed, model-agnostic memory for AI agents: facts are invalidated never deleted, raw text is the source of truth, embeddings are a disposable cache, and everything exports to one documented format.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "memory",
+    "llm",
+    "sqlite",
+    "provenance",
+    "portable",
+    "local-first",
+    "mcp"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flytomoon/al-buddy-memory.git"
+  },
+  "homepage": "https://github.com/flytomoon/al-buddy-memory#readme",
+  "bugs": {
+    "url": "https://github.com/flytomoon/al-buddy-memory/issues"
+  },
+  "author": "Chris Canfield"
+}
