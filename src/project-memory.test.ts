@@ -53,14 +53,14 @@ describe("ProjectMemory", () => {
 
   it("keeps projects siloed from each other", async () => {
     const albuddy = new ProjectMemory("al-buddy", { baseDir });
-    const subvox = new ProjectMemory("subvox", { baseDir });
+    const beta = new ProjectMemory("beta", { baseDir });
     try {
       await albuddy.capture({ text: "al-buddy secret" });
-      const leak = await subvox.recall("secret");
+      const leak = await beta.recall("secret");
       expect(leak).toHaveLength(0);
     } finally {
       albuddy.close();
-      subvox.close();
+      beta.close();
     }
   });
 

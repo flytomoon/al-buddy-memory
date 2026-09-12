@@ -35,27 +35,27 @@ describe("renderMemoryBlock", () => {
   it("scopes to the given group tag — a project slice, not the whole brain", async () => {
     const store = new InMemoryStore();
     await store.addNode(
-      makeNode({ content: { text: "makevox uses veo" }, contextualMetadata: { tags: ["group:makevox"] } }),
+      makeNode({ content: { text: "alpha uses veo" }, contextualMetadata: { tags: ["group:alpha"] } }),
     );
     await store.addNode(
-      makeNode({ content: { text: "litaxis intake flow" }, contextualMetadata: { tags: ["group:litaxis"] } }),
+      makeNode({ content: { text: "beta intake flow" }, contextualMetadata: { tags: ["group:beta"] } }),
     );
-    const block = await renderMemoryBlock(store, "makevox", 30, { groups: ["makevox"] });
-    expect(block).toContain("makevox uses veo");
-    expect(block).not.toContain("litaxis intake flow");
+    const block = await renderMemoryBlock(store, "alpha", 30, { groups: ["alpha"] });
+    expect(block).toContain("alpha uses veo");
+    expect(block).not.toContain("beta intake flow");
   });
 
   it("with no group scope renders across all groups (the central god view)", async () => {
     const store = new InMemoryStore();
     await store.addNode(
-      makeNode({ content: { text: "makevox uses veo" }, contextualMetadata: { tags: ["group:makevox"] } }),
+      makeNode({ content: { text: "alpha uses veo" }, contextualMetadata: { tags: ["group:alpha"] } }),
     );
     await store.addNode(
-      makeNode({ content: { text: "litaxis intake flow" }, contextualMetadata: { tags: ["group:litaxis"] } }),
+      makeNode({ content: { text: "beta intake flow" }, contextualMetadata: { tags: ["group:beta"] } }),
     );
     const block = await renderMemoryBlock(store, "central");
-    expect(block).toContain("makevox uses veo");
-    expect(block).toContain("litaxis intake flow");
+    expect(block).toContain("alpha uses veo");
+    expect(block).toContain("beta intake flow");
   });
 
   // Review 2026-09-01, S2: a fetched page must never write the system prompt.

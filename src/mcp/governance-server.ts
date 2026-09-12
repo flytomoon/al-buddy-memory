@@ -1,5 +1,5 @@
 /**
- * The governance MCP server — the first memory server that tells the calling
+ * The governance MCP server — a memory server that tells the calling
  * agent WHERE a fact came from, SINCE WHEN it has been true, and WHAT superseded
  * it, with every recall. 217 memory MCP servers hand agents facts; this one
  * hands them facts they can weigh.

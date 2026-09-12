@@ -20,7 +20,7 @@ Every agent-memory product on the market answers one question well: *what does t
 | **Can I take it with me, losslessly, to another runtime?** | One versioned JSON export with a published schema and conformance tests | `.af` (agent state, framework-shaped, archival memory not yet included) | Cloud export | Cloud-only since 2025 |
 | **Does it run with no vendor, no key, no server?** | SQLite on disk, on-device embeddings | Self-host possible; cloud is the product | Cloud is the product | Cloud only |
 
-That fourth column is the wedge. Recall benchmarks (LOCOMO, LongMemEval, DMR) are saturated: Mem0 published the paper, Zep published the rebuttal, and every 2026 entrant re-runs the same tables. **No public benchmark scores a memory system on provenance, invalidation or portability.** This library is built for exactly that axis, so it can publish the first one.
+Recall benchmarks (LOCOMO, LongMemEval, DMR) measure what an agent remembers. **None of them scores a memory system on provenance, invalidation or portability.** This library is built for that axis, and the conformance scorer below is one attempt at measuring it. The table is our reading of each project's public docs as of September 2026; if we have a cell wrong, a PR with a link fixes it.
 
 ## Start here
 
@@ -34,11 +34,13 @@ yes-person"), choose the rules the store enforces, and let it derive the rest ni
 - `ProjectMemory`: one brain scoped by project or person, each in its own SQLite file.
 - `HybridRetriever`: lexical + semantic recall with decay-aware confidence; embeddings on-device via transformers.js (no API key).
 - `exportPortable` / `importPortable`: the lossless interchange format, versioned, with a [JSON Schema](docs/portable-format.schema.json).
-- `PinnedBlocks`: a size-capped tier of facts that belong in every prompt, editable by the agent itself (the good idea in Letta's memory blocks, on top of a governed store).
-- `consolidate`: a sleep-time pass that reads recent raw memory and writes **new** derived facts with provenance edges back to their sources; the raw is never rewritten (the good idea in Letta's sleep-time agents, without the summarize-and-discard).
+- `PinnedBlocks`: a size-capped tier of facts that belong in every prompt, editable by the agent itself, on top of the governed store.
+- `consolidate`: a sleep-time pass that reads recent raw memory and writes **new** derived facts with provenance edges back to their sources; the raw is never rewritten and nothing is summarised away.
 - `buildSourceProvenance` / `readSourceProvenance`, `renderMemoryBlock`, `exportMemoryMarkdown`, decay helpers.
 
 Node ≥ 20. One runtime dependency (`better-sqlite3`); transformers.js is optional.
+
+Prior art, with thanks: the pinned tier and the sleep-time pass take up ideas the Letta project published (memory blocks; sleep-time agents). The designs here are our own, written for a store that keeps provenance and never rewrites the raw.
 
 ```ts
 import { SqliteMemoryStore, ProjectMemory, PinnedBlocks, exportPortable } from "al-buddy-memory";
@@ -132,13 +134,13 @@ npx al-buddy-memory conformance --demo                  # a small governed store
 
 Seven dimensions, each 0–100% with the reason spelled out; a dimension the sample cannot
 prove (no retired facts present, say) is reported as unproven and left out of the total
-instead of counted as a failure. Scores on real exports, as of v0.2.0:
+instead of counted as a failure. The reference score:
 
 | Export | Provenance | Since when | Retire without erasing | Confidence | Relations | Portability | Grade |
 |---|---|---|---|---|---|---|---|
 | al-buddy-memory (demo store) | 100% | 100% | 100% | 100% | 100% | 100% | **A** |
-| Letta — their published `memgpt_agent.af` example, scored with the `blocks` adapter | 0% | 0% | 0% (blocks rewritten in place) | 0% | 0% | 67% | **F** |
-| Mem0 — a `get_all` response in their documented shape, scored with the `records` adapter | 0% | 100% | 50% (expiry only) | 0% | 0% | 67% | **D** |
+
+Score your own export the same way: `--format blocks` for block-style agent files, `--format records` for flat memory records, or paste it into the demo at [albuddy.com](https://albuddy.com). The scorer reports what the export records, nothing more.
 
 The rulebook, including what the score does **not** measure (recall quality, truth, latency),
 is [docs/SCORING.md](docs/SCORING.md). The adapters are written against export *shapes*, not vendors, and map only what the shape
@@ -147,7 +149,7 @@ Adapters live in `src/conformance/adapters.ts`; add one for your shape and open 
 
 ## The governance MCP server
 
-There are more than two hundred memory MCP servers. All of them hand the agent a fact.
+Most memory MCP servers hand the agent a fact.
 This one hands it a fact **it can weigh**: every `recall` result carries `provenance`,
 `validFrom`, `validTo`, `current`, `confidence`, and — for a superseded fact — the id of
 what replaced it. `invalidate` closes a fact's validity and keeps the record; nothing is
@@ -174,9 +176,9 @@ transport.
 
 - [x] The spec and the portable format, published and versioned (this repo)
 - [x] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records (v0.2.0)
-- [x] The governance MCP server: the first memory server that returns provenance and validity with every fact (v0.2.0)
+- [x] The governance MCP server: a memory server that returns provenance and validity with every fact (v0.2.0)
 - [x] Governance hooks with an audit trail and three sample policies; provenance immutable at runtime; measured limits at 100k facts (v0.3.0)
-- [ ] A comparison table across the incumbents, and a live paste-your-export demo
+- [x] A comparison table and a live paste-your-export demo (albuddy.com)
 - [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
 
