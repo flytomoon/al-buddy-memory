@@ -26,7 +26,7 @@ export { effectiveConfidence, lastTouched, DECAY_FLOOR } from "./decay.js";
 export { PinnedBlocks, PINNED_TAG, DEFAULT_PINNED_BUDGET } from "./pinned.js";
 export type { PinInput, PinnedBlock } from "./pinned.js";
 export { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
-export type { ConsolidateOptions, ConsolidationReport, ConsolidatedFact, ConsolidationRun, DerivedFact, RawExcerpt, UndoConsolidationReport } from "./consolidation.js";
+export type { ConsolidateOptions, ConsolidationReport, ConsolidatedFact, ConsolidationRun, DerivedFact, RawExcerpt, Retraction, UndoConsolidationReport } from "./consolidation.js";
 export { governanceTools, toGovernedFact } from "./mcp/governance-server.js";
 export type { GovernedFact, GovernanceDeps } from "./mcp/governance-server.js";
 export { scoreConformance, formatReport, toConformanceInput, detectFormat, fromPortable, fromBlocks, fromRecords, proveRoundTrip } from "./conformance/index.js";

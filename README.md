@@ -36,12 +36,12 @@ yes-person"), choose the rules the store enforces, and let it derive the rest ni
 - `exportPortable` / `importPortable`: the lossless interchange format, versioned, with a [JSON Schema](docs/portable-format.schema.json).
 - `PinnedBlocks`: a size-capped tier of facts that belong in every prompt, editable by the agent itself, on top of the governed store.
 - `consolidate`: a sleep-time pass that reads recent raw memory and writes **new** derived facts with provenance edges back to their sources; the raw is never rewritten and nothing is summarised away.
-- `listConsolidations` / `undoConsolidation`: review what each pass concluded, with the evidence for every fact, and take back one pass's conclusions. Undo retracts (`validTo`), it never deletes, so the history still shows what was believed and when it was withdrawn.
+- `listConsolidations` / `undoConsolidation`: review what each pass concluded, with the evidence for every fact, and take back one pass's conclusions. Undo retracts (`validTo`) and records who withdrew each fact and why; it never deletes, so the history still shows what was believed, when it was withdrawn, and the reason.
 - `buildSourceProvenance` / `readSourceProvenance`, `renderMemoryBlock`, `exportMemoryMarkdown`, decay helpers.
 
 Node ≥ 20. One runtime dependency (`better-sqlite3`); transformers.js is optional.
 
-Prior art, with thanks: the pinned tier and the sleep-time pass take up ideas the Letta project published (memory blocks; sleep-time agents). The designs here are our own, written for a store that keeps provenance and never rewrites the raw.
+Prior art: the Letta project published the idea of a pinned memory tier and a background pass over memory (memory blocks; sleep-time agents). What is different here: every derived fact must cite the raw it rests on or it is refused, the raw is never rewritten, and a whole pass can be reviewed and undone, with the undo and its reason kept on record.
 
 ```ts
 import { SqliteMemoryStore, ProjectMemory, PinnedBlocks, exportPortable } from "al-buddy-memory";
