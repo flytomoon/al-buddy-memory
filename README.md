@@ -32,10 +32,11 @@ yes-person"), choose the rules the store enforces, and let it derive the rest ni
 
 - `MemoryStore`: a storage-agnostic interface; `SqliteMemoryStore` and `InMemoryStore` ship, with a **conformance suite** any backend can run against itself.
 - `ProjectMemory`: one brain scoped by project or person, each in its own SQLite file.
-- `HybridRetriever`: lexical + semantic recall with decay-aware confidence; embeddings on-device via transformers.js (no API key).
+- `HybridRetriever`: lexical + semantic recall with decay-aware confidence; embeddings on-device via transformers.js (no API key). Recall can be scoped (memory type, tags, minimum confidence, privacy and retention tiers), and the scope applies to the keyword and the vector side alike.
 - `exportPortable` / `importPortable`: the lossless interchange format, versioned, with a [JSON Schema](docs/portable-format.schema.json).
 - `PinnedBlocks`: a size-capped tier of facts that belong in every prompt, editable by the agent itself, on top of the governed store.
 - `consolidate`: a sleep-time pass that reads recent raw memory and writes **new** derived facts with provenance edges back to their sources; the raw is never rewritten and nothing is summarised away.
+- `listConsolidations` / `undoConsolidation`: review what each pass concluded, with the evidence for every fact, and take back one pass's conclusions. Undo retracts (`validTo`), it never deletes, so the history still shows what was believed and when it was withdrawn.
 - `buildSourceProvenance` / `readSourceProvenance`, `renderMemoryBlock`, `exportMemoryMarkdown`, decay helpers.
 
 Node ≥ 20. One runtime dependency (`better-sqlite3`); transformers.js is optional.

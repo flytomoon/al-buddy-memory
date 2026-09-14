@@ -119,7 +119,7 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
   const tools = governanceTools(deps);
-  const server = new McpServer({ name: "al-buddy-memory", version: "0.3.1" });
+  const server = new McpServer({ name: "al-buddy-memory", version: "0.3.2" });
   const json = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v, null, 2) }] });
   server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence.", {
     text: z.string(), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),

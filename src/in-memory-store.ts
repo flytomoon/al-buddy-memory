@@ -64,8 +64,8 @@ export class InMemoryStore implements MemoryStore {
     if (options.tags?.length) {
       const wanted = options.tags;
       results = results.filter((n) => {
-        const tags = (n.contextualMetadata["tags"] as string[] | undefined) ?? [];
-        return wanted.some((t) => tags.includes(t));
+        const tags = n.contextualMetadata["tags"];
+        return Array.isArray(tags) && wanted.some((t) => (tags as unknown[]).includes(t));
       });
     }
     if (options.minConfidence !== undefined) {

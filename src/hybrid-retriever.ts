@@ -1,6 +1,7 @@
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
+import { matchesFilter, type NodeFilter } from "./query-filter.js";
 
 /**
  * Hybrid recall: keyword relevance (FTS/BM25) fused with vector similarity.
@@ -12,7 +13,7 @@ import { cosineSimilarity } from "./embedder.js";
  * is configured everything degrades gracefully to keyword-only.
  */
 
-export interface RecallOptions {
+export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
   limit?: number;
   /** Bi-temporal instant; defaults to now (only currently-valid facts). */
   validAt?: string;
@@ -56,15 +57,17 @@ export class HybridRetriever {
     const limit = options.limit ?? 5;
     const validAt = options.validAt ?? new Date().toISOString();
 
+    // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
+    // lists, with the store's own semantics, so a scoped recall can never pull
+    // an out-of-scope fact in through the vector side.
+    const { limit: _limit, validAt: _validAt, ...scope } = options;
+    const filter: NodeFilter = { ...scope, validAt };
+
     // Keyword list — BM25-ordered by the store.
-    const keywordHits = await this.store.searchNodes({
-      query,
-      validAt,
-      limit: CANDIDATE_POOL,
-    });
+    const keywordHits = await this.store.searchNodes({ ...filter, query, limit: CANDIDATE_POOL });
 
     // Vector list — full scan of the embedder's model space (local scale).
-    const vectorHits = await this.vectorCandidates(query, validAt);
+    const vectorHits = await this.vectorCandidates(query, filter);
 
     // Reciprocal-rank fusion across both lists.
     const scores = new Map<string, { score: number; node: MemoryNode }>();
@@ -95,7 +98,7 @@ export class HybridRetriever {
   async findDuplicate(text: string): Promise<MemoryNode | undefined> {
     if (!this.embedder) return undefined;
     const validAt = new Date().toISOString();
-    const candidates = await this.vectorCandidates(text, validAt);
+    const candidates = await this.vectorCandidates(text, { validAt });
     const top = candidates[0];
     return top !== undefined && top.similarity >= DUPLICATE_THRESHOLD ? top.node : undefined;
   }
@@ -126,7 +129,7 @@ export class HybridRetriever {
 
   private async vectorCandidates(
     query: string,
-    validAt: string,
+    filter: NodeFilter,
   ): Promise<{ node: MemoryNode; similarity: number }[]> {
     if (!this.embedder) return [];
     const [queryVector] = await this.embedder.embed([query]);
@@ -135,17 +138,18 @@ export class HybridRetriever {
 
     const scored = embeddings
       .map((e) => ({ nodeId: e.nodeId, similarity: cosineSimilarity(queryVector, e.vector) }))
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, CANDIDATE_POOL);
+      .sort((a, b) => b.similarity - a.similarity);
 
+    // Filter BEFORE taking the pool: with a scope, the nearest 50 vectors may all
+    // be out of scope, and slicing first would leave the vector list empty.
     const out: { node: MemoryNode; similarity: number }[] = [];
     for (const { nodeId, similarity } of scored) {
+      if (out.length >= CANDIDATE_POOL) break;
       const node = await this.store.getNode(nodeId);
       if (!node) continue;
-      // Same governance boundary as searchNodes: currently-valid, never Sealed.
-      if (node.privacyClassification === "Sealed") continue;
-      if (node.validFrom > validAt || (node.validTo !== null && node.validTo <= validAt))
-        continue;
+      // Same boundary as searchNodes: in scope, currently valid, never Sealed,
+      // never Archived / PendingDeletion unless the scope names them.
+      if (!matchesFilter(node, filter)) continue;
       out.push({ node, similarity });
     }
     return out;

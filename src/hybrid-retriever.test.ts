@@ -105,6 +105,62 @@ describe("HybridRetriever", () => {
   });
 });
 
+describe("HybridRetriever scoped recall", () => {
+  async function seeded() {
+    const store = new InMemoryStore();
+    const embedder = conceptEmbedder();
+    await store.addNode(makeNode({ content: { text: "his own words: japan trip" }, contextualMetadata: { tags: ["voice"] } }));
+    await store.addNode(makeNode({ content: { text: "a news item about tokyo" }, contextualMetadata: { tags: ["news"] } }));
+    await store.addNode(makeNode({ content: { text: "tokyo tokyo tokyo schedule" }, memoryType: "Task" }));
+    await indexMissingEmbeddings(store, embedder);
+    return { store, retriever: new HybridRetriever(store, embedder) };
+  }
+
+  it("keeps out-of-scope facts off BOTH the keyword and the vector list", async () => {
+    const { retriever } = await seeded();
+    // "tokyo" hits the news item and the task by keyword, and all three by vector.
+    const voice = await retriever.recall("tokyo", { limit: 5, tags: ["voice"] });
+    expect(voice.map((n) => n.content.text)).toEqual(["his own words: japan trip"]);
+  });
+
+  it("scopes by memory type and minimum confidence", async () => {
+    const { store, retriever } = await seeded();
+    const tasks = await retriever.recall("tokyo", { limit: 5, memoryType: "Task" });
+    expect(tasks.map((n) => n.content.text)).toEqual(["tokyo tokyo tokyo schedule"]);
+    await store.addNode(makeNode({ content: { text: "unsure: tokyo maybe" }, confidenceWeight: 0.1 }));
+    const confident = await retriever.recall("tokyo", { limit: 10, minConfidence: 0.5 });
+    expect(confident.map((n) => n.content.text)).not.toContain("unsure: tokyo maybe");
+  });
+
+  it("finds an in-scope neighbour even when the nearest vectors are all out of scope", async () => {
+    const store = new InMemoryStore();
+    const embedder = conceptEmbedder();
+    for (let i = 0; i < 60; i++) {
+      await store.addNode(makeNode({ content: { text: `tokyo note ${i}` }, contextualMetadata: { tags: ["news"] } }));
+    }
+    await store.addNode(makeNode({ content: { text: "japan, in his words" }, contextualMetadata: { tags: ["voice"] } }));
+    await indexMissingEmbeddings(store, embedder);
+    const retriever = new HybridRetriever(store, embedder);
+    const hits = await retriever.recall("tokyo", { limit: 3, tags: ["voice"] });
+    expect(hits.map((n) => n.content.text)).toEqual(["japan, in his words"]);
+  });
+
+  it("never lets Archived or PendingDeletion facts in through the vector side", async () => {
+    const store = new InMemoryStore();
+    const embedder = conceptEmbedder();
+    const retriever = new HybridRetriever(store, embedder);
+    // Embedded at capture (indexNode), archived later: the real path by which an
+    // archived fact still has a vector.
+    for (const [text, tier] of [["japan, archived", "Archived"], ["japan, being deleted", "PendingDeletion"], ["japan, current", "FullRetention"]] as const) {
+      const node = await store.addNode(makeNode({ content: { text } }));
+      await retriever.indexNode(node);
+      if (tier !== "FullRetention") await store.updateNode(node.nodeId, { retentionTier: tier });
+    }
+    const hits = await retriever.recall("tokyo", { limit: 5 });
+    expect(hits.map((n) => n.content.text)).toEqual(["japan, current"]);
+  });
+});
+
 describe("HybridRetriever.indexNode", () => {
   it("embeds a single node so it is immediately vector-searchable", async () => {
     const store = new InMemoryStore();

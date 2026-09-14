@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { consolidate } from "./consolidation.js";
+import { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
+import { SqliteMemoryStore } from "./sqlite-memory-store.js";
+import type { MemoryStore } from "./types/memory.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
 
-async function seed(store: InMemoryStore, texts: string[]) {
+async function seed(store: MemoryStore, texts: string[]) {
   const ids: string[] = [];
   for (const t of texts) ids.push((await store.addNode(makeNode({ content: { text: t } }))).nodeId);
   return ids;
@@ -62,5 +64,60 @@ describe("consolidate — sleep-time derivation that never touches the raw", () 
     expect(report.derivedNodeIds).toEqual([]);
     expect((await store.searchNodes({ limit: 10 })).length).toBe(1);
     expect((await store.getNode(a!))?.temporalAnchors.some((t) => t.event === "summarized")).toBe(false);
+  });
+});
+
+describe.each([
+  ["InMemoryStore", () => new InMemoryStore() as MemoryStore],
+  ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:") as MemoryStore],
+])("review and undo a consolidation pass — %s", (_label, makeStore) => {
+  const at = (iso: string) => () => new Date(iso);
+  async function twoNights(store: MemoryStore) {
+    const [a] = await seed(store, ["He said he hates cilantro."]);
+    const one = await consolidate(store, { since: "2000-01-01T00:00:00Z", model: "m", now: at("2026-09-13T09:00:00Z"),
+      propose: async (raw) => [{ text: "He dislikes cilantro.", sourceNodeIds: [raw[0]!.nodeId] }] });
+    const [b] = await seed(store, ["He ordered extra cilantro, joking."]);
+    const two = await consolidate(store, { since: "2000-01-01T00:00:00Z", model: "m", now: at("2026-09-14T09:00:00Z"),
+      propose: async (raw) => [{ text: "He loves cilantro now.", sourceNodeIds: [raw[0]!.nodeId] }] });
+    return { a: a!, b: b!, one, two };
+  }
+
+  it("lists every pass newest first, with each fact's evidence", async () => {
+    const store = makeStore();
+    const { a, b } = await twoNights(store);
+    const runs = await listConsolidations(store);
+    expect(runs.map((r) => r.consolidatedAt)).toEqual(["2026-09-14T09:00:00.000Z", "2026-09-13T09:00:00.000Z"]);
+    expect(runs[0]!.facts).toEqual([expect.objectContaining({ text: "He loves cilantro now.", derivedFrom: [b], retractedAt: null })]);
+    expect(runs[1]!.facts[0]).toMatchObject({ text: "He dislikes cilantro.", derivedFrom: [a] });
+  });
+
+  it("retracts one night's conclusions without deleting them or touching the other night", async () => {
+    const store = makeStore();
+    const { one, two } = await twoNights(store);
+    const report = await undoConsolidation(store, "2026-09-14T09:00:00.000Z", { now: at("2026-09-14T10:00:00Z") });
+    expect(report).toEqual({ retracted: two.derivedNodeIds, alreadyRetracted: [] });
+
+    // Nodes get their real creation time as validFrom; ask about a later instant.
+    const standing = await store.searchNodes({ validAt: "2100-01-01T00:00:00Z" });
+    const texts = standing.map((n) => n.content.text);
+    expect(texts).toContain("He dislikes cilantro.");
+    expect(texts).not.toContain("He loves cilantro now.");
+
+    // still in the history, marked when it was withdrawn
+    const retracted = await store.getNode(two.derivedNodeIds[0]!);
+    expect(retracted?.validTo).toBe("2026-09-14T10:00:00.000Z");
+    expect((await listConsolidations(store))[0]!.facts[0]!.retractedAt).toBe("2026-09-14T10:00:00.000Z");
+    expect(await store.getNode(one.derivedNodeIds[0]!)).toMatchObject({ validTo: null });
+  });
+
+  it("is safe to repeat, and does not hand the same raw back to tomorrow's pass", async () => {
+    const store = makeStore();
+    await twoNights(store);
+    await undoConsolidation(store, "2026-09-14T09:00:00.000Z", { now: at("2026-09-14T10:00:00Z") });
+    const again = await undoConsolidation(store, "2026-09-14T09:00:00.000Z", { now: at("2026-09-14T10:05:00Z") });
+    expect(again.retracted).toEqual([]);
+    expect(again.alreadyRetracted).toHaveLength(1);
+    const next = await consolidate(store, { since: "2000-01-01T00:00:00Z", model: "m", propose: async () => [] });
+    expect(next.read).toBe(0);
   });
 });

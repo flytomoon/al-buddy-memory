@@ -511,6 +511,18 @@ export class SqliteMemoryStore implements MemoryStore {
       params["minConfidence"] = options.minConfidence;
     }
 
+    if (options.tags !== undefined && options.tags.length > 0) {
+      // In SQL, before any pool or LIMIT: filtering after the limit returned too
+      // few (or no) rows whenever the top-N by confidence lacked the tag.
+      const placeholders = options.tags.map((_, i) => `@tg${i}`).join(", ");
+      options.tags.forEach((t, i) => {
+        params[`tg${i}`] = t;
+      });
+      conditions.push(
+        `json_type(contextual_metadata, '$.tags') = 'array' AND EXISTS (SELECT 1 FROM json_each(contextual_metadata, '$.tags') WHERE json_each.value IN (${placeholders}))`,
+      );
+    }
+
     if (options.validAt !== undefined) {
       // Valid-time window contains the instant: [valid_from, valid_to), null = open.
       conditions.push(`valid_from <= @validAt AND (valid_to IS NULL OR valid_to > @validAt)`);
@@ -571,19 +583,7 @@ export class SqliteMemoryStore implements MemoryStore {
     }
     if (limitN !== undefined && Number.isFinite(limitN)) nodes.length = Math.min(nodes.length, limitN);
 
-    let results = nodes.map((n) => n.node);
-
-    // Tags filter (post-SQL — contextualMetadata.tags is a JSON array)
-    if (options.tags !== undefined && options.tags.length > 0) {
-      const wanted = new Set(options.tags);
-      results = results.filter((node) => {
-        const rawTags = node.contextualMetadata["tags"];
-        if (!Array.isArray(rawTags)) return false;
-        return (rawTags as string[]).some((tag) => wanted.has(tag));
-      });
-    }
-
-    return results;
+    return nodes.map((n) => n.node);
   }
 
   async updateNode(

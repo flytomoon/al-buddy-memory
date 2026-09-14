@@ -123,3 +123,82 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
   }
   return report;
 }
+
+// ---------------------------------------------------------------------------
+// Review and undo — "what did the agent conclude last night, and can I take it back?"
+// ---------------------------------------------------------------------------
+
+export interface ConsolidatedFact {
+  nodeId: string;
+  text: string;
+  /** The raw nodes this fact rests on (the evidence). */
+  derivedFrom: string[];
+  confidence: number;
+  /** Null while the fact stands; the instant it was retracted otherwise. */
+  retractedAt: string | null;
+}
+
+export interface ConsolidationRun {
+  /** Identifies the pass: every fact it wrote carries this instant. */
+  consolidatedAt: string;
+  model: string;
+  facts: ConsolidatedFact[];
+}
+
+function isDerived(n: MemoryNode): boolean {
+  return n.provenance === "AIInferred" && typeof n.contextualMetadata["consolidatedAt"] === "string";
+}
+
+/**
+ * Every consolidation pass with the facts it wrote and their evidence, newest pass
+ * first — retracted facts included, so the history stays readable.
+ */
+export async function listConsolidations(store: MemoryStore): Promise<ConsolidationRun[]> {
+  const derived = (await store.searchNodes({})).filter(isDerived);
+  const runs = new Map<string, ConsolidationRun>();
+  for (const n of derived) {
+    const at = n.contextualMetadata["consolidatedAt"] as string;
+    const run = runs.get(at) ?? { consolidatedAt: at, model: String(n.contextualMetadata[CONSOLIDATED_MARK] ?? ""), facts: [] };
+    run.facts.push({
+      nodeId: n.nodeId,
+      text: n.content.text,
+      derivedFrom: (n.contextualMetadata["derivedFrom"] as string[] | undefined) ?? [],
+      confidence: n.confidenceWeight,
+      retractedAt: n.validTo,
+    });
+    runs.set(at, run);
+  }
+  return [...runs.values()].sort((a, b) => b.consolidatedAt.localeCompare(a.consolidatedAt));
+}
+
+export interface UndoConsolidationReport {
+  /** Facts from that pass that were standing and are now retracted. */
+  retracted: string[];
+  /** Facts from that pass that had already been retracted or superseded. */
+  alreadyRetracted: string[];
+}
+
+/**
+ * Take back everything one consolidation pass concluded. Nothing is deleted: each
+ * of its facts gets `validTo` = now, so recall stops using it and the history still
+ * shows it was believed and when it was withdrawn. The raw it read stays marked as
+ * read, so tomorrow's pass does not simply derive the same conclusion again.
+ */
+export async function undoConsolidation(
+  store: MemoryStore,
+  consolidatedAt: string,
+  opts: { now?: () => Date } = {},
+): Promise<UndoConsolidationReport> {
+  const now = (opts.now ?? (() => new Date()))().toISOString();
+  const report: UndoConsolidationReport = { retracted: [], alreadyRetracted: [] };
+  const facts = (await store.searchNodes({})).filter((n) => isDerived(n) && n.contextualMetadata["consolidatedAt"] === consolidatedAt);
+  for (const n of facts) {
+    if (n.validTo !== null && n.validTo <= now) {
+      report.alreadyRetracted.push(n.nodeId);
+      continue;
+    }
+    await store.updateNode(n.nodeId, { validTo: now });
+    report.retracted.push(n.nodeId);
+  }
+  return report;
+}
