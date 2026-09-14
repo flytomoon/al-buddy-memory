@@ -136,6 +136,15 @@ export interface ConsolidatedFact {
   confidence: number;
   /** Null while the fact stands; the instant it was retracted otherwise. */
   retractedAt: string | null;
+  /** How it was withdrawn, when an undo withdrew it: by whom or what, and why. Null otherwise. */
+  retraction: Retraction | null;
+}
+
+export interface Retraction {
+  at: string;
+  /** What withdrew it — "undoConsolidation" plus the caller's name for itself, e.g. "undoConsolidation (Chris via console)". */
+  by: string;
+  reason: string;
 }
 
 export interface ConsolidationRun {
@@ -143,6 +152,11 @@ export interface ConsolidationRun {
   consolidatedAt: string;
   model: string;
   facts: ConsolidatedFact[];
+}
+
+function readRetraction(n: MemoryNode): Retraction | null {
+  const r = n.contextualMetadata["retraction"] as Partial<Retraction> | undefined;
+  return r && typeof r.at === "string" && typeof r.by === "string" && typeof r.reason === "string" ? { at: r.at, by: r.by, reason: r.reason } : null;
 }
 
 function isDerived(n: MemoryNode): boolean {
@@ -165,6 +179,7 @@ export async function listConsolidations(store: MemoryStore): Promise<Consolidat
       derivedFrom: (n.contextualMetadata["derivedFrom"] as string[] | undefined) ?? [],
       confidence: n.confidenceWeight,
       retractedAt: n.validTo,
+      retraction: readRetraction(n),
     });
     runs.set(at, run);
   }
@@ -180,15 +195,18 @@ export interface UndoConsolidationReport {
 
 /**
  * Take back everything one consolidation pass concluded. Nothing is deleted: each
- * of its facts gets `validTo` = now, so recall stops using it and the history still
- * shows it was believed and when it was withdrawn. The raw it read stays marked as
+ * of its facts gets `validTo` = now, so recall stops using it, plus a `retraction`
+ * record (when, by whom or what, and why), so the history shows it was believed,
+ * that it was withdrawn by an undo, and the reason. The raw it read stays marked as
  * read, so tomorrow's pass does not simply derive the same conclusion again.
  */
 export async function undoConsolidation(
   store: MemoryStore,
   consolidatedAt: string,
-  opts: { now?: () => Date } = {},
+  opts: { now?: () => Date; reason: string; by?: string },
 ): Promise<UndoConsolidationReport> {
+  const reason = (opts.reason ?? "").trim();
+  if (reason === "") throw new Error("undoConsolidation needs a reason: an undo without one leaves the record unable to say why");
   const now = (opts.now ?? (() => new Date()))().toISOString();
   const report: UndoConsolidationReport = { retracted: [], alreadyRetracted: [] };
   const facts = (await store.searchNodes({})).filter((n) => isDerived(n) && n.contextualMetadata["consolidatedAt"] === consolidatedAt);
@@ -197,7 +215,8 @@ export async function undoConsolidation(
       report.alreadyRetracted.push(n.nodeId);
       continue;
     }
-    await store.updateNode(n.nodeId, { validTo: now });
+    const retraction: Retraction = { at: now, by: opts.by ? `undoConsolidation (${opts.by})` : "undoConsolidation", reason };
+    await store.updateNode(n.nodeId, { validTo: now, contextualMetadata: { ...n.contextualMetadata, retraction } });
     report.retracted.push(n.nodeId);
   }
   return report;
