@@ -168,6 +168,22 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect(people[0]?.content.text).toBe("with Bob");
     });
 
+    it("applies the tag filter before the limit, not after it", async () => {
+      for (let i = 0; i < 12; i++) {
+        await store.addNode(makeNode({ content: { text: `untagged ${i}` }, confidenceWeight: 0.95 }));
+      }
+      await store.addNode(
+        makeNode({ content: { text: "the tagged one" }, confidenceWeight: 0.2, contextualMetadata: { tags: ["voice"] } }),
+      );
+      const hits = await store.searchNodes({ tags: ["voice"], limit: 5 });
+      expect(hits.map((n) => n.content.text)).toEqual(["the tagged one"]);
+    });
+
+    it("treats a tags value that is not an array as untagged", async () => {
+      await store.addNode(makeNode({ content: { text: "odd metadata" }, contextualMetadata: { tags: "voice" } }));
+      expect(await store.searchNodes({ tags: ["voice"] })).toHaveLength(0);
+    });
+
     it("orders query results by relevance, not static confidence", async () => {
       // A low-confidence node that is clearly about the query must outrank a
       // high-confidence node that merely mentions it in passing.

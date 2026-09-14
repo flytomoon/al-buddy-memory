@@ -1,6 +1,6 @@
 {
   "name": "al-buddy-memory",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Portable, governed, model-agnostic memory for AI agents: facts are invalidated never deleted, raw text is the source of truth, embeddings are a disposable cache, and everything exports to one documented format.",
   "type": "module",
   "main": "./dist/index.js",
