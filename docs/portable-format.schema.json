@@ -47,7 +47,7 @@
       "properties": {
         "project": {
           "type": "string",
-          "description": "The scope this memory belongs to \u2014 a product, a person, a workspace."
+          "description": "The scope this memory belongs to — a product, a person, a workspace."
         },
         "nodes": {
           "type": "array",
@@ -116,7 +116,8 @@
           "enum": [
             "FullRetention",
             "Summarized",
-            "Archived"
+            "Archived",
+            "PendingDeletion"
           ]
         },
         "content": {
@@ -225,7 +226,8 @@
             "Reinforcement",
             "Contradiction",
             "Temporal",
-            "Emotional"
+            "Emotional",
+            "Conceptual"
           ]
         },
         "strength": {

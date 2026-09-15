@@ -86,6 +86,11 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     async searchNodes(options): Promise<MemoryNode[]> {
       return filterRead(opts, await inner.searchNodes(options), ctxFor(opts, opts.readAs ?? "recall"));
     },
+    // Enumeration is a read: without this, listNodes on a governed handle would
+    // hand back every Sensitive and Sealed fact the policies exist to hide.
+    async listNodes(): Promise<MemoryNode[]> {
+      return filterRead(opts, await inner.listNodes(), ctxFor(opts, opts.readAs ?? "recall"));
+    },
   };
   return new Proxy(inner, {
     get(target, prop, receiver) {

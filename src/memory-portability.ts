@@ -45,13 +45,6 @@ export interface ImportSummary {
   edges: number;
 }
 
-/** Every node in a store — currently valid, retired, and Sealed alike. */
-async function allNodes(store: MemoryStore): Promise<MemoryNode[]> {
-  const open = await store.searchNodes({});
-  const sealed = await store.searchNodes({ privacyClassification: ["Sealed"] });
-  return [...open, ...sealed];
-}
-
 export async function exportPortable(
   stores: Map<string, MemoryStore>,
 ): Promise<PortableExport> {
@@ -60,14 +53,21 @@ export async function exportPortable(
   const relations: McpRelation[] = [];
 
   for (const [project, store] of stores) {
-    const nodes = await allNodes(store);
+    // Every node — any validity, privacy or retention tier. Enumerating through
+    // searchNodes silently dropped Archived and PendingDeletion facts, because
+    // its default read hides them (review 2026-09-14).
+    const nodes = await store.listNodes();
+    const included = new Set(nodes.map((n) => n.nodeId));
     const edgeById = new Map<string, MemoryEdge>();
     for (const node of nodes) {
       for (const edge of await store.getEdges(node.nodeId)) {
-        edgeById.set(edge.edgeId, edge);
+        // Both ends must be in this export. Through a filtered view an edge to a
+        // hidden fact would disclose its id and how it relates; in a full export
+        // a dangling edge makes the artifact unimportable.
+        if (included.has(edge.sourceNodeId) && included.has(edge.targetNodeId)) edgeById.set(edge.edgeId, edge);
       }
     }
-    const edges = [...edgeById.values()];
+    const edges = [...edgeById.values()].sort((a, b) => a.edgeId.localeCompare(b.edgeId));
     projects.push({ project, nodes, edges });
 
     // MCP interop view is loadable into other AI runtimes, so it must NOT carry

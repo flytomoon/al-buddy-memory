@@ -481,6 +481,12 @@ export class SqliteMemoryStore implements MemoryStore {
       });
   }
 
+  async listNodes(): Promise<MemoryNode[]> {
+    // No filters at all: this is enumeration (export, backup), not recall.
+    const rows = this.db.prepare(`SELECT * FROM memory_nodes ORDER BY created_at ASC, node_id ASC`).all() as NodeRow[];
+    return rows.map(rowToNode);
+  }
+
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
     // --- Full-text search via FTS5 (keep the BM25 rank — it IS the relevance) ---
     // The match is a JOIN, not an IN-list of rowids: a common term over a

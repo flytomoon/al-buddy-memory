@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { learnedAt } from "./decay.js";
+import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 /**
@@ -190,6 +192,22 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect((await store.searchNodes({ query: "coffee", limit: 4 })).map((n) => n.nodeId)).toEqual(
         page.map((n) => n.nodeId),
       );
+    });
+
+    it("listNodes returns every node — any privacy, any retention tier, retired or not — oldest first", async () => {
+      const ids: string[] = [];
+      for (const privacyClassification of PRIVACY_CLASSIFICATIONS) {
+        for (const retentionTier of RETENTION_TIERS) {
+          const n = await store.addNode(makeNode({ privacyClassification, retentionTier, content: { text: `${privacyClassification}/${retentionTier}` } }));
+          ids.push(n.nodeId);
+        }
+      }
+      await store.updateNode(ids[0]!, { validTo: new Date().toISOString() });
+      const listed = await store.listNodes();
+      expect(listed.map((n) => n.nodeId).sort()).toEqual([...ids].sort());
+      // Oldest learned first, id settling a shared millisecond: the reverse of compareRecency.
+      const keys = listed.map((n) => `${learnedAt(n)}|${n.nodeId}`);
+      expect(keys).toEqual([...keys].sort());
     });
 
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
