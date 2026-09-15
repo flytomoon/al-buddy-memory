@@ -90,7 +90,9 @@ export class PinnedBlocks {
         text: n.content.text,
         pinnedAt: typeof n.contextualMetadata["pinnedAt"] === "string" ? (n.contextualMetadata["pinnedAt"] as string) : n.validFrom,
       }))
-      .sort((a, b) => a.pinnedAt.localeCompare(b.pinnedAt));
+      // Oldest first, id ascending: two pins added in the same millisecond must
+      // not swap places between renders, or the one the budget drops changes.
+      .sort((a, b) => a.pinnedAt.localeCompare(b.pinnedAt) || a.nodeId.localeCompare(b.nodeId));
   }
 
   /**

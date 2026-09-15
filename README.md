@@ -29,7 +29,7 @@ yours in ten minutes: pin who the person is and how they want to be treated (inc
 yes-person"), choose the rules the store enforces, and let it derive the rest nightly.
 
 Upgrading from an earlier version: [CHANGELOG.md](CHANGELOG.md) marks anything that changes what
-an existing caller gets back. 0.3.4 changes the order of tied reads — newest first now, oldest
+an existing caller gets back. 0.3.5 changes the order of tied reads — newest first now, oldest
 before — so read that entry before you rely on a page.
 
 ## What is in the box

@@ -5,7 +5,7 @@ Notable changes, newest first. Dates are the release date; versions follow
 existing caller gets back — even when the old answer was a bug — is called out
 under **Behaviour change**, because a version number alone is not a warning.
 
-## 0.3.4 — 2026-09-14
+## 0.3.5 — 2026-09-14
 
 ### Behaviour change — reads that tie now return the NEWEST, not the oldest
 
@@ -52,6 +52,23 @@ facts, ask for them explicitly rather than by taking a short page.
   stores page newest first, a pass replays oldest first, and neither order is
   left to chance.
 
+### Also fixed before this shipped — the keyword path had it too
+
+Chasing the report through the rest of the code found the same defect on the
+side that recall actually uses. With a query, SQLite fills a candidate pool
+(200, or ten per requested result) and JavaScript re-ranks it — but the pool was
+ordered `rank, confidence` only. On any term matching more than the pool, ties
+meant SQLite handed over the **oldest** 200 hits, and the re-rank could only
+pick the newest of those. The pool's `ORDER BY` now ends the same way the
+re-rank does, so a limited search is a page of the same list, not of a different
+one. The conformance suite asserts it over 230 equally relevant facts.
+
+The same last key was added to the remaining ranked reads, so nothing is left
+deciding a page by storage order: the vector candidate list (two recordings of
+one fact have *identical* similarity — it is a function of the text — so this
+also settles which one `findDuplicate` reinforces), and the pinned-block list,
+where it decides which pin a full budget drops.
+
 ### Internal
 
 - Migration v4 rebuilds the ranking index to cover the new `ORDER BY`
@@ -61,6 +78,12 @@ facts, ask for them explicitly rather than by taking a short page.
   facts than both the limit and the candidate pool, asserting a limited read is
   a prefix of the unlimited one and that nothing newer was left out. It fails
   against 0.3.3.
+
+## 0.3.4 — never published
+
+Staged, then superseded an hour later by 0.3.5 when the keyword path turned out
+to have the same defect. Nothing was released under this number; if you are
+looking for the tie-order change, it is 0.3.5.
 
 ## 0.3.3 — 2026-09-14
 
