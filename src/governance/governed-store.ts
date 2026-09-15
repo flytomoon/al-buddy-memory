@@ -87,6 +87,14 @@ function asPatch(node: MemoryNode): NodePatch {
   };
 }
 
+/**
+ * Copy an argument the moment a governed call is made. The checks await; a caller
+ * in the same process that still holds the object could otherwise pass a visible
+ * id, clear the check, and swap in a hidden one before the write (Astra final
+ * review, 2026-09-15). Everything after this line sees only the copy.
+ */
+const snapshot = <T>(value: T): T => structuredClone(value);
+
 export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   const readCtx = () => ctxFor(opts, opts.readAs ?? "recall");
 
@@ -124,7 +132,8 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   // the raw data (Fable re-review, 2026-09-15). Whoever should close or tune the
   // store holds the inner one.
   const governed: MemoryStore = {
-    async addNode(node: NewMemoryNode): Promise<MemoryNode> {
+    async addNode(input: NewMemoryNode): Promise<MemoryNode> {
+      const node = snapshot(input);
       const ctx = ctxFor(opts, "write");
       const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
       const saved = await inner.addNode(current);
@@ -132,7 +141,8 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       return saved;
     },
 
-    async updateNode(nodeId, patch, anchorEvent): Promise<MemoryNode> {
+    async updateNode(nodeId, input, anchorEvent): Promise<MemoryNode> {
+      const patch = snapshot(input);
       const ctx = ctxFor(opts, patch.validTo !== undefined ? "invalidate" : "write");
       // A fact this actor cannot read is a fact this actor cannot change, and
       // its text must not come back in the response. This used to fetch the
@@ -148,19 +158,23 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       return (await view(opts, updated, { ...ctx, purpose: "recall" })) ?? { ...seen, ...patch, temporalAnchors: updated.temporalAnchors };
     },
 
-    async restoreNode(node: MemoryNode): Promise<void> {
+    async restoreNode(input: MemoryNode): Promise<void> {
+      const node = snapshot(input);
       const ctx = ctxFor(opts, "import");
       const existing = await inner.getNode(node.nodeId);
       let incoming = node;
       await guarded(opts, ctx, [node.nodeId], async () => {
-        if (existing && !(await view(opts, existing, { ...ctx, purpose: "recall" }))) {
-          throw new PolicyDenied("govern", "cannot restore over a fact this actor cannot read");
-        }
-        // The write policies see an import exactly as they see a new fact, so a
-        // restored secret is classified the same way a written one is...
+        // The write policies run FIRST: they authorise the import before anything
+        // depends on whether the fact already exists, so a refused actor learns
+        // nothing about which ids are there (Astra final review, 2026-09-15). They
+        // also see an import exactly as they see a new fact, so a restored secret is
+        // classified the same way a written one is...
         const { nodeId, temporalAnchors, validFrom, validTo, ...fields } = node;
         const written = await writePolicies({ ...fields, validFrom, validTo }, ctx);
         incoming = { ...node, ...written, nodeId, temporalAnchors };
+        if (existing && !(await view(opts, existing, { ...ctx, purpose: "recall" }))) {
+          throw new PolicyDenied("govern", "cannot restore over a fact this actor cannot read");
+        }
         // ...and the update policies judge what will actually be stored, not the
         // copy before the write policies shaped it (Astra re-review, 2026-09-15:
         // a write policy that archived on import slipped past an update policy
@@ -186,7 +200,8 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       await record(opts, ctx, "allowed", [], { reason: `edge ${edgeId}` });
     },
 
-    async addEdge(edge): Promise<MemoryEdge> {
+    async addEdge(input): Promise<MemoryEdge> {
+      const edge = snapshot(input);
       const ctx = ctxFor(opts, "write");
       // Linking to a hidden fact would confirm that its id exists.
       await visibleOrNotFound(edge.sourceNodeId, ctx);
@@ -196,7 +211,8 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       return saved;
     },
 
-    async restoreEdge(edge: MemoryEdge): Promise<void> {
+    async restoreEdge(input: MemoryEdge): Promise<void> {
+      const edge = snapshot(input);
       const ctx = ctxFor(opts, "import");
       await visibleOrNotFound(edge.sourceNodeId, ctx);
       await visibleOrNotFound(edge.targetNodeId, ctx);
@@ -220,7 +236,8 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     // The embedding cache: vectors are derived from facts, so they follow the
     // facts' visibility. Writing a vector onto a hidden fact succeeded while a
     // missing id failed — an oracle for which hidden ids exist.
-    async setEmbedding(embedding): Promise<MemoryEmbedding> {
+    async setEmbedding(input): Promise<MemoryEmbedding> {
+      const embedding = snapshot(input);
       await visibleOrNotFound(embedding.nodeId, ctxFor(opts, "write"));
       return inner.setEmbedding(embedding);
     },
@@ -246,7 +263,8 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       return visible;
     },
 
-    async searchNodes(options): Promise<MemoryNode[]> {
+    async searchNodes(input): Promise<MemoryNode[]> {
+      const options = snapshot(input);
       const ctx = readCtx();
       // A cursor this actor cannot see is a missing cursor: the page after it is
       // empty. It used to answer differently for a hidden id than a missing one.

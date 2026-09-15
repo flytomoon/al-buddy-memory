@@ -344,3 +344,61 @@ describe("the samples and views keep their own words", () => {
     expect(await inner.getNode(n.nodeId)).toBeDefined();
   });
 });
+
+/**
+ * Astra final review, 2026-09-15 (B1): the governed methods checked an input
+ * object, awaited, then used the SAME object — so a caller in the same process
+ * could pass a visible id, pass the check, and swap in a hidden id before the
+ * write. Every input is now copied at the call.
+ */
+describe("a governed call acts on the arguments as they were when it was made", () => {
+  it("swapping the target after the call cannot write to a hidden fact", async () => {
+    for (const make of [() => new InMemoryStore(), () => new SqliteMemoryStore(":memory:")]) {
+      const inner = make();
+      const owner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+      const visible = await owner.addNode(fact("likes sourdough"));
+      const hidden = await owner.addNode(fact("password: hunter2"));
+      const ai = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o", audience: "agent" }) });
+
+      const e = { nodeId: visible.nodeId, model: "m", modelVersion: "1", dimensions: 1, metric: "cosine" as const, vector: [1] };
+      const pending = ai.setEmbedding(e);
+      e.nodeId = hidden.nodeId; // swapped after the check has started
+      await pending;
+      expect(await inner.getEmbeddings(hidden.nodeId)).toEqual([]);
+      expect(await inner.getEmbeddings(visible.nodeId)).toHaveLength(1);
+
+      const link = { sourceNodeId: visible.nodeId, targetNodeId: visible.nodeId, relationshipType: "Cause" as const, strength: 1, provenance: "AIInferred" as const };
+      const linking = ai.addEdge(link);
+      link.targetNodeId = hidden.nodeId;
+      const made = await linking;
+      expect(made.targetNodeId).toBe(visible.nodeId);
+
+      const secret = fact("an ordinary note");
+      const writing = owner.addNode(secret);
+      secret.content = { text: "api_key=sk-live-abcdefghijklmnop1234" }; // would dodge classification
+      const written = await writing;
+      expect(written.content.text).toBe("an ordinary note");
+      (inner as { close?: () => void }).close?.();
+    }
+  });
+});
+
+/** Astra final review (B4): import was "owner-grade" only in the docs, and answered differently for hidden and missing ids. */
+describe("import is authorised before anything depends on whether the fact exists", () => {
+  it("a stranger's import is refused the same way for a hidden fact and a missing one", async () => {
+    const inner = new InMemoryStore();
+    const owner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+    const hidden = await owner.addNode(fact("password: hunter2"));
+    const stranger = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "stranger" }) });
+    const missing = { ...hidden, nodeId: "00000000-0000-4000-8000-00000000beef" };
+    const errorOf = async (p: Promise<unknown>) => p.then(() => "resolved", (e: Error) => `${e.name}: ${e.message}`);
+    const a = await errorOf(stranger.restoreNode(hidden));
+    const b = await errorOf(stranger.restoreNode(missing));
+    expect(a).toMatch(/PolicyDenied/);
+    expect(a).toBe(b);
+    expect(await inner.getNode(missing.nodeId)).toBeUndefined();
+    // the owner still imports
+    await owner.restoreNode(missing);
+    expect(await inner.getNode(missing.nodeId)).toBeDefined();
+  });
+});

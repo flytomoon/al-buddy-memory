@@ -10,7 +10,7 @@
  * the pass never re-reads it. The model is injected — this library is
  * model-agnostic and calls nothing itself.
  */
-import { learnedAt } from "./decay.js";
+import { compareRecency, learnedAt } from "./decay.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 export interface RawExcerpt {
@@ -67,7 +67,7 @@ const createdAt = learnedAt;
  * a pass replays oldest first, and both are total orders.
  */
 function chronologically(a: MemoryNode, b: MemoryNode): number {
-  return createdAt(a).localeCompare(createdAt(b)) || a.nodeId.localeCompare(b.nodeId);
+  return compareRecency(b, a);
 }
 
 function alreadyConsolidated(n: MemoryNode): boolean {

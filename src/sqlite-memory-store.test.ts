@@ -103,7 +103,7 @@ describe("SqliteMemoryStore — a store written before 0.4.0", () => {
       reopened.close();
     }
     const check = new Database(dbPath);
-    expect(check.pragma("user_version", { simple: true })).toBe(5);
+    expect(check.pragma("user_version", { simple: true })).toBe(6); // every migration ran, v6 included
     check.close();
   });
 });
@@ -126,6 +126,56 @@ describe("SqliteMemoryStore — re-importing over a store written before 0.4.0",
       await expect(reopened.restoreNode(newer)).resolves.toBeUndefined();
       expect((await reopened.getNode(node.nodeId))?.confidenceWeight).toBe(0.4);
       reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Astra final review, 2026-09-15 (B3): 0.3.3's restoreNode stored creation times
+ * verbatim, offsets included. SQL ordered those strings byte-wise, JavaScript
+ * with localeCompare, and neither by the instant — so on such a store the limited
+ * read and the unlimited read disagreed about the first fact. Astra's fixture.
+ */
+describe("SqliteMemoryStore — paging over creation times written before 0.4.0", () => {
+  it("orders by the instant in SQL and JS alike, so the page is still the first of the full read", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "al-buddy-memlegacy-"));
+    const dbPath = join(dir, "legacy.db");
+    try {
+      const first = new SqliteMemoryStore(dbPath);
+      const id = (i: number) => `00000000-0000-4000-8000-000000000${String(i).padStart(3, "0")}`;
+      for (let i = 0; i <= 200; i++) {
+        await first.restoreNode({
+          ...makeNode({ content: { text: "needle" }, confidenceWeight: 0.5, decayRate: 0 }),
+          nodeId: id(i),
+          temporalAnchors: [{ timestamp: "2026-01-01T00:00:00.000Z", event: "created" }],
+          validFrom: "2025-01-01T00:00:00.000Z",
+          validTo: null,
+        });
+      }
+      first.close();
+      // What 0.3.3 would have stored: rows 000–199 at 01:00Z spelled with -01:00,
+      // row 200 at 23:00Z the day before spelled with +01:00 (older, but "+" sorts first).
+      const raw = new Database(dbPath);
+      const set = raw.prepare(`UPDATE memory_nodes SET created_at = ?, temporal_anchors = ? WHERE node_id = ?`);
+      for (let i = 0; i <= 200; i++) {
+        const at = i === 200 ? "2026-01-01T00:00:00+01:00" : "2026-01-01T00:00:00-01:00";
+        set.run(at, JSON.stringify([{ timestamp: at, event: "created" }]), id(i));
+      }
+      raw.pragma("user_version = 5");
+      raw.close();
+
+      const store = new SqliteMemoryStore(dbPath);
+      for (const query of [undefined, "needle"]) {
+        const all = await store.searchNodes(query === undefined ? {} : { query });
+        const page = await store.searchNodes(query === undefined ? { limit: 1 } : { query, limit: 1 });
+        // newest by instant is one of 000–199; among those, the largest id
+        expect(all[0]?.nodeId).toBe(id(199));
+        expect(page.map((n) => n.nodeId)).toEqual([id(199)]);
+        expect(all.at(-1)?.nodeId).toBe(id(200));
+      }
+      store.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

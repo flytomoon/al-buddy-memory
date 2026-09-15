@@ -110,9 +110,9 @@ describe("the hash-chained audit log", () => {
     for (const lastLine of [JSON.stringify(event(0)), '{"prev":"00000000', "null"]) {
       writeFileSync(path, lastLine + "\n");
       const audit = new ChainedAudit(path);
-      await expect(audit.head()).rejects.toThrow(/chained audit log|incomplete/);
-      await expect(audit.record(event(1))).rejects.toThrow(/chained audit log|incomplete/);
-      await expect(audit.record(event(2))).rejects.toThrow(/chained audit log|incomplete/);
+      await expect(audit.head()).rejects.toThrow(/chained audit|incomplete|does not verify/);
+      await expect(audit.record(event(1))).rejects.toThrow(/chained audit|incomplete|does not verify/);
+      await expect(audit.record(event(2))).rejects.toThrow(/chained audit|incomplete|does not verify/);
       expect(readFileSync(path, "utf8")).toBe(lastLine + "\n"); // nothing appended to a log it cannot chain
     }
   });
@@ -127,5 +127,68 @@ describe("the hash-chained audit log", () => {
     const { inspect } = await import("node:util");
     expect(JSON.stringify(audit)).not.toContain(key);
     expect(inspect(audit, { showHidden: true, depth: 5 })).not.toContain(key);
+  });
+});
+
+/**
+ * Astra final review, 2026-09-15 (B5, B6): the log trusted its last line. Opened
+ * with the wrong key it kept appending, so verification failed from then on; a
+ * final record without its newline merged with the next one; an unreadable file
+ * counted as a new, empty log; and after an append that failed part-way it went
+ * on writing on top of the fragment.
+ */
+describe("the chained log verifies before it extends, and stops after an uncertain write", () => {
+  let dir: string;
+  let path: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "audit-chain-b56-"));
+    path = join(dir, "audit.jsonl");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("refuses to extend a log it cannot verify: wrong key, missing final newline, unreadable path", async () => {
+    const good = new ChainedAudit(path, { key: "right" });
+    await good.record(event(0));
+    await good.record(event(1));
+    const before = readFileSync(path, "utf8");
+
+    const wrong = new ChainedAudit(path, { key: "wrong" });
+    await expect(wrong.head()).rejects.toThrow(/does not verify/);
+    await expect(wrong.record(event(2))).rejects.toThrow(/does not verify/);
+    expect(readFileSync(path, "utf8")).toBe(before);
+
+    writeFileSync(path, before.trimEnd()); // the last record lost its newline
+    await expect(new ChainedAudit(path, { key: "right" }).head()).rejects.toThrow(/newline|incomplete/);
+
+    await expect(new ChainedAudit(dir, { key: "right" }).head()).rejects.toThrow(); // a directory: unreadable, not "new"
+  });
+
+  it("after an append fails part-way, it writes nothing more until the log is checked", async () => {
+    let calls = 0;
+    const { appendFile } = await import("node:fs/promises");
+    const flaky = async (file: string, data: string) => {
+      calls += 1;
+      if (calls === 2) {
+        await appendFile(file, data.slice(0, 30)); // a torn write…
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }); // …then the error
+      }
+      await appendFile(file, data);
+    };
+    const audit = new ChainedAudit(path, { append: flaky });
+    await audit.record(event(0));
+    await expect(audit.record(event(1))).rejects.toThrow(/ENOSPC/);
+    await expect(audit.record(event(2))).rejects.toThrow(/failed part-way|verify/);
+    expect(calls).toBe(2); // nothing appended after the failure
+    expect(await verifyAuditChain(path)).toMatchObject({ ok: false, line: 2 });
+    await expect(new ChainedAudit(path).head()).rejects.toThrow(); // a restart also refuses until repaired
+  });
+
+  it("names a null record and reports physical line numbers", async () => {
+    const audit = new ChainedAudit(path);
+    for (let i = 0; i < 3; i++) await audit.record(event(i));
+    const ls = readFileSync(path, "utf8").trimEnd().split("\n");
+    writeFileSync(path, [ls[0], "", ls[1], "null", ls[2]].join("\n") + "\n");
+    const r = await verifyAuditChain(path);
+    expect(r).toMatchObject({ ok: false, line: 4, reason: expect.stringMatching(/not a chained audit record/) });
   });
 });

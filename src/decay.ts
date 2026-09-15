@@ -62,7 +62,19 @@ export function learnedAt(node: MemoryNode): string {
   return node.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? node.validFrom;
 }
 
-/** Newest first, ties settled by id so two stores (and two reads) agree exactly. */
+/** Byte order, as SQLite's BINARY collation compares — localeCompare does not (Fable, Astra). */
+export function compareBinary(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Newest first, ties settled by id so two stores (and two reads) agree exactly.
+ * Compared as INSTANTS, not spellings: a store written before 0.4.0 can hold
+ * "…-01:00" and "…+01:00", which sort by the sign character, not by time (Astra
+ * final review, 2026-09-15). The id tie-break is byte order, matching SQL.
+ */
 export function compareRecency(a: MemoryNode, b: MemoryNode): number {
-  return learnedAt(b).localeCompare(learnedAt(a)) || b.nodeId.localeCompare(a.nodeId);
+  const x = Date.parse(learnedAt(a)), y = Date.parse(learnedAt(b));
+  const byTime = Number.isFinite(x) && Number.isFinite(y) ? y - x : compareBinary(learnedAt(b), learnedAt(a));
+  return byTime || compareBinary(b.nodeId, a.nodeId);
 }

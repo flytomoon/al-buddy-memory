@@ -171,14 +171,35 @@ changes are here.
   not verified), that `encryptionKeyRef` does not encrypt anything, and that the
   governed handle — not the inner store — is what you hand out.
 
+### Also fixed before release — Astra's final review
+
+- A governed call copies its arguments at the moment it is made. The checks
+  await, so a caller in the same process could pass a visible id, clear the
+  check, and swap in a hidden one before the write.
+- A stranger's import answered differently for a hidden id (refused) than a
+  missing one (created). `personalDefaults` now allows import by the owner only,
+  and a governed import runs its authorisation before anything depends on
+  whether the fact exists.
+- Stores whose creation times were written by 0.3.3's `restoreNode` with offsets
+  ("…-01:00") sorted by the sign character, not by time, so SQL and JavaScript
+  disagreed about a page. Migration v6 makes the stored sort key canonical (the
+  anchors stay verbatim); JavaScript orders by the instant; the final id tie-break
+  is byte order in both. The paging bound now includes the id, so 100,000 facts
+  sharing one creation instant no longer force a full read (324 ms → 3 ms).
+- The chained audit log verifies itself under its key before extending, requires
+  a complete final line, treats only a missing file as new, and writes nothing
+  more after an append that failed part-way. `verifyAuditChain` names a `null`
+  record and reports physical line numbers.
+
 ### Known issues
 
 - `searchNodes({ after })` means different things in the two stores (SQLite: facts
   learned after the cursor; in-memory: the rest of the ordered listing) and no
   conformance test covers it. It is unused by the library; define it or remove it
   before 1.0.
-- A governed read that steps past many hidden facts takes measurably longer: a
-  timing hint, never a disclosure of content (GOVERNANCE.md).
+- A governed read that steps past many hidden facts takes measurably longer, and
+  keyword relevance uses whole-store statistics, so a hidden fact containing a word
+  can reorder visible results for that word. Hints, never content (GOVERNANCE.md).
 
 ### Internal
 
