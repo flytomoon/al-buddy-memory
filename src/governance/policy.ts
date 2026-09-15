@@ -6,7 +6,10 @@
  */
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 
-export type Purpose = "write" | "recall" | "export" | "invalidate";
+export type Purpose = "write" | "recall" | "export" | "invalidate" | "import" | "erase";
+
+/** What an erasure would remove: a whole fact, or one link between facts. */
+export type ErasureSubject = { node: MemoryNode } | { edgeId: string };
 
 export interface PolicyContext {
   /** Who is acting: a user id, an agent name, a service. */
@@ -29,6 +32,14 @@ export interface GovernancePolicy {
   beforeRead?(node: MemoryNode, ctx: PolicyContext): MemoryNode | null | Promise<MemoryNode | null>;
   /** Decide whether a fact may leave in an export. Defaults to beforeRead's answer. */
   beforeExport?(node: MemoryNode, ctx: PolicyContext): boolean | Promise<boolean>;
+  /**
+   * Physically erasing a fact or a link — the one destructive operation, which
+   * stewardship law requires to exist. Return `true` to allow, throw
+   * {@link PolicyDenied} to refuse, return nothing to abstain. Erasure happens
+   * only when at least one policy allowed it and none refused, so a policy that
+   * merely protects some facts (guardian mode) never switches erasure on.
+   */
+  beforeErase?(subject: ErasureSubject, ctx: PolicyContext): boolean | void | Promise<boolean | void>;
 }
 
 export class PolicyDenied extends Error {

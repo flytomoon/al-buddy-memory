@@ -3,7 +3,7 @@
  * read like a rule a person can check, not a framework.
  */
 import type { MemoryNode, NewMemoryNode } from "../types/memory.js";
-import { PolicyDenied, type GovernancePolicy, type NodePatch, type PolicyContext } from "./policy.js";
+import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext } from "./policy.js";
 
 /** Things that look like secrets. Conservative on purpose: a false Sensitive costs a click, a leaked key costs more. */
 export const SECRET_PATTERNS: readonly RegExp[] = [
@@ -41,6 +41,11 @@ export function personalDefaults(opts: { owner: string }): GovernancePolicy {
       if (node.privacyClassification === "Sensitive" || node.privacyClassification === "Sealed") return ctx.actor === opts.owner;
       return true;
     },
+    // It is the owner's memory: only the owner erases any of it.
+    beforeErase(_subject: ErasureSubject, ctx: PolicyContext): true {
+      if (ctx.actor !== opts.owner) throw new PolicyDenied("personal-defaults", `${ctx.actor} is not the owner and cannot erase memory`);
+      return true;
+    },
   };
 }
 
@@ -59,6 +64,13 @@ export function guardianMode(opts: { guardians: string[] }): GovernancePolicy {
     },
     beforeUpdate(existing: MemoryNode, _patch: NodePatch, ctx: PolicyContext): void {
       if (existing.provenance === "GuardianAdded" && !guardians.has(ctx.actor)) throw new PolicyDenied("guardian-mode", `${ctx.actor} cannot change a guardian's fact`);
+    },
+    // Refuses a non-guardian erasing a guardian's fact; otherwise abstains —
+    // it never switches erasure on by itself.
+    beforeErase(subject: ErasureSubject, ctx: PolicyContext): void {
+      if ("node" in subject && subject.node.provenance === "GuardianAdded" && !guardians.has(ctx.actor)) {
+        throw new PolicyDenied("guardian-mode", `${ctx.actor} cannot erase a guardian's fact`);
+      }
     },
   };
 }
