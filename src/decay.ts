@@ -38,3 +38,31 @@ export function effectiveConfidence(
   const days = Math.max(0, (now - lastTouched(node)) / DAY_MS);
   return node.confidenceWeight * Math.max(DECAY_FLOOR, Math.exp(-rate * days));
 }
+
+// ---------------------------------------------------------------------------
+// Recency — the last word in every ranking
+// ---------------------------------------------------------------------------
+//
+// It lives here, beside effectiveConfidence, because it belongs to no one
+// store: SQLite, the in-memory store and hybrid recall all end on it, and that
+// is the point — one order, agreed everywhere. It also has to stay free of node
+// built-ins, because the browser demo bundles this file and not that one.
+
+/**
+ * When the store LEARNED a fact: the `created` temporal anchor (§2.1), which is
+ * exactly what the `created_at` column is written from a few lines below.
+ *
+ * Not `validFrom`. That is valid time — when the fact became true — and it is
+ * deliberately backdatable for facts recorded after the event ("respects
+ * explicit valid-time" in the conformance suite). Ordering a page by it would
+ * put a fact imported today about last year below one recorded yesterday,
+ * which is not what "most recent" means when you ask for ten of them.
+ */
+export function learnedAt(node: MemoryNode): string {
+  return node.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? node.validFrom;
+}
+
+/** Newest first, ties settled by id so two stores (and two reads) agree exactly. */
+export function compareRecency(a: MemoryNode, b: MemoryNode): number {
+  return learnedAt(b).localeCompare(learnedAt(a)) || b.nodeId.localeCompare(a.nodeId);
+}

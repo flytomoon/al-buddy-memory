@@ -16,6 +16,6 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      # One command, the same one a contributor runs locally (npm run check) —
+      # a gate that differs from the local one only teaches people to skip it.
+      - run: npm run check

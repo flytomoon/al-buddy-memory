@@ -1,4 +1,4 @@
-import { compareRecency } from "./sqlite-memory-store.js";
+import { compareRecency } from "./decay.js";
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";

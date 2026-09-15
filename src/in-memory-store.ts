@@ -1,6 +1,6 @@
 import { effectiveConfidence } from "./decay.js";
 import { assertPatchMutable } from "./immutable.js";
-import { compareRecency } from "./sqlite-memory-store.js";
+import { compareRecency } from "./decay.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,

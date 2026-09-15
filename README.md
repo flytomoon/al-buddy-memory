@@ -191,7 +191,7 @@ transport.
 
 ```sh
 npm ci
-npm run typecheck && npm test && npm run build
+npm run check   # typecheck, tests, and the browser bundle — exactly what CI runs
 ```
 
-Tests: 135, including a behavioural conformance suite every backend runs against itself.
+Tests: 155, including a behavioural conformance suite every backend runs against itself.

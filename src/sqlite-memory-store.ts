@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { effectiveConfidence } from "./decay.js";
+import { compareRecency, effectiveConfidence, learnedAt } from "./decay.js";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -266,25 +266,6 @@ const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
  * at all — is arbitrary, and no JS sort can repair that.
  */
 const NO_QUERY_ORDER = `ORDER BY confidence_weight DESC, created_at DESC, node_id DESC`;
-
-/**
- * When the store LEARNED a fact: the `created` temporal anchor (§2.1), which is
- * exactly what the `created_at` column is written from a few lines below.
- *
- * Not `validFrom`. That is valid time — when the fact became true — and it is
- * deliberately backdatable for facts recorded after the event ("respects
- * explicit valid-time" in the conformance suite). Ordering a page by it would
- * put a fact imported today about last year below one recorded yesterday,
- * which is not what "most recent" means when you ask for ten of them.
- */
-export function learnedAt(node: MemoryNode): string {
-  return node.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? node.validFrom;
-}
-
-/** Newest first, ties settled by id so two stores (and two reads) agree exactly. */
-export function compareRecency(a: MemoryNode, b: MemoryNode): number {
-  return learnedAt(b).localeCompare(learnedAt(a)) || b.nodeId.localeCompare(a.nodeId);
-}
 
 /** With a query, SQLite hands JS this many candidates per requested result to re-rank with decay. */
 const FTS_POOL_MULTIPLIER = 10;
