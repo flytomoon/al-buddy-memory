@@ -36,3 +36,23 @@ describe("effectiveConfidence", () => {
     expect(lastTouched(n)).toBe(now - 10 * day);
   });
 });
+
+describe("compareRecency is a total order, even over legacy anchors", () => {
+  it("sorts anything without a real instant after everything with one, consistently", async () => {
+    const { compareRecency } = await import("./decay.js");
+    const { instantMs } = await import("./instant.js");
+    expect(Number.isNaN(instantMs("2025-06-01T12:00:00"))).toBe(true); // no zone: no guessing
+    expect(Number.isNaN(instantMs("1"))).toBe(true);
+    expect(instantMs("2026-01-01t00:00:00z")).toBe(Date.UTC(2026, 0, 1));
+    const node = (id: string, at: string) => ({ nodeId: id, validFrom: at, temporalAnchors: [{ timestamp: at, event: "created" as const }] }) as never;
+    const nodes = [
+      node("a", "junk"), node("b", "2026-01-01T00:00:00-01:00"), node("c", "2025-01-01T00:00:00.000Z"),
+      node("d", "also junk"), node("e", "2025-06-01T12:00:00"), node("f", "2026-01-01t00:00:00z"),
+    ];
+    for (const x of nodes) for (const y of nodes) {
+      expect(Math.sign(compareRecency(x, y)) + 0).toBe(-Math.sign(compareRecency(y, x)) + 0); // +0: no -0 vs 0
+      for (const z of nodes) if (compareRecency(x, y) < 0 && compareRecency(y, z) < 0) expect(compareRecency(x, z)).toBeLessThan(0);
+    }
+    expect([...nodes].sort(compareRecency).map((n: { nodeId: string }) => n.nodeId)).toEqual(["b", "f", "c", "e", "d", "a"]);
+  });
+});

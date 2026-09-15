@@ -269,7 +269,9 @@ const MIGRATION_V5 = (db: Database.Database): void => {
     }
     const validFrom = canonical(r.valid_from)!;
     const validTo = canonical(r.valid_to);
-    const createdAt = Number.isFinite(instantMs(learned ?? r.valid_from)) ? canonical(learned ?? r.valid_from)! : r.created_at;
+    // No instant to find: the sort key becomes "", which sorts oldest in SQL exactly as
+    // compareRecency sorts such a fact in JS. The anchor itself is untouched.
+    const createdAt = Number.isFinite(instantMs(learned ?? r.valid_from)) ? canonical(learned ?? r.valid_from)! : "";
     if (validFrom !== r.valid_from || validTo !== r.valid_to || createdAt !== r.created_at) update.run(validFrom, validTo, createdAt, r.node_id);
   }
 };

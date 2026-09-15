@@ -14,7 +14,7 @@
  * the re-review the embedding cache did, and it confirmed which hidden ids exist.
  */
 import { compareRecency, effectiveConfidence } from "../decay.js";
-import { ownTextRelevance, queryTokens } from "../query-filter.js";
+import { queryTokens, visibleRelevance } from "../query-filter.js";
 import type { MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
@@ -304,13 +304,17 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         const { limit: _l, after: _a, ...unpaged } = options;
         const matches = await inner.searchNodes(unpaged);
         const now = Date.now();
-        const visible: { node: MemoryNode; score: number; eff: number }[] = [];
+        const seenNodes: MemoryNode[] = [];
         const hidden: string[] = [];
         for (const node of matches) {
           const seen = await view(opts, node, ctx);
-          if (seen) visible.push({ node: seen, score: ownTextRelevance(node.content.text, tokens), eff: effectiveConfidence(node, now) });
+          if (seen) seenNodes.push(seen);
           else hidden.push(node.nodeId);
         }
+        // Scored from the text the actor sees (a redacting policy's view, not the
+        // stored words), with word rarity counted over these visible matches only.
+        const scores = visibleRelevance(seenNodes.map((n) => n.content.text), tokens);
+        const visible = seenNodes.map((node, i) => ({ node, score: scores[i]!, eff: effectiveConfidence(node, now) }));
         visible.sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node));
         let ranked = visible.map((v) => v.node);
         if (options.after !== undefined) {

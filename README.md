@@ -123,7 +123,7 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 |---|---|
 | Insert, one fact per call | 5,400–5,900 facts/s (17–18 s for all 100k) |
 | Keyword recall, top 10 (FTS5 + decay re-rank) | 30–50 ms median, ~150 ms worst of five terms; first query after open ~320–380 ms (cold cache) |
-| Keyword recall through a governed handle, top 10 | ~70 ms for a word in 10% of facts, ~120 ms for two such words, ~800 ms for a word in every fact — see below |
+| Keyword recall through a governed handle, top 10 | ~75 ms for a word in 10% of facts, ~135 ms for two such words, ~850 ms for a word in every fact — see below |
 | Recall by filters only, top 10 | 0.5–1 ms |
 | Get by id | 0.1 ms |
 | Invalidate a fact | 0.5 ms |
@@ -136,9 +136,11 @@ the matching facts (~300 ms at 100k), and it only happens when a decayed fact an
 would otherwise trade places.
 
 A governed keyword search is slower on purpose. It reads every match, keeps the ones the
-actor may see, and ranks them by each fact's own text: the store's BM25 weighs words by their
-rarity across all facts, hidden ones included, so it would let a hidden fact reorder visible
-results. At a personal memory's size (a few thousand facts) the difference does not show.
+actor may see, and ranks them with word rarity counted over those visible matches alone: the
+store's BM25 counts rarity across all facts, hidden ones included, so it would let a hidden
+fact reorder visible results. At a personal memory's size (a few thousand facts) the speed
+difference does not show, and a test holds its quality: twelve facts asked for in plain
+questions ("what is the wifi login") among two hundred distractors all land on the first page.
 
 What that means: a personal assistant or a single-tenant service will not notice the
 store; a multi-tenant SaaS needs the Postgres backend on the roadmap. Node/TypeScript

@@ -29,7 +29,12 @@ const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})
  * there is no instant to find.
  */
 export function instantMs(value: string | null | undefined): number {
-  return typeof value === "string" ? Date.parse(value.toUpperCase()) : Number.NaN;
+  // Only an ISO 8601 date or date-time WITH a zone is an instant. Date.parse guesses
+  // at anything else — a zone-less time in the machine's zone, "1" as the year 2001 —
+  // and a guess is not an instant (Fable, 2026-09-15).
+  if (typeof value !== "string") return Number.NaN;
+  const upper = value.toUpperCase();
+  return ISO.test(upper) ? Date.parse(upper) : Number.NaN;
 }
 
 export function canonicalInstant(value: string, field = "timestamp"): string {

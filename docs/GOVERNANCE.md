@@ -51,9 +51,12 @@ is incomplete (a crash mid-append) stops the log from being extended until that 
 removed; the MCP server refuses to start rather than write unaudited.
 
 Hidden facts cannot change what a governed read returns or in what order. A governed keyword
-search reads every match, keeps the visible ones and ranks them by each fact's own text, then
-confidence, then recency — not by the store's BM25, whose word weights come from all facts,
-hidden ones included, and so let a hidden fact reorder visible results. One side channel
+search reads every match, keeps the visible ones and ranks them by word rarity counted over
+those visible matches alone, then confidence, then recency — not by the store's BM25, whose
+word weights come from all facts, hidden ones included, and so let a hidden fact reorder
+visible results. Ranking uses the text the actor sees; but which facts match is decided from
+the stored words, so a redacting `beforeRead` still lets a search for a redacted word find
+the fact. To keep content out of search, hide the fact; do not merely redact it. One side channel
 remains and is inherent: a governed read that steps past many hidden facts takes longer. It
 never shows a hidden fact or its text. Where even a timing hint is unacceptable, give that
 audience a separate store.

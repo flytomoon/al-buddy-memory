@@ -76,6 +76,11 @@ export function compareBinary(a: string, b: string): number {
  */
 export function compareRecency(a: MemoryNode, b: MemoryNode): number {
   const x = instantMs(learnedAt(a)), y = instantMs(learnedAt(b));
-  const byTime = Number.isFinite(x) && Number.isFinite(y) ? y - x : compareBinary(learnedAt(b), learnedAt(a));
+  const hasX = Number.isFinite(x), hasY = Number.isFinite(y);
+  // A fact with no real instant (only a legacy store can hold one) sorts as the
+  // oldest, after every fact that has one, and among its kind by id alone — the
+  // order SQL gives it too, where migration v5 sets its sort key to "". Comparing
+  // such spellings to instants was not transitive (Fable, 2026-09-15).
+  const byTime = hasX && hasY ? y - x : hasX === hasY ? 0 : hasX ? -1 : 1;
   return byTime || compareBinary(b.nodeId, a.nodeId);
 }

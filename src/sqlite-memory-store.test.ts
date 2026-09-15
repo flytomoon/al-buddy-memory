@@ -146,6 +146,10 @@ describe("SqliteMemoryStore — paging over creation times written before 0.4.0"
     ["offsets", "2026-01-01T00:00:00-01:00", "2026-01-01T00:00:00+01:00"],
     ["sub-millisecond fractions", "2026-01-01T00:00:00.0005Z", "2026-01-01T00:00:00.0004Z"],
     ["lowercase separators", "2026-01-01t00:00:00z", "2026-01-01T00:00:00Z"],
+    // No instant to find: a zone-less time (Date.parse would guess the machine's
+    // zone) and junk. They sort as oldest, in SQL and JS alike (Fable, 2026-09-15).
+    ["a zone-less time", "2026-01-01T00:00:00Z", "2026-01-01T12:00:00"],
+    ["junk", "junk one", "2026-01-01T00:00:00Z"],
   ];
   for (const [label, rest, last] of FIXTURES) {
     it(`${label}: the page is the first of the full read, in SQL and JS alike`, async () => {
