@@ -22,7 +22,7 @@ export { exportPortable, importPortable, PORTABLE_FORMAT_VERSION } from "./memor
 export type { PortableExport, PortableProject, ImportSummary } from "./memory-portability.js";
 export { buildSourceProvenance, readSourceProvenance } from "./provenance.js";
 export type { SourceExchange } from "./provenance.js";
-export { effectiveConfidence, lastTouched, DECAY_FLOOR } from "./decay.js";
+export { effectiveConfidence, lastTouched, compareRecency, learnedAt, DECAY_FLOOR } from "./decay.js";
 export { PinnedBlocks, PINNED_TAG, DEFAULT_PINNED_BUDGET } from "./pinned.js";
 export type { PinInput, PinnedBlock } from "./pinned.js";
 export { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
