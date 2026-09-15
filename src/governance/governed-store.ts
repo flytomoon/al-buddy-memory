@@ -253,11 +253,16 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       if (options.after !== undefined) {
         const cursor = await inner.getNode(options.after);
         if (!cursor || !(await view(opts, cursor, ctx))) {
+          // The actor sees an empty page either way; the operator's trail records
+          // a probe with a hidden id as a hidden read, as getNode does.
+          if (cursor) await record(opts, ctx, "hidden", [cursor.nodeId]);
           await record(opts, ctx, "allowed", []);
           return [];
         }
       }
-      const limit = options.limit;
+      // Whole facts only: with a fractional limit the page-full check never fired
+      // and hidden facts took places again (Fable confirmation, 2026-09-15).
+      const limit = options.limit === undefined ? undefined : Math.floor(options.limit);
       if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
         return filterRead(opts, await inner.searchNodes(options), ctx);
       }

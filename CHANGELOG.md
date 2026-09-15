@@ -58,7 +58,8 @@ changes are here.
 - `InMemoryStore` refuses an edge or an embedding whose node does not exist, as
   SQLite always did.
 - **Weights are validated.** A confidence outside [0,1], or a negative or
-  non-finite decay rate, is refused on every write path. (Exact paging relies on
+  non-finite decay rate, is refused on every write path — imports included, so an
+  older export holding such a value fails at that node. (Exact paging relies on
   effective confidence never exceeding stored; a negative confidence broke it.)
 - **`personalDefaults` is stricter.** Only the owner's actor changes a fact; export
   and erasure of Sensitive facts, and erasure of anything, need the owner in
@@ -169,6 +170,15 @@ changes are here.
 - The README states plainly that provenance is asserted by the writer (immutable,
   not verified), that `encryptionKeyRef` does not encrypt anything, and that the
   governed handle — not the inner store — is what you hand out.
+
+### Known issues
+
+- `searchNodes({ after })` means different things in the two stores (SQLite: facts
+  learned after the cursor; in-memory: the rest of the ordered listing) and no
+  conformance test covers it. It is unused by the library; define it or remove it
+  before 1.0.
+- A governed read that steps past many hidden facts takes measurably longer: a
+  timing hint, never a disclosure of content (GOVERNANCE.md).
 
 ### Internal
 

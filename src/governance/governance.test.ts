@@ -267,6 +267,16 @@ describe("the governed handle exposes nothing but governed methods", () => {
  * for a hidden id than for a missing one.
  */
 describe("a governed read never lets a hidden fact take a place on the page", () => {
+  it("a probe with a hidden cursor leaves a trace for the operator, and nothing for the actor", async () => {
+    const inner = new InMemoryStore();
+    const audit = new MemoryAudit();
+    const owner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+    const secret = await owner.addNode(fact("password: hunter2"));
+    const ai = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o", audience: "agent" }), audit });
+    expect(await ai.searchNodes({ after: secret.nodeId })).toEqual([]);
+    expect(audit.events.some((e) => e.outcome === "hidden" && e.nodeIds.includes(secret.nodeId))).toBe(true);
+  });
+
   for (const [label, make] of [
     ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
     ["InMemoryStore", () => new InMemoryStore()],
@@ -285,6 +295,9 @@ describe("a governed read never lets a hidden fact take a place on the page", ()
       }
       const noQuery = await ai.searchNodes({ limit: 1 });
       expect(noQuery.map((n) => n.nodeId)).toEqual([visible.nodeId]);
+
+      // A fractional limit from the library handle used to skip the page-full check.
+      expect((await ai.searchNodes({ query: "password", limit: 2.7 })).map((n) => n.nodeId)).toEqual([visible.nodeId]);
 
       const afterHidden = await ai.searchNodes({ after: hidden[0]! });
       const afterMissing = await ai.searchNodes({ after: "00000000-0000-4000-8000-00000000dead" });

@@ -45,6 +45,10 @@ rewrite: anyone who can write the file can recompute the whole chain. A line who
 is incomplete (a crash mid-append) stops the log from being extended until that line is
 removed; the MCP server refuses to start rather than write unaudited.
 
+One side channel is inherent and stated: a governed read that has to step past many hidden
+facts to fill a page takes longer than one that does not. The page never shows them; the
+clock can hint that they exist.
+
 ### What no hook governs yet
 
 - **Links.** `addEdge` and `restoreEdge` check that the actor can see both facts, and nothing

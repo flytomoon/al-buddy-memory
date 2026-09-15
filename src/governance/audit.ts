@@ -98,14 +98,15 @@ export class ChainedAudit implements AuditSink {
     }
     const last = text.trimEnd().split("\n").at(-1);
     if (!last) return GENESIS;
-    let rec: { hash?: unknown };
+    let rec: unknown;
     try {
-      rec = JSON.parse(last) as typeof rec;
+      rec = JSON.parse(last);
     } catch {
       throw new Error(`${this.path}: the last line is incomplete or not JSON, so the chain cannot be extended; remove that line (verify-audit names it) and restart`);
     }
-    if (typeof rec.hash !== "string") throw new Error(`${this.path} is not a chained audit log (its last line has no hash); use a new file`);
-    return rec.hash;
+    const hash = rec && typeof rec === "object" ? (rec as { hash?: unknown }).hash : undefined;
+    if (typeof hash !== "string") throw new Error(`${this.path} is not a chained audit log (its last line has no hash); use a new file`);
+    return hash;
   }
 
   /** Keep a promise we hold from ever surfacing as an unhandled rejection; callers still see it reject. */
