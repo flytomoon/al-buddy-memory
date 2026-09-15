@@ -12,8 +12,10 @@ Thank you. Three kinds of contribution are most useful right now, in this order:
 
 ## Ground rules
 
-- `npm run typecheck && npm test && npm run build` must be green.
-- Facts are never deleted, only invalidated. Provenance is immutable. A PR that weakens
-  either will be declined with thanks.
+- `npm run check` must be green (typecheck, tests, bundle — what CI runs).
+- Facts are invalidated, not overwritten; raw content and provenance are immutable; erasure
+  only happens through governance. A PR that weakens any of that will be declined with thanks.
+- A claim in the docs needs a test or a line in docs/policies/ENFORCEMENT.md saying it is not
+  enforced. Two 0.3.5 comments asserted properties nothing checked; both were wrong.
 - Write against shapes and specs, not other vendors. Comparisons live in the README table only.
 - Apache-2.0, and by contributing you license your work the same way.

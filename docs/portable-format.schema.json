@@ -65,7 +65,7 @@
     },
     "node": {
       "type": "object",
-      "description": "One fact. Never deleted: when it stops being true, validTo closes it and the record stays.",
+      "description": "One fact. Never overwritten: when it stops being true, validTo closes it and the record stays. Instants are canonical UTC (Date#toISOString form).",
       "required": [
         "nodeId",
         "provenance",
@@ -184,7 +184,7 @@
             "null"
           ],
           "format": "date-time",
-          "description": "null while still true; set (never deleted) when superseded."
+          "description": "null while still true; set when superseded, and the record stays."
         },
         "confidenceWeight": {
           "type": "number",

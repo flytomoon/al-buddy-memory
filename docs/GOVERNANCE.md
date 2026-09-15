@@ -45,6 +45,14 @@ check, not a framework.
 ## What the store guarantees without any policy
 
 - Sealed facts never surface unless asked for by classification.
-- `nodeId`, `provenance`, `encryptionKeyRef` and the temporal-anchor trail are immutable
-  after write; an attempt to change them throws.
-- Nothing is deleted; invalidation closes `validTo` and keeps the record.
+- `nodeId`, `provenance`, `encryptionKeyRef`, raw `content` and the temporal-anchor trail are
+  immutable after write, including through `restoreNode`; an attempt to change them throws.
+- Invalidation closes `validTo` and keeps the record. Erasure exists — stewardship law needs
+  it — but on a governed handle it runs `beforeErase` and is refused unless a policy allows it.
+
+## The governed handle is the boundary
+
+`govern()` is a capability, not a firewall around the process: it governs whoever calls
+through it. Give applications, agents and MCP clients the governed handle; keep the inner store
+where only the operator can reach it. Provenance is what the writer asserts — immutable once
+written, not verified; if agents must never write `UserInput`, say so in a `beforeWrite`.

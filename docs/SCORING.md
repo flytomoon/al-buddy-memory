@@ -14,7 +14,7 @@ can check rather than a verdict you have to take.
 | retention | Superseded facts are still there and say what replaced them | 50% for retired facts being present, plus 50% × the share that name a successor; **unproven** when the sample has no retired facts |
 | confidence | Every fact says how sure the system is | share of facts with a numeric confidence in [0,1] |
 | relationships | Facts relate, and relations have provenance | share of relationships carrying provenance; 0% if there are facts but no relations |
-| portability | The export leaves the vendor intact | 34% published schema + 33% lossless round-trip (proven, not claimed, where an importer exists) + 33% one record per fact |
+| portability | The export leaves the vendor intact | 34% published schema + 33% lossless round-trip (proven, not claimed, where an importer exists) + 33% one record per fact. The round trip proves the ARTIFACT survives import and re-export; it cannot see a fact the original export left out — that is tested against the stores themselves |
 
 **Grade** = mean of the provable dimensions: A ≥ 90%, B ≥ 75%, C ≥ 50%, D ≥ 25%, else F.
 

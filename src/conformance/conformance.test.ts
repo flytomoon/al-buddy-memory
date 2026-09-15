@@ -34,6 +34,14 @@ describe("conformance — the provenance & portability score", () => {
     expect(formatReport(r)).toContain("Grade A");
   });
 
+  it("a confidence outside [0,1] does not count as one", async () => {
+    // The scorer claimed "a confidence in [0,1]" and checked only typeof number.
+    const artifact = await exportPortable(new Map([["p", await governedStore()]]));
+    artifact.projects[0]!.nodes[0]!.confidenceWeight = 9;
+    const r = scoreConformance(await fromPortable(artifact));
+    expect(r.dimensions.find((d) => d.key === "confidence")?.score).toBe(0.5);
+  });
+
   it("the round-trip proof fails when a node is missing from the re-export", async () => {
     const artifact = await exportPortable(new Map([["p", await governedStore()]]));
     const tampered = { ...artifact, projects: artifact.projects.map((p) => ({ ...p, nodes: p.nodes.slice(1), edges: [] })) };

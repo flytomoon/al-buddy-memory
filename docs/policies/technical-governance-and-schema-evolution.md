@@ -2,6 +2,8 @@
 
 > Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. "The operator" is whoever runs the service the memory lives in; for a single person on their own machine, that is the person. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
 
+> **Status of this document.** It describes a target process for an operator evolving a schema in production over decades. What this library actually does today is small and checkable: the portable format is semantically versioned; the SQLite schema evolves by an append-only, numbered migration list (`MIGRATIONS` in `src/sqlite-memory-store.ts`); every change that alters what an existing caller gets back is called out in [CHANGELOG.md](../../CHANGELOG.md); and the published JSON Schema is held to the runtime enums by a test. There is no schema registry, no JSON-LD context, no RDF/Turtle/SHACL/SPARQL tooling, no signed tags and no blue/green migration process. Read the rest as the direction, not the state.
+
 ## 1. Purpose and Scope
 
 This policy governs the technical architecture, schema lifecycle, infrastructure decision-making, open standards compliance, and migration tooling requirements for the memory graph and supporting platform infrastructure. It translates the operator's core technical principles into specific, actionable rules that bind all engineering decisions from initial design through decades of operation.
@@ -69,7 +71,7 @@ The memory graph schema uses Semantic Versioning (`MAJOR.MINOR.PATCH`) as define
 
 #### 3.1.3 Version Zero (Pre-Stability) Rules
 
-While the schema is at `0.x.x`, MINOR increments may include breaking changes. The schema exits version zero when the maintainers and the maintainers jointly declare production stability. That declaration is recorded in an ADR (see Section 5).
+While the schema is at `0.x.x`, MINOR increments may include breaking changes. The schema exits version zero when the maintainers jointly declare production stability. That declaration is recorded in an ADR (see Section 5).
 
 ### 3.2 Schema Registry and Catalog
 
@@ -266,12 +268,12 @@ Before a Tier 2 staged rollout begins, the following metrics must be defined wit
 **Process:**
 
 1. SCP submitted and triaged as Tier 3
-2. the maintainers and the maintainers (Chief Ethics & Safety Officer) must both acknowledge the SCP within 48 hours
-3. **Governance panel review** convened: the maintainers + the maintainers + Technical Lead + Data Governance Lead + (where applicable) external expert
+2. the maintainers must acknowledge the SCP within 48 hours
+3. **Governance panel review** convened: the maintainers + Technical Lead + Data Governance Lead + (where applicable) external expert
 4. Panel meets within **10 business days** of triage
 5. Panel produces a written decision: Approve / Reject / Approve with Conditions
 6. Approved changes must have: complete ADR (see Section 5), full migration plan with tested rollback, 30-day post-deployment monitoring plan with defined success criteria
-7. **the maintainers + the maintainers co-sign** required on the final SCP before any deployment
+7. **the maintainers co-sign** required on the final SCP before any deployment
 8. Schema version tagged as `-rc.N` for internal validation before any production deployment
 9. **30-day post-deployment monitoring** with weekly status reports to governance panel
 10. Final sign-off at day 30 closes the SCP
@@ -304,7 +306,7 @@ Before a Tier 2 staged rollout begins, the following metrics must be defined wit
 |---|---|---|---|
 | Tier 1 change warrants deeper review | the maintainers | Escalate to Tier 2 or Tier 3 within 7-day override window | SCP comment with rationale |
 | Tier 2 change is more risky than assessed | the maintainers | Escalate to Tier 3 at any point before production deployment | SCP comment with rationale |
-| Tier 2 change is less risky than assessed | the maintainers + the maintainers jointly | Downgrade to Tier 1 only if ALL Tier 1 criteria are met | ADR entry |
+| Tier 2 change is less risky than assessed | the maintainers jointly | Downgrade to Tier 1 only if ALL Tier 1 criteria are met | ADR entry |
 | the maintainers is unavailable for Tier 2 review | Delegated Technical Lead (designated in writing by the maintainers) | May approve Tier 2 with same authority | Delegation record in SCP |
 | the maintainers/the maintainers disagree on Tier 3 approval | Neither can unilaterally override | Escalate to the operator Board governance committee | Formal written escalation |
 | Emergency security patch requiring schema change | the maintainers unilateral | Emergency Tier 1 process; the maintainers notified within 2 hours; full post-incident review within 7 days | Emergency SCP + post-incident ADR |
@@ -476,7 +478,7 @@ Any evaluation of a new technology for the memory graph layer (graph database, L
 
 ## 6. Open Standards Compliance
 
-### 6.1 Mandatory Standards
+### 6.1 Target Standards (not yet implemented)
 
 The memory graph must comply with the following standards at all times:
 
@@ -713,7 +715,7 @@ Every production migration requires a completed runbook before it may be schedul
 |---|---|---|---|
 | **Tier 1** | Rolling deployment; no maintenance window required if migration is purely additive and completes in < 5 minutes on estimated production dataset | None required | Technical Lead sign-off on runbook |
 | **Tier 2** | Blue/green deployment; traffic shifted only after smoke tests pass on green environment | Required if migration duration > 15 minutes on estimated production dataset | the maintainers sign-off on runbook; metrics gates defined |
-| **Tier 3** | Blue/green deployment with full maintenance window; zero production traffic during migration execution | Always required; minimum 2-hour window; user communication required 48 hours in advance | the maintainers + the maintainers co-sign on runbook; rollback drill completed |
+| **Tier 3** | Blue/green deployment with full maintenance window; zero production traffic during migration execution | Always required; minimum 2-hour window; user communication required 48 hours in advance | the maintainers co-sign on runbook; rollback drill completed |
 
 #### 7.5.1 Blue/Green Deployment Requirements for Schema Migrations
 
@@ -747,7 +749,7 @@ For Tier 2 and Tier 3 migrations using blue/green deployment:
 | Schema change deployed without an approved SCP | Critical | Immediate rollback; incident report; the maintainers notification within 2 hours; post-incident review |
 | Migration deployed without completed runbook | High | Rollback if feasible; incident report; process review |
 | Schema version tagged without GPG signature | High | Tag invalidated; re-tag required; process review |
-| AI agent executes schema change without human approval | Critical | Immediate rollback; agent suspended pending investigation; the maintainers and the maintainers notification within 1 hour |
+| AI agent executes schema change without human approval | Critical | Immediate rollback; agent suspended pending investigation; the maintainers notification within 1 hour |
 | Validation suite bypassed in CI | High | PR reverted; engineering team notified; process review |
 | ADR not created when required | Medium | ADR must be retroactively created and approved; corrective action plan |
 | Schema change deployed without tested rollback script | Critical | Immediate rollback; incident report; the maintainers notification within 2 hours |

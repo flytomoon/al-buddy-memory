@@ -1,9 +1,10 @@
 /**
  * al-buddy-memory — portable, governed, model-agnostic memory for AI agents.
  *
- * Facts are never deleted, only invalidated (validTo); raw text is the source of
- * truth; embeddings are a disposable, model-tagged cache; everything exports to
- * one documented portable format. See docs/SPEC.md.
+ * Facts are invalidated (validTo), never overwritten, and erased only through
+ * governance; raw text is the source of truth and immutable; embeddings are a
+ * disposable, model-tagged cache; every fact and link exports to one documented
+ * portable format. See docs/SPEC.md.
  */
 export * from "./types/memory.js";
 export { InMemoryStore } from "./in-memory-store.js";

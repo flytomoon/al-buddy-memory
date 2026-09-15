@@ -17,7 +17,7 @@ function node(text: string) {
 }
 
 describe("exportMemoryMarkdown", () => {
-  it("renders current memories with provenance and a read-only / tamper-evident notice", async () => {
+  it("renders current memories with provenance and a read-only notice", async () => {
     const store = new SqliteMemoryStore(":memory:");
     try {
       await store.addNode(node("Chris lives in Tokyo"));
