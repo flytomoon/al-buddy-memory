@@ -10,6 +10,7 @@
  * the pass never re-reads it. The model is injected — this library is
  * model-agnostic and calls nothing itself.
  */
+import { learnedAt } from "./decay.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 export interface RawExcerpt {
@@ -54,8 +55,19 @@ export interface ConsolidationReport {
 
 const CONSOLIDATED_MARK = "consolidatedBy";
 
-function createdAt(n: MemoryNode): string {
-  return n.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? n.validFrom;
+/** When the store learned it — the shared key, so a pass and a read agree. */
+const createdAt = learnedAt;
+
+/**
+ * Oldest first: a consolidation pass reads the night in the order it happened.
+ * The id settles a tie because the anchor is a millisecond stamp and a burst of
+ * captures lands inside one — without it the order of two facts (and so which
+ * one falls outside `maxRaw`) depends on how fast the machine was. This is
+ * compareRecency read backwards, deliberately: the stores page newest first,
+ * a pass replays oldest first, and both are total orders.
+ */
+function chronologically(a: MemoryNode, b: MemoryNode): number {
+  return createdAt(a).localeCompare(createdAt(b)) || a.nodeId.localeCompare(b.nodeId);
 }
 
 function alreadyConsolidated(n: MemoryNode): boolean {
@@ -69,7 +81,7 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
     .filter((n) => n.provenance !== "AIInferred") // derived facts are never re-derived
     .filter((n) => createdAt(n) >= opts.since)
     .filter((n) => !alreadyConsolidated(n))
-    .sort((a, b) => createdAt(a).localeCompare(createdAt(b)))
+    .sort(chronologically)
     .slice(0, opts.maxRaw ?? 200);
   const report: ConsolidationReport = { read: raw.length, proposed: 0, written: 0, refused: [], derivedNodeIds: [] };
   if (raw.length === 0) return report;
