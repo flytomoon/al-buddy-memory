@@ -548,6 +548,22 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       (fresh as { close?: () => void }).close?.();
     });
 
+    /**
+     * There is no updateEdge: a link, once written, says what it says. restoreEdge
+     * over an existing id used to replace it — so a caller refused an erasure
+     * could rewrite the link instead (Astra re-review, 2026-09-15).
+     */
+    it("restoreEdge re-imports an identical link and refuses to rewrite one", async () => {
+      const a = await store.addNode(makeNode());
+      const b = await store.addNode(makeNode());
+      const c = await store.addNode(makeNode());
+      const edge = await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Cause", strength: 0.5, provenance: "UserAsserted" });
+      await store.restoreEdge(edge); // idempotent import
+      await expect(store.restoreEdge({ ...edge, targetNodeId: c.nodeId })).rejects.toThrow(/immutable/);
+      await expect(store.restoreEdge({ ...edge, relationshipType: "Contradiction" })).rejects.toThrow(/immutable/);
+      expect(await store.getEdges(a.nodeId)).toEqual([edge]);
+    });
+
     it("a restoreEdge that fails leaves the edge it would have replaced", async () => {
       const a = await store.addNode(makeNode());
       const b = await store.addNode(makeNode());

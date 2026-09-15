@@ -93,10 +93,17 @@ changes are here.
   read is now "not found" to their updates, erasures and links, and the response
   is only what they could see plus what they wrote.
 - **Import bypassed governance.** A governed `restoreNode` now runs the write
-  policies (a restored secret is classified) and, over an existing fact, the
-  update policies. `addEdge`/`restoreEdge` refuse endpoints the actor cannot
-  see; `getEdges` omits edges to hidden facts; `listNodes` is filtered like any
-  read.
+  policies (a restored secret is classified) and then, over an existing fact,
+  the update policies on what will actually be stored. `addEdge`/`restoreEdge`
+  refuse endpoints the actor cannot see; `getEdges` omits edges to hidden facts;
+  `listNodes` is filtered like any read.
+- **Links and vectors leaked around governance.** `restoreEdge` over an existing
+  id replaced the link, so a caller refused an erasure could rewrite it instead:
+  a link is now immutable (identical re-import is a no-op, anything else is
+  refused). The embedding cache passed straight through, and writing a vector
+  onto a hidden fact succeeded while a missing id failed — confirming which
+  hidden ids exist. On a governed handle, embeddings now follow their facts'
+  visibility and a hidden fact fails exactly like a missing one.
 - **SQLite `restoreNode` destroyed dependents**: it deleted and reinserted the
   row, and the cascade took every edge and embedding. It updates in place.
 - **`InMemoryStore` handed out live references**, so mutating a returned fact

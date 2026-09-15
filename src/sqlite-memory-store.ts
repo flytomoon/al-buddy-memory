@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 
 import Database from "better-sqlite3";
 
-import { assertPatchMutable, assertRestorable } from "./immutable.js";
+import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import type {
   MemoryEdge,
@@ -492,10 +492,11 @@ export class SqliteMemoryStore implements MemoryStore {
   /** Verbatim edge insert for round-trip import (idempotent by edgeId). */
   async restoreEdge(input: MemoryEdge): Promise<void> {
     const edge = canonicalEdge(input);
-    // One transaction: a replacement that fails (a missing endpoint) must not
-    // have already deleted the edge it was replacing.
+    // One transaction, and an existing link is never replaced: identical is a
+    // no-op, different is refused (edgeRestoreIsNoop).
     this.db.transaction(() => {
-    this.db.prepare(`DELETE FROM memory_edges WHERE edge_id = ?`).run(edge.edgeId);
+    const row = this.db.prepare(`SELECT * FROM memory_edges WHERE edge_id = ?`).get(edge.edgeId) as EdgeRow | undefined;
+    if (edgeRestoreIsNoop(edge, row ? rowToEdge(row) : undefined)) return;
     this.db
       .prepare(
         `INSERT INTO memory_edges

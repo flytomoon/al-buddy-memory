@@ -1,4 +1,4 @@
-import type { MemoryNode } from "./types/memory.js";
+import type { MemoryEdge, MemoryNode } from "./types/memory.js";
 
 /**
  * The fields a fact can never change after it is written. Provenance is the
@@ -50,4 +50,18 @@ export function assertRestorable(incoming: MemoryNode, existing?: MemoryNode): v
   if (!extends_) {
     throw new Error(`cannot restore ${incoming.nodeId}: its history is append-only, and this copy rewrites or drops recorded anchors`);
   }
+}
+
+/**
+ * There is no updateEdge: a link says what it says. Re-importing an identical
+ * link is a no-op (the return value says so); anything else over an existing id
+ * is refused. Replacing it used to be allowed, which let a caller refused an
+ * erasure rewrite the link instead (Astra re-review, 2026-09-15).
+ */
+export function edgeRestoreIsNoop(incoming: MemoryEdge, existing: MemoryEdge | undefined): boolean {
+  if (!existing) return false;
+  if (canonical(existing) !== canonical(incoming)) {
+    throw new Error(`cannot restore edge ${incoming.edgeId}: a link is immutable and this copy differs from the stored one`);
+  }
+  return true;
 }

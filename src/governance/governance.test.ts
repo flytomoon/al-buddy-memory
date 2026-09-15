@@ -146,7 +146,11 @@ describe("governance — no way around the policies", () => {
     const guarded = govern(new InMemoryStore(), { policies: [guardianMode({ guardians: ["parent"] })], context: () => ({ actor }) });
     const rule = await guarded.addNode(fact("bedtime is nine", { provenance: "GuardianAdded" }));
     actor = "kid-agent";
-    await expect(guarded.restoreNode({ ...rule, validTo: "2026-01-01T00:00:00.000Z" })).rejects.toThrow(/cannot change a guardian's fact/);
+    // Refused by guardian mode — the write rule fires first now that the update
+    // rules judge the shaped import; either way the guardian's fact stands.
+    await expect(guarded.restoreNode({ ...rule, validTo: "2026-01-01T00:00:00.000Z" })).rejects.toThrow(/^guardian-mode: /);
+    actor = "parent";
+    expect((await guarded.getNode(rule.nodeId))?.validTo).toBeNull();
   });
 
   it("a policy that only protects some facts never switches erasure on", async () => {
@@ -159,6 +163,53 @@ describe("governance — no way around the policies", () => {
     const guardianOnly = govern(new InMemoryStore(), { policies: [guardianMode({ guardians: ["parent"] })], context: () => ({ actor: "anyone" }) });
     const plain = await guardianOnly.addNode(fact("likes dinosaurs"));
     await expect(guardianOnly.deleteNode(plain.nodeId)).rejects.toThrow(/erasure is not enabled/);
+  });
+
+  it("the embedding cache neither confirms nor touches a fact you cannot see", async () => {
+    const { who, store } = owned();
+    const secret = await store.addNode(fact("password: hunter2"));
+    await store.setEmbedding({ nodeId: secret.nodeId, model: "m", modelVersion: "1", dimensions: 1, metric: "cosine", vector: [1] });
+
+    who.actor = "intruder";
+    const probe = (nodeId: string) => store.setEmbedding({ nodeId, model: "m", modelVersion: "1", dimensions: 1, metric: "cosine", vector: [0] });
+    // A hidden fact and a missing one must fail the same way (Astra re-review:
+    // the hidden one succeeded, the missing one hit a foreign key).
+    await expect(probe(secret.nodeId)).rejects.toThrow(/not found/);
+    await expect(probe("00000000-0000-4000-8000-00000000abcd")).rejects.toThrow(/not found/);
+    expect(await store.getEmbeddings(secret.nodeId)).toEqual([]);
+    expect(await store.listEmbeddings("m")).toEqual([]);
+    await expect(store.deleteEmbeddings(secret.nodeId)).rejects.toThrow(/not found/);
+
+    who.actor = "owner";
+    expect((await store.getEmbeddings(secret.nodeId))[0]?.vector).toEqual([1]);
+  });
+
+  it("a link you may not erase, you may not rewrite by re-importing it", async () => {
+    const { who, store } = owned();
+    const a = await store.addNode(fact("a"));
+    const b = await store.addNode(fact("b"));
+    const secret = await store.addNode(fact("password: hunter2"));
+    const link = await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: secret.nodeId, relationshipType: "Cause", strength: 1, provenance: "UserAsserted" });
+
+    who.actor = "intruder";
+    await expect(store.restoreEdge({ ...link, targetNodeId: b.nodeId, relationshipType: "Contradiction" })).rejects.toThrow();
+    who.actor = "owner";
+    expect((await store.getEdges(a.nodeId)).map((e) => e.targetNodeId)).toEqual([secret.nodeId]);
+  });
+
+  it("the update policies judge an import AFTER the write policies have shaped it", async () => {
+    const inner = new InMemoryStore();
+    const existing = await inner.addNode(fact("to be imported over"));
+    const policy = {
+      name: "no-archiving",
+      beforeWrite: (n: Parameters<InMemoryStore["addNode"]>[0], ctx: { purpose: string }) => (ctx.purpose === "import" ? { ...n, retentionTier: "Archived" as const } : n),
+      beforeUpdate: (_e: unknown, patch: { retentionTier?: string }) => {
+        if (patch.retentionTier === "Archived") throw new PolicyDenied("no-archiving", "archiving is not allowed");
+      },
+    };
+    const store = govern(inner, { policies: [policy], context: () => ({ actor: "x" }) });
+    await expect(store.restoreNode(existing)).rejects.toThrow(/archiving is not allowed/);
+    expect((await inner.getNode(existing.nodeId))?.retentionTier).toBe("FullRetention");
   });
 
   it("links to a fact you cannot see are neither made nor shown", async () => {
