@@ -107,7 +107,7 @@ describe("the hash-chained audit log", () => {
     // Fable final review: the head promise was left rejected with no handler, so
     // an old-format or crash-truncated last line killed the process on the next
     // write — after the store write had already committed.
-    for (const lastLine of [JSON.stringify(event(0)), '{"prev":"00000000']) {
+    for (const lastLine of [JSON.stringify(event(0)), '{"prev":"00000000', "null"]) {
       writeFileSync(path, lastLine + "\n");
       const audit = new ChainedAudit(path);
       await expect(audit.head()).rejects.toThrow(/chained audit log|incomplete/);
