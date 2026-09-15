@@ -39,3 +39,23 @@ export function matchesFilter(node: MemoryNode, filter: NodeFilter): boolean {
   }
   return true;
 }
+
+/** The words of a keyword query, as both stores and the governed ranking read it: letters and digits, at most 16. */
+export function queryTokens(query: string): string[] {
+  return (query.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 16);
+}
+
+/**
+ * How well one fact's own text answers a query: for each query word, its share of
+ * the fact's words. It depends on nothing but the fact itself — which is the point.
+ * BM25 weighs words by how rare they are across the whole store, hidden facts
+ * included, so a hidden fact could reorder visible results; a governed search
+ * ranks by this instead (Astra final review; founder: "fix it", 2026-09-15).
+ */
+export function ownTextRelevance(text: string, tokens: readonly string[]): number {
+  const words = (text.match(/[\p{L}\p{N}]+/gu) ?? []).map((w) => w.toLowerCase());
+  if (words.length === 0) return 0;
+  let hits = 0;
+  for (const token of new Set(tokens.map((t) => t.toLowerCase()))) for (const w of words) if (w === token) hits += 1;
+  return hits / words.length;
+}

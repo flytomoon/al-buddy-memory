@@ -13,6 +13,8 @@
  * through, and a stranger could erase a guardian's fact with no audit; until
  * the re-review the embedding cache did, and it confirmed which hidden ids exist.
  */
+import { compareRecency, effectiveConfidence } from "../decay.js";
+import { ownTextRelevance, queryTokens } from "../query-filter.js";
 import type { MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
@@ -289,6 +291,38 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       // Whole facts only: with a fractional limit the page-full check never fired
       // and hidden facts took places again (Fable confirmation, 2026-09-15).
       const limit = options.limit === undefined ? undefined : Math.floor(options.limit);
+
+      // With a query, the store decides WHICH facts match — fact by fact — but its
+      // ranking (BM25) weighs words by how rare they are across every fact, hidden
+      // ones included, so adding a hidden fact could reorder the visible results
+      // and an AI could test what hidden facts contain (Astra final review; founder:
+      // "fix it", 2026-09-15). So a governed keyword search reads every match, keeps
+      // the visible ones, and ranks them by their own text alone, then effective
+      // confidence, then recency. It costs a full read of the matches per query.
+      const tokens = options.query === undefined ? [] : queryTokens(options.query);
+      if (tokens.length > 0) {
+        const { limit: _l, after: _a, ...unpaged } = options;
+        const matches = await inner.searchNodes(unpaged);
+        const now = Date.now();
+        const visible: { node: MemoryNode; score: number; eff: number }[] = [];
+        const hidden: string[] = [];
+        for (const node of matches) {
+          const seen = await view(opts, node, ctx);
+          if (seen) visible.push({ node: seen, score: ownTextRelevance(node.content.text, tokens), eff: effectiveConfidence(node, now) });
+          else hidden.push(node.nodeId);
+        }
+        visible.sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node));
+        let ranked = visible.map((v) => v.node);
+        if (options.after !== undefined) {
+          const at = ranked.findIndex((n) => n.nodeId === options.after);
+          ranked = at < 0 ? [] : ranked.slice(at + 1); // a cursor outside these results has nothing after it
+        }
+        if (limit !== undefined && Number.isFinite(limit)) ranked = ranked.slice(0, Math.max(0, limit));
+        if (hidden.length > 0) await record(opts, ctx, "hidden", hidden);
+        await record(opts, ctx, "allowed", ranked.map((n) => n.nodeId));
+        return ranked;
+      }
+
       if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
         return filterRead(opts, await inner.searchNodes(options), ctx);
       }
