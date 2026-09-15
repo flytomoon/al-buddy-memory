@@ -46,16 +46,30 @@ export function queryTokens(query: string): string[] {
 }
 
 /**
- * How well one fact's own text answers a query: for each query word, its share of
- * the fact's words. It depends on nothing but the fact itself — which is the point.
- * BM25 weighs words by how rare they are across the whole store, hidden facts
- * included, so a hidden fact could reorder visible results; a governed search
- * ranks by this instead (Astra final review; founder: "fix it", 2026-09-15).
+ * Relevance of each visible match to a query, computed ONLY from the visible
+ * matches: for each query word, its share of a fact's words, weighted by how rare
+ * the word is among these matches (log(1 + N/df)). Two properties, both tested:
+ *
+ * - Hidden facts cannot move it. The store decides which facts match fact by fact,
+ *   so hidden facts cannot change the visible set — and N and df are counted over
+ *   that set alone. BM25's word weights come from every fact in the store, hidden
+ *   ones included, which let a hidden fact reorder visible results (Astra).
+ * - Common words do not drown the rare one. Plain term frequency ranked facts
+ *   dense in "the / is / my" above the fact containing "wifi" for "what is the wifi
+ *   login" (Fable, 2026-09-15); the rarity weight fixes that.
  */
-export function ownTextRelevance(text: string, tokens: readonly string[]): number {
-  const words = (text.match(/[\p{L}\p{N}]+/gu) ?? []).map((w) => w.toLowerCase());
-  if (words.length === 0) return 0;
-  let hits = 0;
-  for (const token of new Set(tokens.map((t) => t.toLowerCase()))) for (const w of words) if (w === token) hits += 1;
-  return hits / words.length;
+export function visibleRelevance(texts: readonly string[], tokens: readonly string[]): number[] {
+  const wanted = [...new Set(tokens.map((t) => t.toLowerCase()))];
+  const docs = texts.map((text) => (text.match(/[\p{L}\p{N}]+/gu) ?? []).map((w) => w.toLowerCase()));
+  const df = new Map(wanted.map((t) => [t, docs.filter((words) => words.includes(t)).length]));
+  const n = docs.length;
+  return docs.map((words) => {
+    if (words.length === 0) return 0;
+    let score = 0;
+    for (const t of wanted) {
+      const tf = words.reduce((c, w) => c + (w === t ? 1 : 0), 0);
+      if (tf > 0) score += (tf / words.length) * Math.log(1 + n / (df.get(t) || 1));
+    }
+    return score;
+  });
 }

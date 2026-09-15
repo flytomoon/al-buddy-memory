@@ -57,6 +57,10 @@ changes are here.
   without optional dependencies produced a library that could not be imported.
 - `InMemoryStore` refuses an edge or an embedding whose node does not exist, as
   SQLite always did.
+- **`InMemoryStore` matches a query the way SQLite does:** any of its words, whole
+  words, case-insensitive, ranked by word rarity among the matches. It used to match
+  the whole query as one substring, so a question found nothing that SQLite found;
+  partial words ("tok" for "Tokyo") no longer match, as they never did in SQLite.
 - **Weights are validated.** A confidence outside [0,1], or a negative or
   non-finite decay rate, is refused on every write path — imports included, so an
   older export holding such a value fails at that node. (Exact paging relies on
@@ -195,9 +199,12 @@ changes are here.
   "fix it"). BM25 weighs words by rarity across every fact, hidden ones included,
   so through the MCP server an AI could test whether hidden facts contain a word by
   comparing the order of two visible results. A governed keyword search now reads
-  every match, keeps the visible ones, and ranks them by each fact's own text,
-  then effective confidence, then recency. It is slower on a large store (README
-  "Limits, measured"); the raw store's ranking and speed are unchanged.
+  every match, keeps the visible ones, and ranks them with word rarity counted
+  over those visible matches alone, then effective confidence, then recency. (A
+  first version used plain per-fact term frequency and lost natural questions to
+  facts dense in "the / is / my" — Fable caught it; a recall-quality test now
+  holds twelve plain-question targets on the first page.) It is slower on a large
+  store (README "Limits, measured"); the raw store's ranking and speed are unchanged.
 
 ### Known issues
 
@@ -207,15 +214,23 @@ changes are here.
   before 1.0.
 - A governed read that steps past many hidden facts takes measurably longer: a
   timing hint, never content (GOVERNANCE.md).
-- Governed keyword search ranks by a simpler, per-fact score than the raw store's
-  BM25, so the same query can order results differently through a governed handle.
+- Governed keyword search ranks by visible-only word rarity rather than the raw
+  store's BM25, so the same query can order results differently through a governed
+  handle.
+- `HybridRetriever` caches the vector list for 60 s per model, not per actor: one
+  retriever shared by two actors of a governed store can serve one actor's visible
+  list to the other. Use one retriever per actor.
+- With an embedder, MCP `recall({ includeSuperseded: true })` returns current facts
+  only (the hybrid path pins `validAt` to now); the shipped server has no embedder.
 
 ### Internal
 
 - `npm run check` (typecheck, tests, browser bundle) is the one gate, and both
   CI workflows run it.
-- Migrations v4 (a covering index for the new order) and v5 (canonical
-  instants); both run on open.
+- Migrations v4 (a covering index for the new order) and v5 (canonical instants,
+  computed in JavaScript by the same parser the ranking uses); both run on open.
+  A creation time with no instant to find sorts as the oldest fact in SQL and JS
+  alike.
 - A test walks every static import reachable from the package root and fails on
   any optional dependency.
 

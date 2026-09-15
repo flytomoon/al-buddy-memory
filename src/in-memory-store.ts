@@ -1,6 +1,7 @@
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
+import { queryTokens, visibleRelevance } from "./query-filter.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -87,21 +88,16 @@ export class InMemoryStore implements MemoryStore {
       const min = options.minConfidence;
       results = results.filter((n) => n.confidenceWeight >= min);
     }
-    let relevance: Map<string, number> | undefined;
-    if (options.query) {
-      const q = options.query.toLowerCase();
-      results = results.filter((n) => n.content.text.toLowerCase().includes(q));
-      // Poor man's BM25: term frequency normalized by document length, so a
-      // node that is *about* the query outranks one that mentions it once.
-      relevance = new Map(
-        results.map((n) => {
-          const text = n.content.text.toLowerCase();
-          const words = text.split(/\s+/).length;
-          let occurrences = 0;
-          for (let i = text.indexOf(q); i >= 0; i = text.indexOf(q, i + q.length)) occurrences += 1;
-          return [n.nodeId, occurrences / Math.max(words, 1)];
-        }),
-      );
+    // Keyword matching as SQLite's FTS reads a query: any of its words, whole words,
+    // case-insensitive; no usable words matches nothing. This store used to match
+    // the whole query as one substring, so "what is the wifi login" found nothing
+    // here that SQLite found (Astra A10; Fable, 2026-09-15).
+    let tokens: string[] | undefined;
+    if (options.query !== undefined) {
+      tokens = queryTokens(options.query).map((t) => t.toLowerCase());
+      if (tokens.length === 0) return [];
+      const wanted = new Set(tokens);
+      results = results.filter((n) => (n.content.text.match(/[\p{L}\p{N}]+/gu) ?? []).some((w) => wanted.has(w.toLowerCase())));
     }
     if (options.validAt !== undefined) {
       const at = canonicalInstant(options.validAt, "validAt");
@@ -111,6 +107,9 @@ export class InMemoryStore implements MemoryStore {
 
     const now = Date.now();
     const eff = new Map(results.map((n) => [n.nodeId, effectiveConfidence(n, now)]));
+    // Relevance over the final matches: word share weighted by rarity among them.
+    const scores = tokens === undefined ? undefined : visibleRelevance(results.map((n) => n.content.text), tokens);
+    const relevance = scores === undefined ? undefined : new Map(results.map((n, i) => [n.nodeId, scores[i]!]));
     if (relevance !== undefined) {
       const rel = relevance;
       results.sort(
