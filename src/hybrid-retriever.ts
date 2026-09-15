@@ -1,4 +1,4 @@
-import { compareRecency } from "./decay.js";
+import { compareRecency, effectiveConfidence } from "./decay.js";
 import { canonicalInstant } from "./instant.js";
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
@@ -83,17 +83,15 @@ export class HybridRetriever {
     addList(keywordHits);
     addList(vectorHits.map((v) => v.node));
 
-    // The same last word as the stores (compareRecency): fused rank, then
-    // confidence, then the most recently learned. Two facts can easily tie on
-    // both — one list, equal confidence — and without a final key the winner of
-    // a `slice(0, limit)` was whichever the fusion map happened to hold first.
+    // The same order as the stores: fused rank, then EFFECTIVE confidence (it
+    // compared stored confidence, so a fact decayed to half its weight still won
+    // the tie), then the most recently learned. A fused tie is the ordinary
+    // shape of reciprocal-rank fusion: one fact wins the keyword list, the other
+    // the vector list, and 1/61 + 1/62 is the same number both ways.
+    const now = Date.now();
     return [...scores.values()]
-      .sort(
-        (a, b) =>
-          b.score - a.score ||
-          b.node.confidenceWeight - a.node.confidenceWeight ||
-          compareRecency(a.node, b.node),
-      )
+      .map((e) => ({ ...e, eff: effectiveConfidence(e.node, now) }))
+      .sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node))
       .slice(0, limit)
       .map((e) => e.node);
   }
@@ -145,20 +143,26 @@ export class HybridRetriever {
     if (!queryVector) return [];
     const embeddings = await this.embeddingsFor(this.embedder.model);
 
-    // Two recordings of the same fact have the SAME similarity, exactly — the
-    // vector is a function of the text. Which one made the pool (and which one
-    // findDuplicate reinforces) was otherwise decided by the order the rows came
-    // out of storage, so the id settles it here and recency settles it once the
-    // nodes are loaded below.
+    // A vector of another length is from another model version: its cosine
+    // against this query is meaningless (a shorter one used to score NaN, and
+    // NaN made the sort non-transitive, so the winner depended on insertion
+    // order). Skip it; backfill replaces it.
     const scored = embeddings
+      .filter((e) => e.vector.length === queryVector.length)
       .map((e) => ({ nodeId: e.nodeId, similarity: cosineSimilarity(queryVector, e.vector) }))
+      .filter((e) => Number.isFinite(e.similarity))
       .sort((a, b) => b.similarity - a.similarity || a.nodeId.localeCompare(b.nodeId));
 
     // Filter BEFORE taking the pool: with a scope, the nearest 50 vectors may all
-    // be out of scope, and slicing first would leave the vector list empty.
+    // be out of scope, and slicing first would leave the vector list empty. And
+    // finish the similarity tie group at the boundary: two recordings of one fact
+    // have IDENTICAL similarity (the vector is a function of the text), so which
+    // of them makes the pool — and which one findDuplicate reinforces — has to be
+    // decided by the fact, not by where the cut fell (review 2026-09-14; the 0.3.5
+    // comment here claimed recency settled it, and nothing did).
     const out: { node: MemoryNode; similarity: number }[] = [];
     for (const { nodeId, similarity } of scored) {
-      if (out.length >= CANDIDATE_POOL) break;
+      if (out.length >= CANDIDATE_POOL && similarity < out[out.length - 1]!.similarity) break;
       const node = await this.store.getNode(nodeId);
       if (!node) continue;
       // Same boundary as searchNodes: in scope, currently valid, never Sealed,
@@ -166,7 +170,15 @@ export class HybridRetriever {
       if (!matchesFilter(node, filter)) continue;
       out.push({ node, similarity });
     }
-    return out;
+    const now = Date.now();
+    return out
+      .sort(
+        (a, b) =>
+          b.similarity - a.similarity ||
+          effectiveConfidence(b.node, now) - effectiveConfidence(a.node, now) ||
+          compareRecency(a.node, b.node),
+      )
+      .slice(0, CANDIDATE_POOL);
   }
 }
 

@@ -259,3 +259,63 @@ describe("HybridRetriever ties", () => {
     expect(b.hits.map((n) => n.nodeId)).toEqual([b.newer.nodeId]);
   });
 });
+
+/** Review 2026-09-14 (Astra A3/A5/A6): three ways the vector side still ranked wrongly. */
+describe("HybridRetriever ranks the vector side the way the stores rank", () => {
+  const OLD_ID = "00000000-0000-4000-8000-000000000001";
+  const NEW_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const factAt = (nodeId: string, text: string, iso: string, extra: Partial<Parameters<typeof makeNode>[0]> = {}): MemoryNode => ({
+    ...makeNode({ content: { text }, ...extra }),
+    nodeId,
+    temporalAnchors: [{ timestamp: iso, event: "created" }],
+    validFrom: iso,
+    validTo: null,
+  });
+
+  it("two equally similar facts: the newest wins, even when the old one has the smaller id", async () => {
+    // The 0.3.5 comment said "recency settles it once the nodes are loaded
+    // below". Nothing below did; the smaller id won, and with 50 smaller-id
+    // copies the newest fact never made the pool at all.
+    const store = new InMemoryStore();
+    const embedder = conceptEmbedder();
+    await store.restoreNode(factAt(OLD_ID, "visited japan", "2020-01-01T00:00:00.000Z"));
+    await store.restoreNode(factAt(NEW_ID, "visited japan", "2026-09-01T00:00:00.000Z"));
+    await indexMissingEmbeddings(store, embedder);
+    const retriever = new HybridRetriever(store, embedder);
+    expect((await retriever.recall("tokyo", { limit: 1 }))[0]?.nodeId).toBe(NEW_ID);
+    expect((await retriever.findDuplicate("japan"))?.nodeId).toBe(NEW_ID);
+  });
+
+  it("a vector of the wrong length is skipped, not scored NaN into a scrambled order", async () => {
+    for (const order of ["bad-first", "good-first"]) {
+      const store = new InMemoryStore();
+      const embedder = conceptEmbedder();
+      const good = await store.addNode(makeNode({ content: { text: "tokyo" } }));
+      const bad = await store.addNode(makeNode({ content: { text: "tokyo too" } }));
+      const put = {
+        good: () => store.setEmbedding({ nodeId: good.nodeId, model: embedder.model, modelVersion: "1", dimensions: 3, metric: "cosine", vector: [1, 0, 0] }),
+        bad: () => store.setEmbedding({ nodeId: bad.nodeId, model: embedder.model, modelVersion: "0", dimensions: 2, metric: "cosine", vector: [1, 0] }),
+      };
+      if (order === "bad-first") await put.bad().then(put.good);
+      else await put.good().then(put.bad);
+      const retriever = new HybridRetriever(store, embedder);
+      expect((await retriever.findDuplicate("tokyo"))?.nodeId).toBe(good.nodeId);
+    }
+  });
+
+  it("a fused tie goes to the higher EFFECTIVE confidence, not the stored one", async () => {
+    const store = new InMemoryStore();
+    const embedder = conceptEmbedder();
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    // Keyword winner, stored 0.9 but decaying hard: effective 0.45. Newer, too —
+    // so recency cannot be what picks the other one.
+    const fading = factAt(NEW_ID, "tokyo tokyo pasta", twoDaysAgo, { confidenceWeight: 0.9, decayRate: 1 });
+    // Vector winner, stored 0.8, never decays.
+    const steady = factAt(OLD_ID, "tokyo japan trip notes", "2020-01-01T00:00:00.000Z", { confidenceWeight: 0.8, decayRate: 0 });
+    await store.restoreNode(fading);
+    await store.restoreNode(steady);
+    await indexMissingEmbeddings(store, embedder);
+    const hits = await new HybridRetriever(store, embedder).recall("tokyo", { limit: 1 });
+    expect(hits[0]?.nodeId).toBe(OLD_ID);
+  });
+});
