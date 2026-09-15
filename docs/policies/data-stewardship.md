@@ -2,6 +2,8 @@
 
 > Adopted from the founder's governance corpus (drafted March 2026 for a lifelong companion) and generalised for any assistant built on this memory. "The operator" is whoever runs the service the memory lives in; for a single person on their own machine, that is the person. A policy is a claim about behaviour; [ENFORCEMENT.md](ENFORCEMENT.md) says which lines the code enforces, which a prompt carries, and which are still a person's decision. Policies change in the open: open an issue or a pull request.
 
+> **Status of this document.** It describes a target process for an operator running a service. This library implements part of it: the retention tiers as data, invalidation instead of overwrite, governed and audited erasure, and one lossless JSON export with a published JSON Schema. It does not implement JSON-LD or RDF/Turtle exports, cryptographic zeroing, scheduled summarisation or deletion jobs, or the review cadences below. [ENFORCEMENT.md](ENFORCEMENT.md) is the line-by-line ledger.
+
 ## 1. Purpose and Scope
 
 This policy governs how the operator creates, stores, retains, archives, exports, evolves, replicates, and deletes user memory data across the entire lifecycle of the platform. It translates the operator masterplan's memory stewardship principles into specific, actionable rules that bind all system components, engineers, and operational teams.
@@ -84,7 +86,7 @@ No memory is deleted without either explicit user action or a clearly defined an
 | Tier | Description | Who Can Trigger |
 |---|---|---|
 | **Full Retention** | Node is stored in its original form, fully indexed, fully searchable | Default state for all nodes |
-| **Summarized** | Original content is condensed into an AI-generated narrative summary; raw content is deleted after summary confirmation | AI (on schedule, user-confirmed) or user-initiated |
+| **Summarized** | Reserved. The raw content is NOT replaced: a summary is written as a new `Narrative` node linked to its sources, and the raw stays the source of truth | AI (on schedule, user-confirmed) or user-initiated |
 | **Archived** | Node is moved to cold storage; excluded from active AI context window and search by default; retrievable on demand | User-initiated or automatic per schedule |
 | **Pending Deletion** | Node is queued for permanent deletion; 14-day grace period before irreversible destruction | User-initiated only |
 | **Deleted** | Node and all associated edges are cryptographically zeroed and removed from all storage layers | Automatic after Pending Deletion grace period |
@@ -197,9 +199,9 @@ The operator cannot guarantee erasure enforcement on third-party systems but wil
 
 Data portability is a first-class feature, not a compliance checkbox. Users must be able to export a complete, well-structured, human-readable, and machine-readable representation of their memory graph at any time, in formats that allow import into other systems without requiring the operator software.
 
-### 4.2 Mandatory Export Formats
+### 4.2 Target Export Formats (not yet implemented)
 
-All user exports must be available in both of the following formats simultaneously:
+The target is for user exports to be available in both of the following formats simultaneously. Today the library ships one lossless JSON format with a published JSON Schema (`docs/portable-format.schema.json`); neither format below exists yet.
 
 | Format | Standard | Use Case |
 |---|---|---|
@@ -621,7 +623,7 @@ Every person or system that designs, builds, configures, or operates any compone
 
 ### 7.4 Violation Reporting
 
-Suspected violations of this policy may be reported to the maintainers (open an issue). Reports are reviewed by the maintainers and the maintainers within **5 business days**. Reports involving potential data loss or unauthorized access are escalated to a 24-hour response track.
+Suspected violations of this policy may be reported to the maintainers (open an issue). Reports are reviewed by the maintainers within **5 business days**. Reports involving potential data loss or unauthorized access are escalated to a 24-hour response track.
 
 ---
 
@@ -631,9 +633,9 @@ Suspected violations of this policy may be reported to the maintainers (open an 
 
 | Review Type | Frequency | Owner | Output |
 |---|---|---|---|
-| Quarterly internal review | Quarterly | the maintainers + the maintainers | Internal audit covering: retention schedule compliance, export tool status, schema SCR log, DR test results |
+| Quarterly internal review | Quarterly | the maintainers | Internal audit covering: retention schedule compliance, export tool status, schema SCR log, DR test results |
 | EAB review | Semi-annual | EAB Chair | Public summary findings covering data governance and memory stewardship practices |
-| Full policy revision | Annual | the maintainers + the maintainers + EAB | Versioned policy update |
+| Full policy revision | Annual | the maintainers + EAB | Versioned policy update |
 | Emergency review | As needed (24h trigger) | the maintainers (primary), the maintainers (co-lead) | Incident report + remediation plan |
 
 ### 8.2 Emergency Review Triggers
@@ -702,8 +704,8 @@ Version history is maintained at `docs/governance/CHANGELOG.md`.
 
 | Standard | Authority | Use in This Policy |
 |---|---|---|
-| JSON-LD 1.1 | W3C | Mandatory export format |
-| RDF 1.1 Turtle | W3C | Mandatory export format |
+| JSON-LD 1.1 | W3C | Target export format (not implemented) |
+| RDF 1.1 Turtle | W3C | Target export format (not implemented) |
 | ISO 8601 | ISO | Timestamp format for all log and metadata fields |
 | UUID v4 | RFC 4122 | Node and edge identifier format |
 | AES-256 | NIST | Minimum encryption standard for all stored and exported data |

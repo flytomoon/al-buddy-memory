@@ -37,13 +37,13 @@ The enforcement semantics (e.g., AI not reading `Sealed` nodes) live in the appl
 
 ### 3. `nodeId` is UUID v4, not a hash or content-derived ID
 
-Memory nodes are mutable (content, confidence, retention tier can change). A hash-based ID would silently break on any update.
+A node's raw content is immutable, but much else changes over its life (confidence, validity, retention tier, metadata), and an ID must survive all of it. A hash-based ID would also collide for two facts that happen to say the same words.
 
 **Why:** UUID v4 gives stable cross-layer identity regardless of content state. `encryptionKeyRef` handles key derivation separately.
 
 ### 4. All timestamps are ISO 8601 strings, not `Date` objects
 
-`Date` is a runtime construct that does not survive JSON serialization portably. The memory graph must be exportable to RDF/JSON-LD at any time.
+`Date` is a runtime construct that does not survive JSON serialization portably. Every instant is stored in one canonical spelling — `Date#toISOString()`: UTC, milliseconds, `Z` — so that a string comparison is a time comparison in every implementation; an instant without a zone is refused. (An RDF/JSON-LD serialisation is a goal, not a feature — see the deferred table below.)
 
 **Why:** ISO 8601 strings are the open-standard representation. They serialize identically whether the runtime is Node.js, a mobile app, or a future Rust/Go service.
 

@@ -5,7 +5,7 @@
 
 **Portable, governed, model-agnostic memory for AI agents.**
 
-A fact is never deleted, only invalidated. Raw text is the source of truth. Embeddings are a disposable, model-tagged cache. Everything exports to one documented format. The memory outlives whatever model, runtime or company produced it.
+A fact is invalidated, never overwritten — erasure exists only through governance, audited. Raw text is the source of truth and cannot be edited. Embeddings are a disposable, model-tagged cache. Every fact and every link exports to one documented format. The memory outlives whatever model, runtime or company produced it.
 
 ---
 
@@ -16,7 +16,7 @@ Every agent-memory product on the market answers one question well: *what does t
 | Question | This library | Letta | Mem0 | Zep |
 |---|---|---|---|---|
 | **Where did this fact come from, and who asserted it?** | Provenance on every node and edge (`UserInput` / `AIInferred` / `GuardianAdded` / `SystemGenerated`) | Memory-file git history | Metadata field | Graph episodes |
-| **When was it true, and what replaced it?** | Bi-temporal: `validFrom` / `validTo` plus append-only transaction anchors; a `validAt` query reconstructs any past state | Git history of files, not a fact model | No | Temporal graph (its real strength) |
+| **When was it true, and what replaced it?** | `validFrom` / `validTo` (valid time) plus append-only anchors (when the store touched a fact); a `validAt` query answers "what was true at X". It does not yet answer "what did we believe at X": an update records that a change happened, not the prior value | Git history of files, not a fact model | No | Temporal graph (its real strength) |
 | **Can I take it with me, losslessly, to another runtime?** | One versioned JSON export with a published schema and conformance tests | `.af` (agent state, framework-shaped, archival memory not yet included) | Cloud export | Cloud-only since 2025 |
 | **Does it run with no vendor, no key, no server?** | SQLite on disk, on-device embeddings | Self-host possible; cloud is the product | Cloud is the product | Cloud only |
 
@@ -29,8 +29,9 @@ yours in ten minutes: pin who the person is and how they want to be treated (inc
 yes-person"), choose the rules the store enforces, and let it derive the rest nightly.
 
 Upgrading from an earlier version: [CHANGELOG.md](CHANGELOG.md) marks anything that changes what
-an existing caller gets back. 0.3.5 changes the order of tied reads — newest first now, oldest
-before — so read that entry before you rely on a page.
+an existing caller gets back. 0.4.0 has breaking changes (immutable content, governed erasure, a new
+`listNodes` on the store interface, the MCP exports moved to `al-buddy-memory/mcp`), so read that
+entry before you upgrade.
 
 ## What is in the box
 
@@ -95,9 +96,17 @@ change a guardian's fact), enterprise audit (low-confidence inferences hidden fr
 non-reviewers; exports gated to exporters). A policy is a plain object with four
 optional hooks; see [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
 
-Without any policy the store still guarantees: Sealed facts never surface unless asked
-for by classification; `provenance`, `nodeId`, `encryptionKeyRef` and the anchor trail
-are immutable after write; nothing is deleted.
+Without any policy the store still guarantees: Sealed facts never surface in a search unless
+asked for by classification; `provenance`, `nodeId`, `encryptionKeyRef`, raw `content` and the
+anchor trail are immutable after write, through every path including import; every instant is
+stored in one canonical UTC spelling. Two things it does not do, said plainly: provenance is what
+the writer asserts (immutable once written, not verified — bind actors to provenance in a policy);
+and `encryptionKeyRef` names a key you manage, it does not encrypt the file.
+
+The governed handle is the boundary. `govern(store, …)` puts policies in front of every
+operation that can change a fact or reveal one — including erasure, which is refused unless a
+policy explicitly allows it. Whoever holds the inner store is not governed by anything, so hand
+out the governed one.
 
 The rules an assistant on this memory is held to are published in [docs/policies](docs/policies/README.md):
 ethical behaviour, user sovereignty and privacy, lifecycle and guardians, data stewardship — and
@@ -194,4 +203,4 @@ npm ci
 npm run check   # typecheck, tests, and the browser bundle — exactly what CI runs
 ```
 
-Tests: 155, including a behavioural conformance suite every backend runs against itself.
+The tests include a behavioural conformance suite every backend runs against itself.

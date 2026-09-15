@@ -7,12 +7,13 @@ import type { MemoryNode, MemoryNodeType, MemoryStore } from "./types/memory.js"
  * of truth is the governed store, and this file is generated, never read back —
  * so editing it changes nothing, closing the "someone plants a false memory"
  * tampering vector. Every memory shows its provenance and validity, and retired
- * (superseded) memories are preserved in their own section, so the file is a
- * tamper-evident, auditable view of what the companion believes and how it
- * changed over time.
+ * (superseded) memories are preserved in their own section. It is NOT
+ * tamper-evident — nothing detects an edit to the file; it simply never counts.
+ * It shows what a default read shows: Sealed and Archived facts are not in it.
  */
 export async function exportMemoryMarkdown(store: MemoryStore, project: string): Promise<string> {
-  const all = await store.searchNodes({ limit: 10_000 });
+  // No cap: a mirror that silently stopped at 10,000 facts was not a mirror.
+  const all = await store.searchNodes({});
   const current = all.filter((n) => n.validTo === null);
   const retired = all.filter((n) => n.validTo !== null);
 
@@ -21,7 +22,7 @@ export async function exportMemoryMarkdown(store: MemoryStore, project: string):
   out.push("");
   out.push("> **Read-only mirror.** The source of truth is the governed memory store; this file");
   out.push("> is generated and is **not read back**, so edits here change nothing. Every memory");
-  out.push("> shows where it came from and its validity — tamper-evident by design. Retired");
+  out.push("> shows where it came from and its validity. Retired");
   out.push("> memories are preserved below, never erased.");
   out.push("");
 

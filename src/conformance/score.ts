@@ -95,7 +95,7 @@ export function scoreConformance(input: ConformanceInput): ConformanceReport {
     reason: retired.length === 0 ? "no retired facts in the sample — unproven" : `${retired.length} retired ${retired.length === 1 ? "fact" : "facts"} retained; ${pct(retiredWithSuccessor, retired.length)} ${retiredWithSuccessor === 1 ? "names its" : "name their"} successor`,
   });
 
-  const withConf = facts.filter((f) => typeof f.confidence === "number").length;
+  const withConf = facts.filter((f) => typeof f.confidence === "number" && f.confidence >= 0 && f.confidence <= 1).length;
   dims.push({
     key: "confidence",
     title: "Every fact says how sure the system is",

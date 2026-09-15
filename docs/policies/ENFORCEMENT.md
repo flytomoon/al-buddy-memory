@@ -13,17 +13,20 @@ open — with a test wherever one is possible.
 
 | Rule | Where | What happens |
 |---|---|---|
-| Nothing is deleted; a fact that stops being true is closed with `validTo` | every `MemoryStore` | there is no delete; `updateNode` closes validity and keeps the record |
-| Who asserted a fact, when, and its key reference never change after write | `src/immutable.ts` (both stores) | a patch to `provenance`, `nodeId`, `encryptionKeyRef` or the anchor trail throws |
+| A fact that stops being true is closed with `validTo`, never overwritten | every `MemoryStore` | `updateNode` closes validity and keeps the record; raw `content` cannot be changed, so a correction is a new fact |
+| Erasure is the one destructive operation, and it is governed | `src/governance/governed-store.ts` | `deleteNode`/`deleteEdge` on a governed handle run `beforeErase`; refused unless some policy returns `true` and none refuses; every attempt audited with purpose `erase`. The raw store can erase — which is why the raw store is not what you hand out |
+| Who asserted a fact, what it said, when, and its key reference never change after write | `src/immutable.ts` (both stores) | a patch to `provenance`, `nodeId`, `encryptionKeyRef`, `content` or the anchor trail throws; `restoreNode` over an existing fact refuses any of those and any rewritten or shortened anchor trail |
+| One spelling per instant | `src/instant.ts` (both stores) | timestamps are canonicalised to UTC on the way in; an instant without a zone, or junk, is refused |
 | Sealed facts never surface unless asked for by classification | `src/sqlite-memory-store.ts`, `src/in-memory-store.ts` | excluded from every search that does not name `Sealed` |
 | Archived and pending-deletion facts stay out of active context | the stores | excluded from search unless named by tier |
-| A policy may refuse a write, refuse a change, hide a fact from an audience, or stop it leaving in an export | `src/governance/governed-store.ts` | `govern()` runs `beforeWrite`, `beforeUpdate`, `beforeRead`, `beforeExport`; refusals throw `PolicyDenied` |
-| Every governed decision is recorded | `src/governance/audit.ts` | append-only audit events (allowed, hidden, denied), memory or JSONL |
+| A policy may refuse a write, refuse a change, hide a fact from an audience, or stop it leaving in an export | `src/governance/governed-store.ts` | `govern()` runs `beforeWrite` (also on import), `beforeUpdate` (also when an import overwrites), `beforeRead` (also on `listNodes` and `getEdges`), `beforeExport`, `beforeErase`; a fact an actor cannot read is "not found" to their updates, erasures and links; refusals throw `PolicyDenied` |
+| Every governed decision is recorded — when an audit sink is supplied | `src/governance/audit.ts` | append-only events (allowed, hidden, denied). The event is written after the store call succeeds: a sink that fails leaves a committed write without its event, and the call rejects. The embedding cache is not governed or audited (vectors are derived and never returned as facts) |
 | Secrets written as ordinary facts become Sensitive; Sensitive and Sealed never reach another audience or leave without the owner | `personalDefaults` | see `src/governance/samples.ts` |
 | A guardian's facts can only be written, changed or retired by a guardian | `guardianMode` | `src/governance/samples.ts` |
 | Low-confidence inferences are hidden from non-reviewers; exports gated to exporters | `enterpriseAudit` | `src/governance/samples.ts` |
 | Derived facts cite their sources and never rewrite raw text | `src/consolidation.ts` | a derived fact without a known source is refused; raw nodes get an anchor, not an edit |
-| The export leaves the vendor intact | `src/memory-portability.ts`, `docs/portable-format.schema.json` | lossless import→export, proven by the conformance suite |
+| The export leaves the vendor intact | `src/memory-portability.ts`, `docs/portable-format.schema.json` | every node (any tier, any classification) and every edge between exported nodes; tested through both stores; a real export validates against the published schema. Embeddings are not exported — they are a cache, rebuilt on import. The conformance *score* proves an artifact round-trips; it cannot see what an export left out |
+| The MCP server is governed | `bin/al-buddy-memory-mcp.js`, `serverStore` | the owner's `personalDefaults` with the AI client as audience: secrets it writes become Sensitive and stay out of AI recall; every call audited |
 
 ## Carried by a prompt (an assistant honours it; the store cannot make it)
 
