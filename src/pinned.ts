@@ -10,6 +10,8 @@
  * ordinary node (portable, provenance-carrying, invalidated never deleted)
  * with `contextualMetadata.pinned = true`.
  */
+import { compareBinary } from "./decay.js";
+import { instantMs } from "./instant.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 export const PINNED_TAG = "pinned";
@@ -92,7 +94,8 @@ export class PinnedBlocks {
       }))
       // Oldest first, id ascending: two pins added in the same millisecond must
       // not swap places between renders, or the one the budget drops changes.
-      .sort((a, b) => a.pinnedAt.localeCompare(b.pinnedAt) || a.nodeId.localeCompare(b.nodeId));
+      // Instants, not spellings, and byte-order ids — the stores' own order (Astra).
+      .sort((a, b) => instantMs(a.pinnedAt) - instantMs(b.pinnedAt) || compareBinary(a.nodeId, b.nodeId));
   }
 
   /**

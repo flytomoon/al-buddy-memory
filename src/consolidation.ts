@@ -10,7 +10,8 @@
  * the pass never re-reads it. The model is injected — this library is
  * model-agnostic and calls nothing itself.
  */
-import { compareRecency, learnedAt } from "./decay.js";
+import { compareBinary, compareRecency, learnedAt } from "./decay.js";
+import { instantMs } from "./instant.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 export interface RawExcerpt {
@@ -196,7 +197,7 @@ export async function listConsolidations(store: MemoryStore): Promise<Consolidat
     runs.set(at, run);
   }
   // consolidatedAt IS the pass identity (it keys `runs`), so there is no tie to break here.
-  return [...runs.values()].sort((a, b) => b.consolidatedAt.localeCompare(a.consolidatedAt));
+  return [...runs.values()].sort((a, b) => instantMs(b.consolidatedAt) - instantMs(a.consolidatedAt) || compareBinary(b.consolidatedAt, a.consolidatedAt));
 }
 
 export interface UndoConsolidationReport {

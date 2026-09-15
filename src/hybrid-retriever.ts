@@ -1,4 +1,4 @@
-import { compareRecency, effectiveConfidence } from "./decay.js";
+import { compareBinary, compareRecency, effectiveConfidence } from "./decay.js";
 import { canonicalInstant } from "./instant.js";
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
@@ -151,7 +151,7 @@ export class HybridRetriever {
       .filter((e) => e.vector.length === queryVector.length)
       .map((e) => ({ nodeId: e.nodeId, similarity: cosineSimilarity(queryVector, e.vector) }))
       .filter((e) => Number.isFinite(e.similarity))
-      .sort((a, b) => b.similarity - a.similarity || a.nodeId.localeCompare(b.nodeId));
+      .sort((a, b) => b.similarity - a.similarity || compareBinary(a.nodeId, b.nodeId));
 
     // Filter BEFORE taking the pool: with a scope, the nearest 50 vectors may all
     // be out of scope, and slicing first would leave the vector list empty. And
