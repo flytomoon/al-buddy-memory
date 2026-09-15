@@ -1,7 +1,7 @@
 {
   "name": "al-buddy-memory",
   "version": "0.4.0",
-  "description": "Portable, governed, model-agnostic memory for AI agents: facts are invalidated rather than overwritten, raw text is the immutable source of truth, erasure runs through governance and is audited, embeddings are a disposable cache, and every fact exports to one documented format.",
+  "description": "Portable, governed, model-agnostic memory for AI agents: facts are invalidated rather than overwritten, raw text is the immutable source of truth, erasure on a governed handle runs through policy and is audited, embeddings are a disposable cache, and every fact exports to one documented format.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

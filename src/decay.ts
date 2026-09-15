@@ -11,6 +11,7 @@
  * within a factor of two of a new one, so the memory block prefers what is
  * current without forgetting what is durable. Deterministic and pure.
  */
+import { instantMs } from "./instant.js";
 import type { MemoryNode } from "./types/memory.js";
 
 const DAY_MS = 86_400_000;
@@ -74,7 +75,7 @@ export function compareBinary(a: string, b: string): number {
  * final review, 2026-09-15). The id tie-break is byte order, matching SQL.
  */
 export function compareRecency(a: MemoryNode, b: MemoryNode): number {
-  const x = Date.parse(learnedAt(a)), y = Date.parse(learnedAt(b));
+  const x = instantMs(learnedAt(a)), y = instantMs(learnedAt(b));
   const byTime = Number.isFinite(x) && Number.isFinite(y) ? y - x : compareBinary(learnedAt(b), learnedAt(a));
   return byTime || compareBinary(b.nodeId, a.nodeId);
 }

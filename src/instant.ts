@@ -19,6 +19,19 @@ import type { MemoryEdge, MemoryNode, NewMemoryNode } from "./types/memory.js";
 // not an instant. Separators are case-insensitive, as RFC 3339 allows.
 const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-](\d{2}):(\d{2})))?$/;
 
+/**
+ * The instant a stored timestamp names, in milliseconds — for ORDERING, including
+ * values written before 0.4.0 that the write-time rules would now refuse. Every
+ * comparison of instants (the stores' ranking, their migration, consolidation,
+ * pins) goes through this one function, so SQL's sort key and JS's order are
+ * computed the same way: same case-folding, same millisecond truncation (SQLite's
+ * own strftime rounds, which is why the migration no longer uses it). NaN when
+ * there is no instant to find.
+ */
+export function instantMs(value: string | null | undefined): number {
+  return typeof value === "string" ? Date.parse(value.toUpperCase()) : Number.NaN;
+}
+
 export function canonicalInstant(value: string, field = "timestamp"): string {
   const m = typeof value === "string" ? ISO.exec(value.toUpperCase()) : null;
   // Date.parse rolls impossible fields forward (2026-02-30 becomes 2 March), so

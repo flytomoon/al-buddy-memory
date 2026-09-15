@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import Database from "better-sqlite3";
 
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
+import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -241,30 +241,39 @@ const MIGRATION_V4 = [
 ];
 
 /**
- * v5 — one spelling per instant (see instant.ts). Validity bounds are the
- * values callers supply, so a store written before 0.4.0 can hold "…00Z" or an
- * offset, which a string comparison misplaces. Rewrite those to canonical UTC;
- * a value SQLite cannot parse is left exactly as it was. Creation anchors are
- * always written by the library itself and need no rewrite.
+ * v5 — one spelling per instant (see instant.ts), in JavaScript. Validity bounds
+ * are values callers supplied, and 0.3.3's restoreNode stored creation anchors
+ * verbatim, so a store written before 0.4.0 can hold offsets, "…00Z",
+ * sub-millisecond fractions or lowercase separators. The SQL sort key created_at
+ * and the validity columns are rewritten from the same instantMs() the JS ranking
+ * uses — SQLite's strftime rounds fractions where JS truncates, and cannot read a
+ * lowercase "t" at all, which left SQL and JS disagreeing about a page (Astra,
+ * final confirmation, 2026-09-15). The anchors themselves stay verbatim: they are
+ * history. A value with no instant to find is left exactly as it was.
  */
-const CANONICAL_GLOB = "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'";
-const MIGRATION_V5 = ["valid_from", "valid_to"].map(
-  (col) =>
-    `UPDATE memory_nodes SET ${col} = strftime('%Y-%m-%dT%H:%M:%fZ', ${col})
-       WHERE ${col} IS NOT NULL AND ${col} NOT GLOB ${CANONICAL_GLOB} AND strftime('%Y-%m-%dT%H:%M:%fZ', ${col}) IS NOT NULL`,
-);
-/**
- * v6 — the creation sort key, canonical. v5 rewrote validity bounds; created_at
- * was left as 0.3.3's restoreNode stored it, and a spelled offset ("…-01:00")
- * sorts by its sign character instead of by time, so SQL and JS disagreed about
- * a page (Astra final review, 2026-09-15). The anchors themselves stay verbatim —
- * they are history — and JS compares them as instants.
- */
-const MIGRATION_V6 = [
-  `UPDATE memory_nodes SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
-     WHERE created_at IS NOT NULL AND created_at NOT GLOB ${CANONICAL_GLOB} AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS NOT NULL`,
-];
-const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6];
+const MIGRATION_V5 = (db: Database.Database): void => {
+  const canonical = (value: string | null): string | null => {
+    const ms = instantMs(value);
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : value;
+  };
+  const rows = db.prepare(`SELECT node_id, valid_from, valid_to, created_at, temporal_anchors FROM memory_nodes`).all() as {
+    node_id: string; valid_from: string; valid_to: string | null; created_at: string; temporal_anchors: string;
+  }[];
+  const update = db.prepare(`UPDATE memory_nodes SET valid_from = ?, valid_to = ?, created_at = ? WHERE node_id = ?`);
+  for (const r of rows) {
+    let learned: string | undefined;
+    try {
+      learned = (JSON.parse(r.temporal_anchors) as { event?: string; timestamp?: string }[]).find((a) => a.event === "created")?.timestamp;
+    } catch {
+      learned = undefined;
+    }
+    const validFrom = canonical(r.valid_from)!;
+    const validTo = canonical(r.valid_to);
+    const createdAt = Number.isFinite(instantMs(learned ?? r.valid_from)) ? canonical(learned ?? r.valid_from)! : r.created_at;
+    if (validFrom !== r.valid_from || validTo !== r.valid_to || createdAt !== r.created_at) update.run(validFrom, validTo, createdAt, r.node_id);
+  }
+};
+const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5];
 
 // ---------------------------------------------------------------------------
 // SqliteMemoryStore
@@ -339,7 +348,9 @@ export class SqliteMemoryStore implements MemoryStore {
     const apply = this.db.transaction(() => {
       const current = this.db.pragma("user_version", { simple: true }) as number;
       for (let version = current; version < MIGRATIONS.length; version++) {
-        for (const stmt of MIGRATIONS[version]!) this.db.prepare(stmt).run();
+        const migration = MIGRATIONS[version]!;
+        if (typeof migration === "function") migration(this.db);
+        else for (const stmt of migration) this.db.prepare(stmt).run();
         // pragma value can't be parameterized; version is a trusted integer.
         this.db.pragma(`user_version = ${version + 1}`);
       }

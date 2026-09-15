@@ -378,6 +378,11 @@ describe("a governed call acts on the arguments as they were when it was made", 
       secret.content = { text: "api_key=sk-live-abcdefghijklmnop1234" }; // would dodge classification
       const written = await writing;
       expect(written.content.text).toBe("an ordinary note");
+
+      // The copy is the JSON the store itself would keep: a function in metadata is
+      // dropped rather than refused, and toJSON is honoured (structuredClone threw).
+      const odd = await owner.addNode(fact("with odd metadata", { contextualMetadata: { f: () => 1, when: { toJSON: () => "2026-01-01" } } as never }));
+      expect(odd.contextualMetadata).toEqual({ when: "2026-01-01" });
       (inner as { close?: () => void }).close?.();
     }
   });

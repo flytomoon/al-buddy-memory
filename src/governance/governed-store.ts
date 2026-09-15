@@ -93,7 +93,15 @@ function asPatch(node: MemoryNode): NodePatch {
  * id, clear the check, and swap in a hidden one before the write (Astra final
  * review, 2026-09-15). Everything after this line sees only the copy.
  */
-const snapshot = <T>(value: T): T => structuredClone(value);
+const snapshot = <T>(value: T): T => (value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T));
+// JSON, not structuredClone: facts, edges and embeddings are persisted as JSON, so
+// this is exactly what the store would keep — functions dropped, toJSON honoured,
+// Buffers as SQLite writes them. structuredClone threw on a function in metadata
+// and changed how class instances and Buffers came out (Astra confirmation).
+// Search options are copied field by field instead, because JSON turns an
+// Infinity limit into null.
+const snapshotOptions = <T extends object>(options: T): T =>
+  Object.fromEntries(Object.entries(options).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v])) as T;
 
 export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   const readCtx = () => ctxFor(opts, opts.readAs ?? "recall");
@@ -264,7 +272,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     },
 
     async searchNodes(input): Promise<MemoryNode[]> {
-      const options = snapshot(input);
+      const options = snapshotOptions(input);
       const ctx = readCtx();
       // A cursor this actor cannot see is a missing cursor: the page after it is
       // empty. It used to answer differently for a hidden id than a missing one.
