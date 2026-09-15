@@ -186,7 +186,7 @@ changes are here.
   whether the fact exists.
 - Stores whose creation times were written by 0.3.3's `restoreNode` with offsets
   ("…-01:00") sorted by the sign character, not by time, so SQL and JavaScript
-  disagreed about a page. Migration v6 makes the stored sort key canonical (the
+  disagreed about a page. Migration v5 makes the stored sort key canonical (the
   anchors stay verbatim); JavaScript orders by the instant; the final id tie-break
   is byte order in both. The paging bound now includes the id, so 100,000 facts
   sharing one creation instant no longer force a full read (324 ms → 3 ms).
