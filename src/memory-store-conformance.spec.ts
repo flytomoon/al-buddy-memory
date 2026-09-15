@@ -342,6 +342,21 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       }
     });
 
+    /**
+     * Confidence is a weight in [0,1] and decay a rate ≥ 0. Nothing checked it,
+     * and the exact-paging proof rests on effective ≤ stored — false for a
+     * negative confidence, which Fable used to break a page (final review).
+     */
+    it("refuses a confidence outside [0,1] or a negative or non-finite decay rate, on every write path", async () => {
+      for (const bad of [{ confidenceWeight: -1 }, { confidenceWeight: 1.5 }, { confidenceWeight: Number.NaN }, { decayRate: -0.1 }, { decayRate: Number.POSITIVE_INFINITY }]) {
+        await expect(store.addNode(makeNode(bad))).rejects.toThrow(/confidenceWeight|decayRate/);
+      }
+      const n = await store.addNode(makeNode());
+      await expect(store.updateNode(n.nodeId, { confidenceWeight: 2 })).rejects.toThrow(/confidenceWeight/);
+      await expect(store.restoreNode({ ...n, decayRate: -1 })).rejects.toThrow(/decayRate/);
+      expect((await store.getNode(n.nodeId))?.confidenceWeight).toBe(1);
+    });
+
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
       await store.addNode(
         makeNode({ privacyClassification: "Sealed", content: { text: "sealed secret" } }),

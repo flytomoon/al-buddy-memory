@@ -23,8 +23,11 @@ changes are here.
   the hash of the one before it (HMAC-SHA256 with a key); `verifyAuditChain` and
   `al-buddy-memory verify-audit` name the first edited, removed, inserted or
   reordered line. A cut-off tail, or a rewrite by whoever holds the key, is
-  caught only against a head hash published elsewhere — the docs say so. The
-  shipped MCP server writes a chained log, keyed by `AL_BUDDY_MEMORY_AUDIT_KEY`.
+  caught only against a head hash published elsewhere — the docs say so, and that
+  a keyless chain catches accidents, not a deliberate rewrite. A log that cannot be
+  extended (an old-format file, a crash-torn last line) is refused with the reason;
+  the MCP server checks at start instead of failing after a write. The shipped MCP
+  server writes a chained log, keyed by `AL_BUDDY_MEMORY_AUDIT_KEY`.
 
 ### Breaking changes
 
@@ -54,6 +57,13 @@ changes are here.
   without optional dependencies produced a library that could not be imported.
 - `InMemoryStore` refuses an edge or an embedding whose node does not exist, as
   SQLite always did.
+- **Weights are validated.** A confidence outside [0,1], or a negative or
+  non-finite decay rate, is refused on every write path. (Exact paging relies on
+  effective confidence never exceeding stored; a negative confidence broke it.)
+- **`personalDefaults` is stricter.** Only the owner's actor changes a fact; export
+  and erasure of Sensitive facts, and erasure of anything, need the owner in
+  person (no other audience) — as reads already did.
+- **`exportView` is read-only.** Its write methods refuse; it used to delete.
 
 ### Behaviour changes
 
@@ -117,6 +127,11 @@ changes are here.
   `governed.db.prepare(...)` read a hidden secret and `governed.nodes` was the
   in-memory store's live map. The handle is now a frozen object holding exactly
   the `MemoryStore` methods, every one of them governed.
+- **Governed reads let hidden facts take places on the page.** Filtering came
+  after the store's limit, so as an AI audience `recall("password", limit 1)`
+  returned nothing while `limit 50` found the visible fact — any word could be
+  probed for secrets containing it. The governed read now fills the page with
+  facts the actor may see; a cursor the actor cannot see behaves as a missing one.
 - **Links and vectors leaked around governance.** `restoreEdge` over an existing
   id replaced the link, so a caller refused an erasure could rewrite it instead:
   a link is now immutable (identical re-import is a no-op, anything else is

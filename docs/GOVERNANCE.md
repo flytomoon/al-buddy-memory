@@ -39,7 +39,20 @@ the line before and of its own event (HMAC-SHA256 when you pass a `key`), so
 reordered. Two limits, stated rather than implied: a file cannot prove its tail was not cut
 off, and whoever holds the key can rewrite the whole chain. Both are caught by anchoring:
 publish `await audit.head()` somewhere the log's owner does not control (a git commit, a
-transparency log) and verify with `{ head }`. One writer per file.
+transparency log) and verify with `{ head }`. One writer per file. Without a key — the MCP
+server's default — the chain catches accidental damage and careless edits, not a deliberate
+rewrite: anyone who can write the file can recompute the whole chain. A line whose last entry
+is incomplete (a crash mid-append) stops the log from being extended until that line is
+removed; the MCP server refuses to start rather than write unaudited.
+
+### What no hook governs yet
+
+- **Links.** `addEdge` and `restoreEdge` check that the actor can see both facts, and nothing
+  more: there is no `beforeLink`, so a policy cannot yet say who may assert that two facts
+  contradict each other, and an edge's provenance and `createdAt` are what the writer says.
+- **Mutable state brought by an import.** `restoreNode` over an existing fact may change its
+  confidence, tiers or validity without appending an anchor of its own; on a governed handle
+  the import is audited, on the raw store nothing records it.
 
 A fact the actor cannot read is "not found" to their updates, erasures, links and embedding
 calls, failing exactly as a missing fact does. Two edges of that rule, stated so nobody has to
@@ -51,8 +64,10 @@ erase policies alone, because an edge id carries no endpoints to check.
 
 - **personalDefaults({ owner })** — the owner sees everything; anything that looks like a
   secret (API tokens, card numbers, "password: …", private keys) is written as Sensitive;
-  Sensitive and Sealed facts never reach another audience and never leave in an export
-  unless the owner is the one exporting.
+  Sensitive and Sealed facts never reach another audience, never leave in an export and are
+  never erased unless the owner is acting in person (actor = owner, no other audience); only
+  the owner's actor may change a fact. It assumes the owner is the actor and an assistant
+  working for them is a different audience — which is how the MCP server is wired.
 - **guardianMode({ guardians })** — only a guardian may write, change or invalidate a
   `GuardianAdded` fact. Everyone may read them; that is what they are for.
 - **enterpriseAudit({ reviewers, exporters, minInferredConfidence })** — AI-inferred facts

@@ -90,8 +90,9 @@ const store = govern(new SqliteMemoryStore("brain.db"), {
 });
 ```
 
-Three policies ship to copy: personal defaults (secrets auto-classified Sensitive and
-never exported by anyone but the owner), guardian mode (only a guardian may write or
+Three policies ship to copy: personal defaults (secrets auto-classified Sensitive; Sensitive
+facts never reach, leave with, or get erased by anyone but the owner in person; only the owner
+changes a fact), guardian mode (only a guardian may write or
 change a guardian's fact), enterprise audit (low-confidence inferences hidden from
 non-reviewers; exports gated to exporters). A policy is a plain object with five
 optional hooks; see [docs/GOVERNANCE.md](docs/GOVERNANCE.md).

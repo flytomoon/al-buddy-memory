@@ -247,7 +247,43 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     },
 
     async searchNodes(options): Promise<MemoryNode[]> {
-      return filterRead(opts, await inner.searchNodes(options), readCtx());
+      const ctx = readCtx();
+      // A cursor this actor cannot see is a missing cursor: the page after it is
+      // empty. It used to answer differently for a hidden id than a missing one.
+      if (options.after !== undefined) {
+        const cursor = await inner.getNode(options.after);
+        if (!cursor || !(await view(opts, cursor, ctx))) {
+          await record(opts, ctx, "allowed", []);
+          return [];
+        }
+      }
+      const limit = options.limit;
+      if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
+        return filterRead(opts, await inner.searchNodes(options), ctx);
+      }
+      // The page is the first `limit` facts this actor may see. Filtering after
+      // the store's limit let hidden facts take the places: as an AI audience,
+      // recall("password", limit 1) came back empty while limit 50 found the
+      // visible fact, so any word could be probed for secrets that contain it
+      // (Fable final review, 2026-09-15). Read further until the page is full
+      // of visible facts or the store has no more; the store's limited read is
+      // a prefix of its full read, so the result is exact.
+      for (let ask = limit; ; ask *= 2) {
+        const rows = await inner.searchNodes({ ...options, limit: ask });
+        const page: MemoryNode[] = [];
+        const hidden: string[] = [];
+        for (const node of rows) {
+          const seen = await view(opts, node, ctx);
+          if (seen) page.push(seen);
+          else hidden.push(node.nodeId);
+          if (page.length === limit) break;
+        }
+        if (page.length === limit || rows.length < ask) {
+          if (hidden.length > 0) await record(opts, ctx, "hidden", hidden);
+          await record(opts, ctx, "allowed", page.map((n) => n.nodeId));
+          return page;
+        }
+      }
     },
 
     // Enumeration is a read: without this, listNodes on a governed handle would
@@ -260,7 +296,26 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   return Object.freeze(governed);
 }
 
-/** A read-only view whose purpose is "export": beforeExport decides what leaves. Feed it to exportPortable. */
+/**
+ * A read-only view whose purpose is "export": beforeExport decides what leaves.
+ * Feed it to exportPortable. Read-only in fact, not just in name — every write
+ * method refuses (it deleted, before the final review).
+ */
 export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore {
-  return govern(inner, { ...opts, readAs: "export" });
+  const view = govern(inner, { ...opts, readAs: "export" });
+  const refuse = async (): Promise<never> => {
+    throw new Error("exportView is read-only");
+  };
+  return Object.freeze({
+    ...view,
+    addNode: refuse,
+    updateNode: refuse,
+    deleteNode: refuse,
+    restoreNode: refuse,
+    restoreEdge: refuse,
+    addEdge: refuse,
+    deleteEdge: refuse,
+    setEmbedding: refuse,
+    deleteEmbeddings: refuse,
+  });
 }

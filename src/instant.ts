@@ -41,10 +41,26 @@ export function canonicalInstantOrNull(value: string | null | undefined, field: 
   return value === null || value === undefined ? null : canonicalInstant(value, field);
 }
 
-type ValidityPatch = { validFrom?: string; validTo?: string | null };
+type ValidityPatch = { validFrom?: string; validTo?: string | null; confidenceWeight?: number; decayRate?: number };
+
+/**
+ * Confidence is a weight in [0,1]; decay is a rate ≥ 0. Nothing checked either,
+ * and exact paging rests on effective ≤ stored, which a negative confidence
+ * breaks (Fable final review, 2026-09-15). Checked on every write path, here,
+ * because every write path already passes through this module.
+ */
+function assertWeights(v: { confidenceWeight?: number; decayRate?: number }): void {
+  if (v.confidenceWeight !== undefined && !(Number.isFinite(v.confidenceWeight) && v.confidenceWeight >= 0 && v.confidenceWeight <= 1)) {
+    throw new Error(`confidenceWeight must be a number in [0, 1]; got ${String(v.confidenceWeight)}`);
+  }
+  if (v.decayRate !== undefined && !(Number.isFinite(v.decayRate) && v.decayRate >= 0)) {
+    throw new Error(`decayRate must be a finite number ≥ 0; got ${String(v.decayRate)}`);
+  }
+}
 
 /** A new fact's validity window, canonical. */
 export function canonicalNew<T extends NewMemoryNode>(node: T): T {
+  assertWeights(node);
   const out = { ...node };
   if (node.validFrom !== undefined) out.validFrom = canonicalInstant(node.validFrom, "validFrom");
   if (node.validTo !== undefined) out.validTo = canonicalInstantOrNull(node.validTo, "validTo");
@@ -53,6 +69,7 @@ export function canonicalNew<T extends NewMemoryNode>(node: T): T {
 
 /** An update's validity fields, canonical; everything else untouched. */
 export function canonicalPatch<T extends ValidityPatch>(patch: T): T {
+  assertWeights(patch);
   const out = { ...patch };
   if (patch.validFrom !== undefined) out.validFrom = canonicalInstant(patch.validFrom, "validFrom");
   if (patch.validTo !== undefined) out.validTo = canonicalInstantOrNull(patch.validTo, "validTo");
@@ -61,6 +78,7 @@ export function canonicalPatch<T extends ValidityPatch>(patch: T): T {
 
 /** A restored fact: validity and every anchor, canonical. */
 export function canonicalNode(node: MemoryNode): MemoryNode {
+  assertWeights(node);
   return {
     ...node,
     validFrom: canonicalInstant(node.validFrom, "validFrom"),

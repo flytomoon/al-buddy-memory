@@ -1,8 +1,8 @@
 /**
  * Governance hooks. The store ships the vocabulary (privacy classification,
  * retention tier, provenance); a policy is what ENFORCES it: who may write
- * what, who may see what, what may leave. Policies are plain objects with up
- * to four hooks, composed in order, and every decision is auditable.
+ * what, who may see what, what may leave, what may be erased. Policies are plain
+ * objects with up to five hooks, composed in order, and every decision is auditable.
  */
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 

@@ -19,9 +19,12 @@ export function looksSecret(text: string): boolean {
 }
 
 /**
- * Personal defaults: the owner sees everything; anything that looks like a
- * secret is written as Sensitive; Sensitive and Sealed facts never reach
- * another audience and never leave in an export unless the owner is exporting.
+ * Personal defaults: one person's memory. The owner sees everything; anything
+ * that looks like a secret is written as Sensitive; Sensitive and Sealed facts
+ * never reach another audience, never leave in an export, and are never erased,
+ * unless the owner is acting in person (actor = owner, no other audience); only
+ * the owner's actor changes a fact. The model it assumes: the owner is the
+ * actor, and an assistant working for them is a different AUDIENCE.
  */
 export function personalDefaults(opts: { owner: string }): GovernancePolicy {
   const isOwner = (ctx: PolicyContext) => ctx.actor === opts.owner && (ctx.audience === undefined || ctx.audience === opts.owner);
@@ -37,14 +40,22 @@ export function personalDefaults(opts: { owner: string }): GovernancePolicy {
       if (node.privacyClassification === "Sensitive" || node.privacyClassification === "Sealed") return isOwner(ctx) ? node : null;
       return node;
     },
+    // Export and erasure are judged like reads — by actor AND audience — so an
+    // agent acting for the owner cannot carry Sensitive facts out, or erase
+    // anything, just because the actor is the owner. They tested the actor only
+    // (Fable final review, 2026-09-15).
     beforeExport(node: MemoryNode, ctx: PolicyContext): boolean {
-      if (node.privacyClassification === "Sensitive" || node.privacyClassification === "Sealed") return ctx.actor === opts.owner;
+      if (node.privacyClassification === "Sensitive" || node.privacyClassification === "Sealed") return isOwner(ctx);
       return true;
     },
-    // It is the owner's memory: only the owner erases any of it.
     beforeErase(_subject: ErasureSubject, ctx: PolicyContext): true {
-      if (ctx.actor !== opts.owner) throw new PolicyDenied("personal-defaults", `${ctx.actor} is not the owner and cannot erase memory`);
+      if (!isOwner(ctx)) throw new PolicyDenied("personal-defaults", `only the owner, in person, erases memory (actor ${ctx.actor}, audience ${ctx.audience ?? "none"})`);
       return true;
+    },
+    // Changes are the owner's too. By actor only: an assistant acting for the
+    // owner (audience "agent") must still be able to invalidate a fact.
+    beforeUpdate(_existing: MemoryNode, _patch: NodePatch, ctx: PolicyContext): void {
+      if (ctx.actor !== opts.owner) throw new PolicyDenied("personal-defaults", `${ctx.actor} is not the owner and cannot change the owner's memory`);
     },
   };
 }
