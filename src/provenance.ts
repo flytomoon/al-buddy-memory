@@ -58,3 +58,36 @@ export function readSourceProvenance(
   }
   return { user: record["user"], assistant: record["assistant"], at: record["at"] };
 }
+
+/**
+ * Which assistant, app or agent wrote a fact — so memory shared across assistants
+ * can say which one told you something, and a person can filter or undo one
+ * source's work. Record only what the writer actually knows (founder, 2026-09-15):
+ *
+ * - `app` / `appVersion`: the client, as the MCP connection announced itself —
+ *   reliable, the model cannot change it.
+ * - `agent`, `channel`, `model`: set by a host that knows them (Al's own capture
+ *   knows its model and channel).
+ * - `modelClaimed`: a model name the model reported about itself — kept apart from
+ *   `model` because nothing verifies it.
+ * - `via`: the path the fact arrived by ("mcp", "api", …).
+ *
+ * Kept in contextualMetadata.origin for 0.4.x; a first-class, immutable field in the
+ * spec and portable format is planned for 0.5.
+ */
+export interface Origin {
+  app?: string;
+  appVersion?: string;
+  agent?: string;
+  channel?: string;
+  model?: string;
+  modelClaimed?: string;
+  via?: string;
+}
+
+/** `metadata` with `origin` added — omitted entirely when nothing is known. */
+export function withOrigin(metadata: Record<string, unknown>, origin: Origin | undefined): Record<string, unknown> {
+  const known = Object.fromEntries(Object.entries(origin ?? {}).filter(([, v]) => typeof v === "string" && v !== ""));
+  return Object.keys(known).length === 0 ? metadata : { ...metadata, origin: known };
+}
+

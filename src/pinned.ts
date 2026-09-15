@@ -10,6 +10,7 @@
  * ordinary node (portable, provenance-carrying, invalidated never deleted)
  * with `contextualMetadata.pinned = true`.
  */
+import { withOrigin, type Origin } from "./provenance.js";
 import { compareBinary } from "./decay.js";
 import { instantMs } from "./instant.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
@@ -26,6 +27,8 @@ export interface PinInput {
   provenance?: MemoryNode["provenance"];
   privacyClassification?: MemoryNode["privacyClassification"];
   encryptionKeyRef?: string;
+  /** Which app or agent pinned it (see provenance.ts Origin). */
+  origin?: Origin;
 }
 
 export interface PinnedBlock {
@@ -58,7 +61,7 @@ export class PinnedBlocks {
       privacyClassification: input.privacyClassification ?? "Private",
       retentionTier: "FullRetention",
       content: { text },
-      contextualMetadata: { [PINNED_TAG]: true, pinnedLabel: input.label ?? null, pinnedAt: now, tags: [PINNED_TAG] },
+      contextualMetadata: withOrigin({ [PINNED_TAG]: true, pinnedLabel: input.label ?? null, pinnedAt: now, tags: [PINNED_TAG] }, input.origin),
       confidenceWeight: 1,
       decayRate: 0,
       // Valid from the moment it was pinned — not from the store's clock — so

@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { AuditSink } from "../governance/audit.js";
 import { govern } from "../governance/governed-store.js";
 import { personalDefaults } from "../governance/samples.js";
+import { withOrigin, type Origin } from "../provenance.js";
 
 import { HybridRetriever } from "../hybrid-retriever.js";
 import { PinnedBlocks } from "../pinned.js";
@@ -74,10 +75,27 @@ export function serverStore(inner: MemoryStore, opts: { owner?: string; audit?: 
 
 export interface GovernanceDeps {
   store: MemoryStore;
+  /** Who is writing, asked at each write. The shipped server answers from the MCP handshake. */
+  origin?: () => Origin | undefined;
   embedder?: Embedder;
   now?: () => Date;
   encryptionKeyRef?: string;
 }
+
+/**
+ * What every connecting client is told about using this server. Claude Desktop
+ * connected five times and never called a tool: a client that is not told when to
+ * recall and what to remember does neither (founder, 2026-09-15). The first 512
+ * characters stand alone, because some clients read only that much.
+ */
+export const SERVER_INSTRUCTIONS = [
+  "This is the user's long-term memory, shared across their assistants.",
+  "At the start of a conversation, and when the user mentions a person, project, preference or past decision, call recall with a short keyword query and use what it returns; each fact says who asserted it and since when.",
+  "When the user states something durable (a preference, decision, commitment, or fact about their life, people or work), call remember with one plain sentence.",
+  "Never remember secrets, small talk or one-off requests.",
+  "When a fact stops being true, call invalidate with its id; nothing is deleted.",
+  "Use pin only for rules that belong in every conversation.",
+].join(" ");
 
 /** The tool implementations, transport-free. */
 export function governanceTools(deps: GovernanceDeps) {
@@ -95,7 +113,7 @@ export function governanceTools(deps: GovernanceDeps) {
         privacyClassification: "Private",
         retentionTier: "FullRetention",
         content: { text },
-        contextualMetadata: {},
+        contextualMetadata: withOrigin({}, deps.origin?.()),
         confidenceWeight: Math.max(0, Math.min(1, input.confidence ?? 1)),
         decayRate: 0,
         validFrom: now().toISOString(),
@@ -123,7 +141,8 @@ export function governanceTools(deps: GovernanceDeps) {
       return toGovernedFact(updated);
     },
     async pin(input: { text: string; label?: string | undefined }) {
-      return pins.pin({ text: input.text, ...(input.label && { label: input.label }) });
+      const origin = deps.origin?.();
+      return pins.pin({ text: input.text, ...(input.label && { label: input.label }), ...(origin && { origin }) });
     },
     async unpin(input: { id: string }) {
       return { unpinned: await pins.unpin(input.id) };
@@ -138,8 +157,18 @@ export function governanceTools(deps: GovernanceDeps) {
 export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ server: unknown; connectStdio: () => Promise<void> }> {
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const tools = governanceTools(deps);
-  const server = new McpServer({ name: "al-buddy-memory", version: "0.4.0" });
+  const server = new McpServer({ name: "al-buddy-memory", version: "0.4.1" }, { instructions: SERVER_INSTRUCTIONS });
+  // The app that wrote a fact is the client that connected, as it announced itself
+  // in the handshake — the model cannot change that.
+  const tools = governanceTools({
+    ...deps,
+    origin:
+      deps.origin ??
+      (() => {
+        const client = server.server.getClientVersion();
+        return client ? { app: client.name, appVersion: client.version, via: "mcp" } : { via: "mcp" };
+      }),
+  });
   const json = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v, null, 2) }] });
   server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence.", {
     text: z.string(), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),

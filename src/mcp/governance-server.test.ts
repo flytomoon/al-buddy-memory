@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
 import { MemoryAudit } from "../governance/audit.js";
-import { governanceTools, serverStore } from "./governance-server.js";
+import { attachGovernanceServer, governanceTools, serverStore } from "./governance-server.js";
 
 const clock = (iso: string) => () => new Date(iso);
 
@@ -80,5 +80,46 @@ describe("the shipped server's store", () => {
     await owner.remember({ text: "password managers are allowed at work" });
     const ai = governanceTools({ store: serverStore(inner, { owner: "owner" }) });
     expect((await ai.recall({ query: "password", limit: 1 })).map((f) => f.text)).toEqual(["password managers are allowed at work"]);
+  });
+});
+
+/**
+ * 0.4.1 (founder, 2026-09-15). Claude Desktop connected to this server five times
+ * and never called a tool — nothing a client doesn't know to use gets used — and
+ * nothing recorded which assistant a fact came from. The server now tells every
+ * client how to use it (MCP `instructions`), and stamps each fact it writes with
+ * the app that wrote it, taken from the connection handshake, not from the model.
+ */
+describe("the server tells clients how to use it, and records which app wrote each fact", () => {
+  it("sends instructions at initialize and stamps remember and pin with the client app", async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const inner = new InMemoryStore();
+    const { server } = await attachGovernanceServer({ store: serverStore(inner, { owner: "owner" }) });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await (server as { connect: (t: unknown) => Promise<void> }).connect(serverSide);
+    const client = new Client({ name: "claude-ai", version: "1.2.3" });
+    await client.connect(clientSide);
+
+    const instructions = client.getInstructions() ?? "";
+    expect(instructions.slice(0, 512)).toMatch(/recall/);
+    expect(instructions.slice(0, 512)).toMatch(/remember/);
+    expect(instructions.slice(0, 512)).toMatch(/secrets/); // the guidance that matters most survives truncation
+
+    await client.callTool({ name: "remember", arguments: { text: "prefers Pacific time in reports" } });
+    await client.callTool({ name: "pin", arguments: { text: "never a yes-person", label: "tone" } });
+    const written = await inner.listNodes();
+    expect(written).toHaveLength(2);
+    for (const n of written) expect(n.contextualMetadata["origin"]).toEqual({ app: "claude-ai", appVersion: "1.2.3", via: "mcp" });
+    await client.close();
+  });
+
+  it("the transport-free tools stamp whatever origin their host supplies, and nothing when it supplies none", async () => {
+    const inner = new InMemoryStore();
+    const bare = await governanceTools({ store: inner }).remember({ text: "no origin known" });
+    expect((await inner.getNode(bare.id))?.contextualMetadata["origin"]).toBeUndefined();
+    const tools = governanceTools({ store: inner, origin: () => ({ agent: "al-buddy", channel: "telegram", model: "claude-sonnet-5" }) });
+    const stamped = await tools.remember({ text: "stamped" });
+    expect((await inner.getNode(stamped.id))?.contextualMetadata["origin"]).toEqual({ agent: "al-buddy", channel: "telegram", model: "claude-sonnet-5" });
   });
 });
