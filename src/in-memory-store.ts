@@ -1,6 +1,5 @@
-import { effectiveConfidence } from "./decay.js";
-import { assertPatchMutable } from "./immutable.js";
-import { compareRecency } from "./decay.js";
+import { compareRecency, effectiveConfidence } from "./decay.js";
+import { assertPatchMutable, assertRestorable } from "./immutable.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -17,6 +16,14 @@ import type {
  * and standing up an interface before the persistent (SQLite) backend is
  * wired. Swap for a durable store without changing any caller.
  */
+/**
+ * Every object crosses the boundary as a copy, in and out. The store used to
+ * hold the caller's object and hand back its own, so `node.temporalAnchors.length = 0`
+ * on a returned fact rewrote history with no anchor and no audit (review
+ * 2026-09-14). SQLite gets this for free by serialising; this store has to do it.
+ */
+const copy = <T>(value: T): T => structuredClone(value);
+
 export class InMemoryStore implements MemoryStore {
   private readonly nodes = new Map<string, MemoryNode>();
   private readonly edges = new Map<string, MemoryEdge>();
@@ -33,16 +40,17 @@ export class InMemoryStore implements MemoryStore {
       validFrom: node.validFrom ?? now,
       validTo: node.validTo ?? null,
     };
-    this.nodes.set(full.nodeId, full);
-    return full;
+    this.nodes.set(full.nodeId, copy(full));
+    return copy(full);
   }
 
   async listNodes(): Promise<MemoryNode[]> {
-    return [...this.nodes.values()].sort((a, b) => compareRecency(b, a));
+    return [...this.nodes.values()].sort((a, b) => compareRecency(b, a)).map(copy);
   }
 
   async getNode(nodeId: string): Promise<MemoryNode | undefined> {
-    return this.nodes.get(nodeId);
+    const node = this.nodes.get(nodeId);
+    return node === undefined ? undefined : copy(node);
   }
 
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
@@ -125,7 +133,7 @@ export class InMemoryStore implements MemoryStore {
     if (options.limit !== undefined) {
       results = results.slice(0, options.limit);
     }
-    return results;
+    return results.map(copy);
   }
 
   async updateNode(
@@ -137,19 +145,20 @@ export class InMemoryStore implements MemoryStore {
     if (!existing) throw new Error(`Memory node not found: ${nodeId}`);
     assertPatchMutable(patch);
     const updated: MemoryNode = {
-      ...existing,
-      ...patch,
+      ...copy(existing),
+      ...copy(patch),
       temporalAnchors: [
         ...existing.temporalAnchors,
         { timestamp: new Date().toISOString(), event: anchorEvent },
       ],
     };
     this.nodes.set(nodeId, updated);
-    return updated;
+    return copy(updated);
   }
 
   async restoreNode(node: MemoryNode): Promise<void> {
-    this.nodes.set(node.nodeId, structuredClone(node));
+    assertRestorable(node, this.nodes.get(node.nodeId));
+    this.nodes.set(node.nodeId, copy(node));
   }
 
   async restoreEdge(edge: MemoryEdge): Promise<void> {
@@ -175,14 +184,14 @@ export class InMemoryStore implements MemoryStore {
       edgeId: globalThis.crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
-    this.edges.set(full.edgeId, full);
-    return full;
+    this.edges.set(full.edgeId, copy(full));
+    return copy(full);
   }
 
   async getEdges(nodeId: string): Promise<MemoryEdge[]> {
-    return [...this.edges.values()].filter(
-      (e) => e.sourceNodeId === nodeId || e.targetNodeId === nodeId,
-    );
+    return [...this.edges.values()]
+      .filter((e) => e.sourceNodeId === nodeId || e.targetNodeId === nodeId)
+      .map(copy);
   }
 
   async deleteEdge(edgeId: string): Promise<void> {
@@ -190,17 +199,17 @@ export class InMemoryStore implements MemoryStore {
   }
 
   async setEmbedding(embedding: Omit<MemoryEmbedding, "createdAt">): Promise<MemoryEmbedding> {
-    const full: MemoryEmbedding = { ...embedding, createdAt: new Date().toISOString() };
+    const full: MemoryEmbedding = { ...copy(embedding), createdAt: new Date().toISOString() };
     this.embeddings.set(`${full.nodeId}::${full.model}`, full);
-    return full;
+    return copy(full);
   }
 
   async getEmbeddings(nodeId: string): Promise<MemoryEmbedding[]> {
-    return [...this.embeddings.values()].filter((e) => e.nodeId === nodeId);
+    return [...this.embeddings.values()].filter((e) => e.nodeId === nodeId).map(copy);
   }
 
   async listEmbeddings(model: string): Promise<MemoryEmbedding[]> {
-    return [...this.embeddings.values()].filter((e) => e.model === model);
+    return [...this.embeddings.values()].filter((e) => e.model === model).map(copy);
   }
 
   async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {

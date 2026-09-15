@@ -329,15 +329,57 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
 
     // --- Update / delete --------------------------------------------------
 
-    it("updates content and appends a 'modified' anchor", async () => {
+    it("updates what may change and appends a 'modified' anchor", async () => {
       const node = await store.addNode(makeNode({ content: { text: "before" } }));
-      const updated = await store.updateNode(node.nodeId, { content: { text: "after" } });
-      expect(updated.content.text).toBe("after");
+      const updated = await store.updateNode(node.nodeId, { contextualMetadata: { checked: true }, confidenceWeight: 0.4 });
+      expect(updated.contextualMetadata).toEqual({ checked: true });
+      expect(updated.confidenceWeight).toBe(0.4);
       expect(updated.temporalAnchors.at(-1)?.event).toBe("modified");
+    });
 
-      // Search reflects the new text, not the old.
-      expect(await store.searchNodes({ query: "after" })).toHaveLength(1);
-      expect(await store.searchNodes({ query: "before" })).toHaveLength(0);
+    /**
+     * Raw text is the source of truth. The API used to let a caller overwrite it
+     * — and this suite asserted that the old words vanished (review 2026-09-14).
+     * A correction is a NEW fact plus validTo on the old one.
+     */
+    it("refuses to change a fact's raw content", async () => {
+      const node = await store.addNode(makeNode({ content: { text: "what was actually said" } }));
+      await expect(
+        store.updateNode(node.nodeId, { content: { text: "a tidier summary" } } as never),
+      ).rejects.toThrow(/content is immutable/);
+      expect((await store.getNode(node.nodeId))?.content.text).toBe("what was actually said");
+      expect(await store.searchNodes({ query: "actually" })).toHaveLength(1);
+    });
+
+    it("hands back copies: changing a returned object never changes the store", async () => {
+      const a = await store.addNode(makeNode({ content: { text: "kept as written" } }));
+      const b = await store.addNode(makeNode());
+      await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Cause", strength: 0.5, provenance: "UserAsserted" });
+      await store.setEmbedding({ nodeId: a.nodeId, model: "m", modelVersion: "1", dimensions: 2, metric: "cosine", vector: [1, 0] });
+
+      const tamper = (n: MemoryNode | undefined) => {
+        if (!n) return;
+        n.content.text = "rewritten";
+        n.temporalAnchors.length = 0;
+        (n as { provenance: string }).provenance = "AIInferred";
+        n.contextualMetadata["forged"] = true;
+      };
+      tamper(a);
+      tamper(await store.getNode(a.nodeId));
+      for (const n of await store.searchNodes({})) tamper(n);
+      for (const n of await store.listNodes()) tamper(n);
+      tamper(await store.updateNode(a.nodeId, { confidenceWeight: 0.9 }));
+      for (const e of await store.getEdges(a.nodeId)) e.strength = 99;
+      for (const v of await store.getEmbeddings(a.nodeId)) v.vector[0] = 99;
+      for (const v of await store.listEmbeddings("m")) v.vector[1] = 99;
+
+      const fresh = await store.getNode(a.nodeId);
+      expect(fresh?.content.text).toBe("kept as written");
+      expect(fresh?.provenance).toBe("UserInput");
+      expect(fresh?.temporalAnchors.length).toBe(2); // created + the one real update
+      expect(fresh?.contextualMetadata["forged"]).toBeUndefined();
+      expect((await store.getEdges(a.nodeId))[0]?.strength).toBe(0.5);
+      expect((await store.getEmbeddings(a.nodeId))[0]?.vector).toEqual([1, 0]);
     });
 
     it("throws when updating a missing node", async () => {
@@ -398,6 +440,50 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       await fresh.restoreNode(retired);
       const restored = await fresh.getNode(original.nodeId);
       expect(restored).toEqual(retired); // byte-for-byte: id, anchors, validTo, all of it
+    });
+
+    /**
+     * restoreNode is the import path, and it used to be a back door: over an
+     * existing id it replaced provenance and the anchor trail, and in SQLite it
+     * delete-reinserted the row so every edge and embedding cascaded away
+     * (review 2026-09-14). Re-importing a newer copy of a fact is legitimate;
+     * rewriting who asserted it, what it said, or its history is not.
+     */
+    it("restoreNode over an existing fact updates what may change and keeps its edges and embeddings", async () => {
+      const a = await store.addNode(makeNode({ content: { text: "a" } }));
+      const b = await store.addNode(makeNode());
+      await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Cause", strength: 0.5, provenance: "UserAsserted" });
+      await store.setEmbedding({ nodeId: a.nodeId, model: "m", modelVersion: "1", dimensions: 2, metric: "cosine", vector: [1, 0] });
+
+      const newer = await store.updateNode(a.nodeId, { validTo: "2026-01-01T00:00:00.000Z" });
+      await store.restoreNode(newer);
+      expect(await store.getNode(a.nodeId)).toEqual(newer);
+      expect(await store.getEdges(a.nodeId)).toHaveLength(1);
+      expect(await store.getEmbeddings(a.nodeId)).toHaveLength(1);
+    });
+
+    it("restoreNode refuses to rewrite provenance, content, the key reference or the anchor trail", async () => {
+      const a = await store.addNode(makeNode({ content: { text: "said once" } }));
+      const later = await store.updateNode(a.nodeId, { confidenceWeight: 0.7 });
+      const attempts: MemoryNode[] = [
+        { ...later, provenance: "AIInferred" },
+        { ...later, content: { text: "said differently" } },
+        { ...later, encryptionKeyRef: "another-key" },
+        { ...later, temporalAnchors: [] },
+        { ...later, temporalAnchors: later.temporalAnchors.slice(1) },
+        { ...later, temporalAnchors: [{ ...later.temporalAnchors[0]!, timestamp: "1999-01-01T00:00:00.000Z" }, ...later.temporalAnchors.slice(1)] },
+      ];
+      for (const attempt of attempts) {
+        await expect(store.restoreNode(attempt)).rejects.toThrow(/immutable|history/);
+      }
+      expect(await store.getNode(a.nodeId)).toEqual(later);
+    });
+
+    it("restoreNode refuses a fact with no creation anchor", async () => {
+      const a = await store.addNode(makeNode());
+      const fresh = makeStore();
+      await expect(fresh.restoreNode({ ...a, nodeId: "no-anchor-node", temporalAnchors: [] })).rejects.toThrow(/created/);
+      (fresh as { close?: () => void }).close?.();
     });
 
     it("restoreEdge preserves the edge verbatim", async () => {

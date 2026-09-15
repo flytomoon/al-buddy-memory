@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 
 import Database from "better-sqlite3";
 
-import { assertPatchMutable } from "./immutable.js";
+import { assertPatchMutable, assertRestorable } from "./immutable.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -396,56 +396,21 @@ export class SqliteMemoryStore implements MemoryStore {
 
   /** Verbatim insert for round-trip import — identity and anchors preserved. */
   async restoreNode(node: MemoryNode): Promise<void> {
-    // Replace any existing row for this id (import is idempotent). One
-    // transaction: delete + FTS insert + node insert, or nothing.
+    // One transaction. Over an existing fact this is an UPDATE in place: it used
+    // to delete and reinsert the row, and the foreign-key cascade silently took
+    // every edge and embedding with it (review 2026-09-14). Content cannot
+    // differ (assertRestorable), so the full-text row is left as it is.
     const restore = this.db.transaction((): void => {
-    const existing = this.db
-      .prepare(`SELECT fts_rowid FROM memory_nodes WHERE node_id = ?`)
-      .get(node.nodeId) as { fts_rowid: number } | undefined;
-    if (existing) {
-      this.db.prepare(`DELETE FROM memory_fts WHERE rowid = ?`).run(existing.fts_rowid);
-      this.db.prepare(`DELETE FROM memory_nodes WHERE node_id = ?`).run(node.nodeId);
-    }
-
-    const ftsResult = this.db
-      .prepare(`INSERT INTO memory_fts (content_text) VALUES (?)`)
-      .run(node.content.text);
-    // The same anchor the ordering reads, by the same function, so the column
-    // and the re-rank can never drift apart.
-    const createdAt = learnedAt(node);
-
-    this.db
-      .prepare(
-        `INSERT INTO memory_nodes (
-          node_id, provenance, encryption_key_ref, memory_type,
-          privacy_classification, retention_tier,
-          content_text, content_structured_data, content_attachment_refs,
-          contextual_metadata, temporal_anchors, valid_from, valid_to,
-          confidence_weight, decay_rate, embedding,
-          fts_rowid, created_at
-        ) VALUES (
-          @nodeId, @provenance, @encryptionKeyRef, @memoryType,
-          @privacyClassification, @retentionTier,
-          @contentText, @contentStructuredData, @contentAttachmentRefs,
-          @contextualMetadata, @temporalAnchors, @validFrom, @validTo,
-          @confidenceWeight, @decayRate, @embedding,
-          @ftsRowid, @createdAt
-        )`,
-      )
-      .run({
+      const row = this.db.prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`).get(node.nodeId) as NodeRow | undefined;
+      assertRestorable(node, row ? rowToNode(row) : undefined);
+      // The same anchor the ordering reads, by the same function, so the column
+      // and the re-rank can never drift apart.
+      const createdAt = learnedAt(node);
+      const mutable = {
         nodeId: node.nodeId,
-        provenance: node.provenance,
-        encryptionKeyRef: node.encryptionKeyRef,
         memoryType: node.memoryType,
         privacyClassification: node.privacyClassification,
         retentionTier: node.retentionTier,
-        contentText: node.content.text,
-        contentStructuredData: node.content.structuredData
-          ? JSON.stringify(node.content.structuredData)
-          : null,
-        contentAttachmentRefs: node.content.attachmentRefs
-          ? JSON.stringify(node.content.attachmentRefs)
-          : null,
         contextualMetadata: JSON.stringify(node.contextualMetadata),
         temporalAnchors: JSON.stringify(node.temporalAnchors),
         validFrom: node.validFrom,
@@ -453,9 +418,54 @@ export class SqliteMemoryStore implements MemoryStore {
         confidenceWeight: node.confidenceWeight,
         decayRate: node.decayRate,
         embedding: node.embedding ? JSON.stringify(node.embedding) : null,
-        ftsRowid: ftsResult.lastInsertRowid,
         createdAt,
-      });
+      };
+
+      if (row) {
+        this.db
+          .prepare(
+            `UPDATE memory_nodes SET
+               memory_type = @memoryType, privacy_classification = @privacyClassification,
+               retention_tier = @retentionTier, contextual_metadata = @contextualMetadata,
+               temporal_anchors = @temporalAnchors, valid_from = @validFrom, valid_to = @validTo,
+               confidence_weight = @confidenceWeight, decay_rate = @decayRate,
+               embedding = @embedding, created_at = @createdAt
+             WHERE node_id = @nodeId`,
+          )
+          .run(mutable);
+        return;
+      }
+
+      const ftsResult = this.db
+        .prepare(`INSERT INTO memory_fts (content_text) VALUES (?)`)
+        .run(node.content.text);
+      this.db
+        .prepare(
+          `INSERT INTO memory_nodes (
+            node_id, provenance, encryption_key_ref, memory_type,
+            privacy_classification, retention_tier,
+            content_text, content_structured_data, content_attachment_refs,
+            contextual_metadata, temporal_anchors, valid_from, valid_to,
+            confidence_weight, decay_rate, embedding,
+            fts_rowid, created_at
+          ) VALUES (
+            @nodeId, @provenance, @encryptionKeyRef, @memoryType,
+            @privacyClassification, @retentionTier,
+            @contentText, @contentStructuredData, @contentAttachmentRefs,
+            @contextualMetadata, @temporalAnchors, @validFrom, @validTo,
+            @confidenceWeight, @decayRate, @embedding,
+            @ftsRowid, @createdAt
+          )`,
+        )
+        .run({
+          ...mutable,
+          provenance: node.provenance,
+          encryptionKeyRef: node.encryptionKeyRef,
+          contentText: node.content.text,
+          contentStructuredData: node.content.structuredData ? JSON.stringify(node.content.structuredData) : null,
+          contentAttachmentRefs: node.content.attachmentRefs ? JSON.stringify(node.content.attachmentRefs) : null,
+          ftsRowid: ftsResult.lastInsertRowid,
+        });
     });
     restore();
   }
@@ -659,13 +669,8 @@ export class SqliteMemoryStore implements MemoryStore {
       temporalAnchors: newAnchors,
     };
 
-    // Update FTS5 if content changed. memory_fts is a standard (contentful)
-    // FTS5 table, so a plain UPDATE keeps the index in sync.
-    if (patch.content !== undefined) {
-      this.db
-        .prepare(`UPDATE memory_fts SET content_text = ? WHERE rowid = ?`)
-        .run(updated.content.text, existingRow.fts_rowid);
-    }
+    // No full-text update: content is immutable (assertPatchMutable above), so
+    // the indexed text can never drift from the row.
 
     this.db
       .prepare(

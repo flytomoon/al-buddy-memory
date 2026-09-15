@@ -230,9 +230,10 @@ describe("HybridRetriever.findDuplicate + reinforce", () => {
  * vector list, and 1/61 + 1/62 is the same number both ways.
  */
 describe("HybridRetriever ties", () => {
-  /** The store hands back the object it holds, so this is the node's own anchor. */
-  const learnedAt = (node: MemoryNode, iso: string): MemoryNode => {
-    node.temporalAnchors[0]!.timestamp = iso;
+  /** A fact learned at a chosen instant: built elsewhere, restored with that creation anchor. */
+  const learnedAt = async (store: InMemoryStore, text: string, iso: string): Promise<MemoryNode> => {
+    const node = { ...(await new InMemoryStore().addNode(makeNode({ content: { text } }))), temporalAnchors: [{ timestamp: iso, event: "created" as const }] };
+    await store.restoreNode(node);
     return node;
   };
 
@@ -241,8 +242,8 @@ describe("HybridRetriever ties", () => {
     const embedder = conceptEmbedder();
     // "tokyo tokyo pasta" wins the keyword list (term frequency) and loses the
     // vector list; "tokyo japan trip notes" the other way round.
-    const older = learnedAt(await store.addNode(makeNode({ content: { text: olderText } })), "2020-01-01T00:00:00.000Z");
-    const newer = learnedAt(await store.addNode(makeNode({ content: { text: newerText } })), "2026-09-14T00:00:00.000Z");
+    const older = await learnedAt(store, olderText, "2020-01-01T00:00:00.000Z");
+    const newer = await learnedAt(store, newerText, "2026-09-14T00:00:00.000Z");
     await indexMissingEmbeddings(store, embedder);
     const hits = await new HybridRetriever(store, embedder).recall("tokyo", { limit: 1 });
     return { hits, older, newer };

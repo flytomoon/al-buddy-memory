@@ -273,7 +273,7 @@ export interface MemoryStore {
     patch: Partial<
       Pick<
         MemoryNode,
-        | "content"
+        // Not content: raw text is immutable (a correction is a new fact).
         | "contextualMetadata"
         | "confidenceWeight"
         | "decayRate"
