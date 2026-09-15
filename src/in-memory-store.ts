@@ -89,7 +89,8 @@ export class InMemoryStore implements MemoryStore {
       results = results.filter((n) => n.confidenceWeight >= min);
     }
     // Keyword matching as SQLite's FTS reads a query: any of its words, whole words,
-    // case-insensitive; no usable words matches nothing. This store used to match
+    // case-insensitive; no usable words matches nothing. (FTS5 also folds diacritics;
+    // this does not — "cafe" will not find "café" here.) This store used to match
     // the whole query as one substring, so "what is the wifi login" found nothing
     // here that SQLite found (Astra A10; Fable, 2026-09-15).
     let tokens: string[] | undefined;
