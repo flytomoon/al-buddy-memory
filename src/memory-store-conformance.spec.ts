@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { MemoryStore, NewMemoryNode } from "./types/memory.js";
+import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 /**
  * Behavioral conformance suite shared by every {@link MemoryStore}
@@ -133,6 +133,42 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       const strong = await store.searchNodes({ minConfidence: 0.5 });
       expect(strong).toHaveLength(1);
       expect(strong[0]?.content.text).toBe("solid");
+    });
+
+    /**
+     * Reported from outside (2026-09-14, a team importing the library): with a
+     * limit and no query, a set of equal-confidence facts came back OLDEST
+     * first. Every fact with decayRate 0 shares confidence, which is the common
+     * case, so the tie-break decides the whole result — and "give me 10" must
+     * mean the ten most recent, not the ten stalest.
+     *
+     * The invariant is stated as a prefix: a limited read is the start of the
+     * unlimited one. That is what makes paging honest, and it is what breaks
+     * when the SQL orders one way and the re-rank another.
+     */
+    it("a limited read is the first page of the unlimited one, newest first", async () => {
+      // More than the SQLite candidate pool (200), so the pool boundary is exercised.
+      for (let i = 0; i < 230; i++) {
+        await store.addNode(makeNode({ content: { text: `fact ${i}` } }));
+      }
+      const all = await store.searchNodes({});
+      const page = await store.searchNodes({ limit: 5 });
+      expect(page.map((n) => n.nodeId)).toEqual(all.slice(0, 5).map((n) => n.nodeId));
+
+      // And "first" means most recent: nothing left out was created after
+      // anything returned. Timestamps are milliseconds and these inserts
+      // collide, so this compares the set, not a strict sequence.
+      const learned = (n: MemoryNode): string =>
+        n.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? n.validFrom;
+      const returned = new Set(page.map((n) => n.nodeId));
+      const newestExcluded = all.filter((n) => !returned.has(n.nodeId)).map(learned).sort().at(-1) ?? "";
+      const oldestReturned = page.map(learned).sort()[0] ?? "";
+      expect(oldestReturned >= newestExcluded).toBe(true);
+
+      // And the whole read is in that order, which is the property the page
+      // depends on — collisions in the millisecond stamp included.
+      const keys = all.map((n) => `${learned(n)}|${n.nodeId}`);
+      expect(keys).toEqual([...keys].sort().reverse());
     });
 
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
