@@ -27,10 +27,11 @@ export { PinnedBlocks, PINNED_TAG, DEFAULT_PINNED_BUDGET } from "./pinned.js";
 export type { PinInput, PinnedBlock } from "./pinned.js";
 export { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
 export type { ConsolidateOptions, ConsolidationReport, ConsolidatedFact, ConsolidationRun, DerivedFact, RawExcerpt, Retraction, UndoConsolidationReport } from "./consolidation.js";
-export { governanceTools, toGovernedFact } from "./mcp/governance-server.js";
-export type { GovernedFact, GovernanceDeps } from "./mcp/governance-server.js";
+// The MCP server lives at "al-buddy-memory/mcp": it needs the optional `zod`
+// and `@modelcontextprotocol/sdk`, and the core must import without them.
 export { scoreConformance, formatReport, toConformanceInput, detectFormat, fromPortable, fromBlocks, fromRecords, proveRoundTrip } from "./conformance/index.js";
 export type { ConformanceReport, ConformanceInput, ConformanceFact, Dimension, ExportFormat } from "./conformance/index.js";
 export { govern, exportView, PolicyDenied, MemoryAudit, JsonlAudit, personalDefaults, guardianMode, enterpriseAudit, looksSecret } from "./governance/index.js";
-export type { GovernancePolicy, PolicyContext, Purpose, GovernOptions, AuditEvent, AuditSink } from "./governance/index.js";
-export { IMMUTABLE_NODE_FIELDS } from "./immutable.js";
+export type { GovernancePolicy, PolicyContext, Purpose, GovernOptions, AuditEvent, AuditSink, ErasureSubject, NodePatch } from "./governance/index.js";
+export { IMMUTABLE_NODE_FIELDS, assertRestorable } from "./immutable.js";
+export { canonicalInstant } from "./instant.js";

@@ -12,6 +12,9 @@
  * without a transport; `bin/al-buddy-memory-mcp.js` wires stdio.
  */
 import { z } from "zod";
+import type { AuditSink } from "../governance/audit.js";
+import { govern } from "../governance/governed-store.js";
+import { personalDefaults } from "../governance/samples.js";
 
 import { HybridRetriever } from "../hybrid-retriever.js";
 import { PinnedBlocks } from "../pinned.js";
@@ -50,6 +53,22 @@ export function toGovernedFact(n: MemoryNode): GovernedFact {
     derivedFrom: Array.isArray(meta["derivedFrom"]) ? (meta["derivedFrom"] as string[]) : [],
     recordedAt: n.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? n.validFrom,
   };
+}
+
+/**
+ * The store the shipped server serves: the owner's memory behind the owner's
+ * own policy, with the AI client as the AUDIENCE. So a secret an agent writes is
+ * classified Sensitive and stays out of any AI's recall, Sealed facts never
+ * reach the client, erasure is the owner's alone, and every call is audited. It
+ * served the raw store until 0.4.0 — a "governance" server that applied none.
+ */
+export function serverStore(inner: MemoryStore, opts: { owner?: string; audit?: AuditSink } = {}): MemoryStore {
+  const owner = opts.owner ?? "owner";
+  return govern(inner, {
+    policies: [personalDefaults({ owner })],
+    context: () => ({ actor: owner, audience: "mcp-client" }),
+    audit: opts.audit,
+  });
 }
 
 export interface GovernanceDeps {
@@ -119,7 +138,7 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
   const tools = governanceTools(deps);
-  const server = new McpServer({ name: "al-buddy-memory", version: "0.3.5" });
+  const server = new McpServer({ name: "al-buddy-memory", version: "0.4.0" });
   const json = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v, null, 2) }] });
   server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence.", {
     text: z.string(), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),
