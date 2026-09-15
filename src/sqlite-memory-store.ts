@@ -492,6 +492,9 @@ export class SqliteMemoryStore implements MemoryStore {
   /** Verbatim edge insert for round-trip import (idempotent by edgeId). */
   async restoreEdge(input: MemoryEdge): Promise<void> {
     const edge = canonicalEdge(input);
+    // One transaction: a replacement that fails (a missing endpoint) must not
+    // have already deleted the edge it was replacing.
+    this.db.transaction(() => {
     this.db.prepare(`DELETE FROM memory_edges WHERE edge_id = ?`).run(edge.edgeId);
     this.db
       .prepare(
@@ -509,6 +512,7 @@ export class SqliteMemoryStore implements MemoryStore {
         strength: edge.strength,
         provenance: edge.provenance,
       });
+    })();
   }
 
   async listNodes(): Promise<MemoryNode[]> {
@@ -669,84 +673,91 @@ export class SqliteMemoryStore implements MemoryStore {
   ): Promise<MemoryNode> {
     assertPatchMutable(input);
     const patch = canonicalPatch(input);
-    const existingRow = this.db
-      .prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`)
-      .get(nodeId) as NodeRow | undefined;
-    if (existingRow === undefined) {
-      throw new Error(`MemoryNode not found: ${nodeId}`);
-    }
+    // Read-modify-write under the write lock (IMMEDIATE): two processes that
+    // both read the row and then each wrote their reconstruction used to lose
+    // one change and its anchor.
+    const apply = this.db.transaction((): MemoryNode => {
+      const existingRow = this.db
+        .prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`)
+        .get(nodeId) as NodeRow | undefined;
+      if (existingRow === undefined) {
+        throw new Error(`MemoryNode not found: ${nodeId}`);
+      }
 
-    assertPatchMutable(patch);
-    const existing = rowToNode(existingRow);
-    const now = new Date().toISOString();
-    const newAnchors: TemporalAnchor[] = [
-      ...existing.temporalAnchors,
-      { timestamp: now, event: anchorEvent },
-    ];
+      const existing = rowToNode(existingRow);
+      const now = new Date().toISOString();
+      const newAnchors: TemporalAnchor[] = [
+        ...existing.temporalAnchors,
+        { timestamp: now, event: anchorEvent },
+      ];
 
-    const updated: MemoryNode = {
-      ...existing,
-      ...patch,
-      nodeId,
-      temporalAnchors: newAnchors,
-    };
-
-    // No full-text update: content is immutable (assertPatchMutable above), so
-    // the indexed text can never drift from the row.
-
-    this.db
-      .prepare(
-        `UPDATE memory_nodes SET
-          memory_type             = @memoryType,
-          privacy_classification  = @privacyClassification,
-          retention_tier          = @retentionTier,
-          content_text            = @contentText,
-          content_structured_data = @contentStructuredData,
-          content_attachment_refs = @contentAttachmentRefs,
-          contextual_metadata     = @contextualMetadata,
-          temporal_anchors        = @temporalAnchors,
-          valid_from              = @validFrom,
-          valid_to                = @validTo,
-          confidence_weight       = @confidenceWeight,
-          decay_rate              = @decayRate,
-          embedding               = @embedding
-        WHERE node_id = @nodeId`,
-      )
-      .run({
+      const updated: MemoryNode = {
+        ...existing,
+        ...patch,
         nodeId,
-        memoryType: updated.memoryType,
-        privacyClassification: updated.privacyClassification,
-        retentionTier: updated.retentionTier,
-        contentText: updated.content.text,
-        contentStructuredData: updated.content.structuredData
-          ? JSON.stringify(updated.content.structuredData)
-          : null,
-        contentAttachmentRefs: updated.content.attachmentRefs
-          ? JSON.stringify(updated.content.attachmentRefs)
-          : null,
-        contextualMetadata: JSON.stringify(updated.contextualMetadata),
-        temporalAnchors: JSON.stringify(newAnchors),
-        validFrom: updated.validFrom,
-        validTo: updated.validTo,
-        confidenceWeight: updated.confidenceWeight,
-        decayRate: updated.decayRate,
-        embedding: updated.embedding ? JSON.stringify(updated.embedding) : null,
-      });
+        temporalAnchors: newAnchors,
+      };
 
-    return updated;
+      // No full-text update: content is immutable (assertPatchMutable above), so
+      // the indexed text can never drift from the row.
+
+      this.db
+        .prepare(
+          `UPDATE memory_nodes SET
+            memory_type             = @memoryType,
+            privacy_classification  = @privacyClassification,
+            retention_tier          = @retentionTier,
+            content_text            = @contentText,
+            content_structured_data = @contentStructuredData,
+            content_attachment_refs = @contentAttachmentRefs,
+            contextual_metadata     = @contextualMetadata,
+            temporal_anchors        = @temporalAnchors,
+            valid_from              = @validFrom,
+            valid_to                = @validTo,
+            confidence_weight       = @confidenceWeight,
+            decay_rate              = @decayRate,
+            embedding               = @embedding
+          WHERE node_id = @nodeId`,
+        )
+        .run({
+          nodeId,
+          memoryType: updated.memoryType,
+          privacyClassification: updated.privacyClassification,
+          retentionTier: updated.retentionTier,
+          contentText: updated.content.text,
+          contentStructuredData: updated.content.structuredData
+            ? JSON.stringify(updated.content.structuredData)
+            : null,
+          contentAttachmentRefs: updated.content.attachmentRefs
+            ? JSON.stringify(updated.content.attachmentRefs)
+            : null,
+          contextualMetadata: JSON.stringify(updated.contextualMetadata),
+          temporalAnchors: JSON.stringify(newAnchors),
+          validFrom: updated.validFrom,
+          validTo: updated.validTo,
+          confidenceWeight: updated.confidenceWeight,
+          decayRate: updated.decayRate,
+          embedding: updated.embedding ? JSON.stringify(updated.embedding) : null,
+        });
+
+      return updated;
+    });
+    return apply.immediate();
   }
 
   async deleteNode(nodeId: string): Promise<void> {
-    const row = this.db
-      .prepare(`SELECT fts_rowid FROM memory_nodes WHERE node_id = ?`)
-      .get(nodeId) as Pick<NodeRow, "fts_rowid"> | undefined;
-
-    if (row !== undefined) {
-      this.db.prepare(`DELETE FROM memory_fts WHERE rowid = ?`).run(row.fts_rowid);
-    }
-
-    // ON DELETE CASCADE clears memory_edges and memory_embeddings.
-    this.db.prepare(`DELETE FROM memory_nodes WHERE node_id = ?`).run(nodeId);
+    // One transaction: a crash between the two deletes used to leave a readable
+    // fact that keyword search could never find again.
+    this.db.transaction(() => {
+      const row = this.db
+        .prepare(`SELECT fts_rowid FROM memory_nodes WHERE node_id = ?`)
+        .get(nodeId) as Pick<NodeRow, "fts_rowid"> | undefined;
+      if (row !== undefined) {
+        this.db.prepare(`DELETE FROM memory_fts WHERE rowid = ?`).run(row.fts_rowid);
+      }
+      // ON DELETE CASCADE clears memory_edges and memory_embeddings.
+      this.db.prepare(`DELETE FROM memory_nodes WHERE node_id = ?`).run(nodeId);
+    })();
   }
 
   // -------------------------------------------------------------------------

@@ -164,8 +164,16 @@ export class InMemoryStore implements MemoryStore {
     this.nodes.set(node.nodeId, copy(node));
   }
 
+  /** The same referential rule SQLite's foreign keys enforce, so the stores agree. */
+  private assertEndpoints(edge: Pick<MemoryEdge, "sourceNodeId" | "targetNodeId">): void {
+    for (const id of [edge.sourceNodeId, edge.targetNodeId]) {
+      if (!this.nodes.has(id)) throw new Error(`edge endpoint not found: ${id}`);
+    }
+  }
+
   async restoreEdge(input: MemoryEdge): Promise<void> {
     const edge = canonicalEdge(input);
+    this.assertEndpoints(edge);
     this.edges.set(edge.edgeId, structuredClone(edge));
   }
 
@@ -183,6 +191,7 @@ export class InMemoryStore implements MemoryStore {
   }
 
   async addEdge(edge: Omit<MemoryEdge, "edgeId" | "createdAt">): Promise<MemoryEdge> {
+    this.assertEndpoints(edge);
     const full: MemoryEdge = {
       ...edge,
       edgeId: globalThis.crypto.randomUUID(),
@@ -203,6 +212,7 @@ export class InMemoryStore implements MemoryStore {
   }
 
   async setEmbedding(embedding: Omit<MemoryEmbedding, "createdAt">): Promise<MemoryEmbedding> {
+    if (!this.nodes.has(embedding.nodeId)) throw new Error(`embedding node not found: ${embedding.nodeId}`);
     const full: MemoryEmbedding = { ...copy(embedding), createdAt: new Date().toISOString() };
     this.embeddings.set(`${full.nodeId}::${full.model}`, full);
     return copy(full);
