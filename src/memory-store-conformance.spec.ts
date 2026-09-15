@@ -245,6 +245,33 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       await expect(store.updateNode(n.nodeId, { validTo: "yesterday" })).rejects.toThrow(/instant/);
     });
 
+    /**
+     * The 0.3.5 changelog claimed the prefix property unconditionally; it held
+     * only when nothing decays. SQLite filled its candidate pool by STORED
+     * confidence and ranked by EFFECTIVE, so a fresh 0.9 fact lost to a pool of
+     * 200 stale 1.0 facts that had decayed to 0.5 (review 2026-09-14).
+     */
+    it("a limited read is still the first page when facts have decayed, with or without a query", async () => {
+      const old = "2020-01-01T00:00:00.000Z";
+      for (let i = 0; i < 250; i++) {
+        await store.restoreNode({
+          ...makeNode({ content: { text: `coffee note ${i}` }, confidenceWeight: 1, decayRate: 1 }),
+          nodeId: globalThis.crypto.randomUUID(),
+          temporalAnchors: [{ timestamp: old, event: "created" }],
+          validFrom: old,
+          validTo: null,
+        });
+      }
+      const fresh = await store.addNode(makeNode({ content: { text: "coffee note fresh" }, confidenceWeight: 0.9, decayRate: 0 }));
+
+      for (const query of [undefined, "coffee"]) {
+        const all = await store.searchNodes(query === undefined ? {} : { query });
+        expect(all[0]?.nodeId).toBe(fresh.nodeId);
+        const page = await store.searchNodes(query === undefined ? { limit: 5 } : { query, limit: 5 });
+        expect(page.map((n) => n.nodeId)).toEqual(all.slice(0, 5).map((n) => n.nodeId));
+      }
+    });
+
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
       await store.addNode(
         makeNode({ privacyClassification: "Sealed", content: { text: "sealed secret" } }),

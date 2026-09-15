@@ -613,55 +613,70 @@ export class SqliteMemoryStore implements MemoryStore {
     // limit) that JS re-ranks with decay; without one, the whole valid set is
     // read — at a store of hundreds to low thousands that is cheap, and the
     // measured cost at 100k facts is in README "Limits".
-    let rows: (NodeRow & { fts_rank?: number })[];
-    if (match !== null) {
-      // The pool's ORDER BY has to end the same way the JS re-rank does, or a
-      // limited read is a page of a DIFFERENT list: with hundreds of equally
-      // relevant hits, SQLite would hand over the first 200 by rowid (the
-      // oldest) and the re-rank could only pick the newest of those.
-      const pool = limitN !== undefined && Number.isFinite(limitN) ? Math.max(limitN * FTS_POOL_MULTIPLIER, FTS_POOL_MIN) : FTS_POOL_UNLIMITED;
-      params["pool"] = pool;
-      rows = this.db
-        .prepare(
-          `SELECT n.*, f.rank AS fts_rank FROM memory_nodes n
-             JOIN (SELECT rowid AS fts_id, rank FROM memory_fts WHERE content_text MATCH @match) f ON n.fts_rowid = f.fts_id
-             ${where} ORDER BY f.rank ASC, n.confidence_weight DESC, n.created_at DESC, n.node_id DESC
-             LIMIT @pool`,
-        )
-        .all(params) as (NodeRow & { fts_rank: number })[];
-    } else if (limitN !== undefined && Number.isFinite(limitN)) {
-      // No query, but a limit: read a candidate pool ordered by stored
-      // confidence and re-rank it with decay. Decay only lowers, so a fact
-      // outside the pool can outrank a pool member only when the whole pool
-      // has decayed below it — approximate past the pool, exact within it.
-      params["pool"] = Math.max(limitN * FTS_POOL_MULTIPLIER, FTS_POOL_MIN);
-      rows = this.db
-        .prepare(`SELECT * FROM memory_nodes ${where} ${NO_QUERY_ORDER} LIMIT @pool`)
-        .all(params) as NodeRow[];
-    } else {
-      rows = this.db
-        .prepare(`SELECT * FROM memory_nodes ${where} ${NO_QUERY_ORDER}`)
-        .all(params) as NodeRow[];
-    }
+    type Row = NodeRow & { fts_rank?: number };
+    const limited = limitN !== undefined && Number.isFinite(limitN);
+    const pool = limited ? Math.max(limitN! * FTS_POOL_MULTIPLIER, FTS_POOL_MIN) : FTS_POOL_UNLIMITED;
+    const also = (condition: string) => (where ? `${where} AND ${condition}` : `WHERE ${condition}`);
+    // The pool's ORDER BY ends the same way the JS re-rank does, or a limited
+    // read is a page of a DIFFERENT list.
+    const read = (extra: string | null, limit: number): Row[] =>
+      match !== null
+        ? (this.db
+            .prepare(
+              `SELECT n.*, f.rank AS fts_rank FROM memory_nodes n
+                 JOIN (SELECT rowid AS fts_id, rank FROM memory_fts WHERE content_text MATCH @match) f ON n.fts_rowid = f.fts_id
+                 ${extra ? also(extra) : where} ORDER BY f.rank ASC, n.confidence_weight DESC, n.created_at DESC, n.node_id DESC
+                 LIMIT ${limit}`,
+            )
+            .all(params) as Row[])
+        : (this.db
+            .prepare(`SELECT * FROM memory_nodes ${extra ? also(extra) : where} ${NO_QUERY_ORDER} LIMIT ${limit}`)
+            .all(params) as Row[]);
 
+    // Ranking happens in JS so decay can apply (decay.ts). With a query: BM25
+    // (more negative = better), then effective confidence, then recency. With
+    // none: effective confidence, then recency. The same last word as every
+    // other read.
     const now = Date.now();
-    const nodes = rows.map((row) => ({ row, node: rowToNode(row), eff: 0 }));
-    for (const n of nodes) n.eff = effectiveConfidence(n.node, now);
-    if (match !== null) {
-      // Ascending BM25 (more negative = better), then effective confidence, then
-      // the same last word as every other read. Two near-identical texts score
-      // the same BM25 and, at decayRate 0, the same confidence — without the
-      // final key which of them a `limit` keeps is the row order SQLite happened
-      // to return.
-      nodes.sort(
-        (a, b) =>
-          (a.row.fts_rank ?? 0) - (b.row.fts_rank ?? 0) || b.eff - a.eff || compareRecency(a.node, b.node),
+    const rank = (rows: Row[]) => {
+      const out = rows.map((row) => ({ row, node: rowToNode(row), eff: 0 }));
+      for (const n of out) n.eff = effectiveConfidence(n.node, now);
+      out.sort((a, b) =>
+        match !== null
+          ? (a.row.fts_rank ?? 0) - (b.row.fts_rank ?? 0) || b.eff - a.eff || compareRecency(a.node, b.node)
+          : b.eff - a.eff || compareRecency(a.node, b.node),
       );
-    } else {
-      nodes.sort((a, b) => b.eff - a.eff || compareRecency(a.node, b.node));
-    }
-    if (limitN !== undefined && Number.isFinite(limitN)) nodes.length = Math.min(nodes.length, limitN);
+      return out;
+    };
 
+    const first = read(null, pool);
+    let nodes = rank(first);
+
+    // A full pool may have left out a row that belongs on the page. SQL fills
+    // the pool by STORED confidence, JS ranks by EFFECTIVE, and decay only
+    // lowers — so a limited read used to be exact only when nothing decayed
+    // (review 2026-09-14). Widen exactly as far as a row could still reach the
+    // page, then re-rank; the page is then the first page of the unlimited read.
+    if (limited && first.length === pool && nodes.length >= limitN!) {
+      const boundary = nodes[limitN! - 1]!;
+      const last = first[first.length - 1]!;
+      if (match === null) {
+        // Anything left out has effective ≤ stored ≤ the last pooled row's
+        // stored confidence. It can reach the page only if that is ≥ the page's
+        // lowest effective confidence — and then every such row must be read.
+        if (last.confidence_weight >= boundary.eff) {
+          params["floor"] = boundary.eff;
+          nodes = rank(read("confidence_weight >= @floor", -1));
+        }
+      } else if ((last.fts_rank ?? 0) <= (boundary.row.fts_rank ?? 0)) {
+        // Relevance is not decayed, so only rows of the boundary's own rank can
+        // overtake it — read the whole of that rank group.
+        params["boundaryRank"] = boundary.row.fts_rank ?? 0;
+        nodes = rank(read("f.rank <= @boundaryRank", -1));
+      }
+    }
+
+    if (limited) nodes.length = Math.min(nodes.length, limitN!);
     return nodes.map((n) => n.node);
   }
 
