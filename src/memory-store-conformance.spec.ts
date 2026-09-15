@@ -521,6 +521,16 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       (fresh as { close?: () => void }).close?.();
     });
 
+    it("a restoreEdge that fails leaves the edge it would have replaced", async () => {
+      const a = await store.addNode(makeNode());
+      const b = await store.addNode(makeNode());
+      const edge = await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Cause", strength: 0.5, provenance: "UserAsserted" });
+      // Pointing the same edge at a fact that does not exist must fail as a
+      // whole — SQLite used to delete the original first, then fail the insert.
+      await expect(store.restoreEdge({ ...edge, targetNodeId: "no-such-node" })).rejects.toThrow();
+      expect(await store.getEdges(a.nodeId)).toEqual([edge]);
+    });
+
     it("restoreEdge preserves the edge verbatim", async () => {
       const a = await store.addNode(makeNode());
       const b = await store.addNode(makeNode());
