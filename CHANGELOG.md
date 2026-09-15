@@ -191,15 +191,24 @@ changes are here.
   more after an append that failed part-way. `verifyAuditChain` names a `null`
   record and reports physical line numbers.
 
+- **Hidden facts could reorder visible keyword results** (Astra; founder's call,
+  "fix it"). BM25 weighs words by rarity across every fact, hidden ones included,
+  so through the MCP server an AI could test whether hidden facts contain a word by
+  comparing the order of two visible results. A governed keyword search now reads
+  every match, keeps the visible ones, and ranks them by each fact's own text,
+  then effective confidence, then recency. It is slower on a large store (README
+  "Limits, measured"); the raw store's ranking and speed are unchanged.
+
 ### Known issues
 
 - `searchNodes({ after })` means different things in the two stores (SQLite: facts
   learned after the cursor; in-memory: the rest of the ordered listing) and no
   conformance test covers it. It is unused by the library; define it or remove it
   before 1.0.
-- A governed read that steps past many hidden facts takes measurably longer, and
-  keyword relevance uses whole-store statistics, so a hidden fact containing a word
-  can reorder visible results for that word. Hints, never content (GOVERNANCE.md).
+- A governed read that steps past many hidden facts takes measurably longer: a
+  timing hint, never content (GOVERNANCE.md).
+- Governed keyword search ranks by a simpler, per-fact score than the raw store's
+  BM25, so the same query can order results differently through a governed handle.
 
 ### Internal
 

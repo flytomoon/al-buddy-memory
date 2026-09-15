@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 
 import Database from "better-sqlite3";
 
+import { queryTokens } from "./query-filter.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
@@ -111,12 +112,11 @@ function rowToNode(row: NodeRow): MemoryNode {
  * is a hit. Returns `null` when there are no usable terms.
  */
 function toFtsMatch(query: string): string | null {
-  const tokens = query.match(/[\p{L}\p{N}]+/gu);
-  if (!tokens || tokens.length === 0) return null;
-  // Cap the term count to keep the query bounded; quote each term (a quoted
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return null;
+  // Capped by queryTokens to keep the query bounded; quote each term (a quoted
   // FTS5 string is a literal, immune to operator characters).
-  const terms = tokens.slice(0, 16).map((t) => `"${t}"`);
-  return terms.join(" OR ");
+  return tokens.map((t) => `"${t}"`).join(" OR ");
 }
 
 function rowToEmbedding(row: EmbeddingRow): MemoryEmbedding {

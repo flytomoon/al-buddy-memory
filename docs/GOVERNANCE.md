@@ -50,14 +50,13 @@ rewrite: anyone who can write the file can recompute the whole chain. A line who
 is incomplete (a crash mid-append) stops the log from being extended until that line is
 removed; the MCP server refuses to start rather than write unaudited.
 
-Two side channels are inherent and stated. A governed read that has to step past many hidden
-facts to fill a page takes longer than one that does not. And keyword relevance (BM25) is
-computed from statistics over the whole store, hidden facts included, so a hidden fact that
-contains a word can change the ORDER of visible results for a query with that word. Neither
-ever puts a hidden fact, or its text, on a page; both can hint that such a fact exists to an
-actor who compares carefully chosen queries. This is the same limit search engines with
-per-document permissions document. Where even that hint is unacceptable, give that audience a
-separate store.
+Hidden facts cannot change what a governed read returns or in what order. A governed keyword
+search reads every match, keeps the visible ones and ranks them by each fact's own text, then
+confidence, then recency — not by the store's BM25, whose word weights come from all facts,
+hidden ones included, and so let a hidden fact reorder visible results. One side channel
+remains and is inherent: a governed read that steps past many hidden facts takes longer. It
+never shows a hidden fact or its text. Where even a timing hint is unacceptable, give that
+audience a separate store.
 
 ### What no hook governs yet
 

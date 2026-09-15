@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
 import { SqliteMemoryStore } from "../sqlite-memory-store.js";
+import { governanceTools, serverStore } from "../mcp/governance-server.js";
 import { exportPortable } from "../memory-portability.js";
 import { MemoryAudit } from "./audit.js";
 import { exportView, govern } from "./governed-store.js";
@@ -405,5 +406,55 @@ describe("import is authorised before anything depends on whether the fact exist
     // the owner still imports
     await owner.restoreNode(missing);
     expect(await inner.getNode(missing.nodeId)).toBeDefined();
+  });
+});
+
+/**
+ * Astra final review (B2), founder's call "fix it" (2026-09-15): keyword
+ * relevance was BM25 over whole-store statistics, so adding a hidden fact that
+ * contains "beta" changed which of two visible facts came first for
+ * "alpha beta" — through the MCP server, deterministically. A governed keyword
+ * search now ranks the visible matches by a score that depends only on each
+ * fact's own text.
+ */
+describe("hidden facts cannot move the order of visible results", () => {
+  for (const [label, make] of [
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+    ["InMemoryStore", () => new InMemoryStore()],
+  ] as const) {
+    it(`${label}: adding hidden facts leaves every governed ranking of visible facts unchanged`, async () => {
+      const inner = make();
+      const at = "2026-01-01T00:00:00.000Z";
+      const put = (nodeId: string, text: string, privacyClassification: "Private" | "Sensitive" = "Private") =>
+        inner.restoreNode({ ...fact(text, { privacyClassification }), nodeId, temporalAnchors: [{ timestamp: at, event: "created" }], validFrom: at, validTo: null });
+      await put("00000000-0000-4000-8000-00000000000a", "alpha");
+      await put("00000000-0000-4000-8000-00000000000b", "beta");
+      await put("00000000-0000-4000-8000-00000000000c", "alpha beta gamma notes");
+      const ai = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o", audience: "agent" }) });
+      const orders = async () => {
+        const out: string[][] = [];
+        for (const query of ["alpha beta", "beta", "alpha", "gamma beta"]) {
+          for (const limit of [1, 2, 10]) out.push((await ai.searchNodes({ query, limit })).map((n) => n.content.text));
+        }
+        return out;
+      };
+      const before = await orders();
+      for (let i = 0; i < 25; i++) await put(`00000000-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`, `beta beta secret ${i}`, "Sensitive");
+      expect(await orders()).toEqual(before);
+      (inner as { close?: () => void }).close?.();
+    });
+  }
+
+  it("through the shipped MCP server too", async () => {
+    const inner = new SqliteMemoryStore(":memory:");
+    const at = "2026-01-01T00:00:00.000Z";
+    for (const [id, text] of [["00000000-0000-4000-8000-00000000000a", "alpha"], ["00000000-0000-4000-8000-00000000000b", "beta"]] as const) {
+      await inner.restoreNode({ ...fact(text), nodeId: id, temporalAnchors: [{ timestamp: at, event: "created" }], validFrom: at, validTo: null });
+    }
+    const tools = governanceTools({ store: serverStore(inner, { owner: "owner" }) });
+    const first = (await tools.recall({ query: "alpha beta", limit: 1 })).map((f) => f.text);
+    await inner.restoreNode({ ...fact("beta", { privacyClassification: "Sensitive" }), nodeId: "00000000-0000-4000-8000-0000000000ff", temporalAnchors: [{ timestamp: at, event: "created" }], validFrom: at, validTo: null });
+    expect((await tools.recall({ query: "alpha beta", limit: 1 })).map((f) => f.text)).toEqual(first);
+    inner.close();
   });
 });
