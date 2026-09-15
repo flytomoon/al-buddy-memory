@@ -210,6 +210,41 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect(keys).toEqual([...keys].sort());
     });
 
+    /**
+     * Instants were compared as strings, so one moment spelled two ways
+     * ("…00Z" and "…00.000Z", or an offset) landed on either side of a
+     * boundary (review 2026-09-14). Every instant is stored in one canonical
+     * UTC spelling, and an instant that is not one is refused.
+     */
+    it("stores every instant canonically, so validAt compares instants and not spellings", async () => {
+      const starts = await store.addNode(makeNode({ content: { text: "starts" }, validFrom: "2026-01-01T00:00:00Z" }));
+      const ends = await store.addNode(makeNode({ content: { text: "ends" }, validFrom: "2025-01-01T00:00:00Z", validTo: "2026-01-01T00:00:00Z" }));
+      expect(starts.validFrom).toBe("2026-01-01T00:00:00.000Z");
+      expect(ends.validTo).toBe("2026-01-01T00:00:00.000Z");
+
+      // Half-open [validFrom, validTo): at the shared instant, "starts" is true and "ends" is not.
+      const atBoundary = await store.searchNodes({ validAt: "2026-01-01T00:00:00.000Z" });
+      expect(atBoundary.map((n) => n.content.text)).toEqual(["starts"]);
+
+      // An offset is the instant it names: 00:00 at -09:00 is 09:00 UTC.
+      const offset = await store.addNode(makeNode({ content: { text: "alaska" }, validFrom: "2030-01-01T00:00:00-09:00" }));
+      expect(offset.validFrom).toBe("2030-01-01T09:00:00.000Z");
+      const early = await store.searchNodes({ validAt: "2030-01-01T05:00:00Z" });
+      expect(early.map((n) => n.content.text)).not.toContain("alaska");
+
+      const moved = await store.updateNode(ends.nodeId, { validTo: "2026-06-01T00:00:00+01:00" });
+      expect(moved.validTo).toBe("2026-05-31T23:00:00.000Z");
+    });
+
+    it("refuses an instant it cannot place exactly", async () => {
+      for (const bad of ["not a date", "2026-01-01T00:00:00", "13/01/2026"]) {
+        await expect(store.addNode(makeNode({ validFrom: bad }))).rejects.toThrow(/instant/);
+        await expect(store.searchNodes({ validAt: bad })).rejects.toThrow(/instant/);
+      }
+      const n = await store.addNode(makeNode());
+      await expect(store.updateNode(n.nodeId, { validTo: "yesterday" })).rejects.toThrow(/instant/);
+    });
+
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
       await store.addNode(
         makeNode({ privacyClassification: "Sealed", content: { text: "sealed secret" } }),

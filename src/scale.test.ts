@@ -30,7 +30,7 @@ describe("scale and immutability", () => {
       await expect(store.updateNode(n.nodeId, { nodeId: "other" } as never)).rejects.toThrow(/nodeId is immutable/);
       await expect(store.updateNode(n.nodeId, { temporalAnchors: [] } as never)).rejects.toThrow(/temporalAnchors is immutable/);
       const ok = await store.updateNode(n.nodeId, { validTo: "2026-09-11T00:00:00Z" });
-      expect(ok.validTo).toBe("2026-09-11T00:00:00Z");
+      expect(ok.validTo).toBe("2026-09-11T00:00:00.000Z"); // one canonical spelling per instant (0.4.0)
       expect((await store.getNode(n.nodeId))!.provenance).toBe("UserInput");
     }
   });
