@@ -6,14 +6,14 @@
  * store to yourself. A caller holding the inner store is not governed by
  * anything — that is what "the raw store" means.
  *
- * Governed: addNode, updateNode, restoreNode (import), deleteNode/deleteEdge
- * (erasure), addEdge/restoreEdge, getNode, searchNodes, listNodes, getEdges.
- * Passed through: the embedding cache (setEmbedding, getEmbeddings,
- * listEmbeddings, deleteEmbeddings) — vectors are derived, disposable, and
- * never returned as facts. Until 2026-09-14 edges, restore and delete passed
- * through too, and a stranger could erase a guardian's fact with no audit.
+ * Governed: every MemoryStore method. Writes, updates, imports and erasures run
+ * their policies; reads, edges and the embedding cache only ever show or touch
+ * facts the actor can see — and a fact they cannot see fails exactly like one
+ * that does not exist. Until 2026-09-14 edges, restore and delete passed
+ * through, and a stranger could erase a guardian's fact with no audit; until
+ * the re-review the embedding cache did, and it confirmed which hidden ids exist.
  */
-import type { MemoryEdge, MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
+import type { MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
 
@@ -147,15 +147,19 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       const existing = await inner.getNode(node.nodeId);
       let incoming = node;
       await guarded(opts, ctx, [node.nodeId], async () => {
-        if (existing) {
-          if (!(await view(opts, existing, { ...ctx, purpose: "recall" }))) throw new PolicyDenied("govern", "cannot restore over a fact this actor cannot read");
-          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(node), ctx);
+        if (existing && !(await view(opts, existing, { ...ctx, purpose: "recall" }))) {
+          throw new PolicyDenied("govern", "cannot restore over a fact this actor cannot read");
         }
         // The write policies see an import exactly as they see a new fact, so a
-        // restored secret is classified the same way a written one is.
+        // restored secret is classified the same way a written one is...
         const { nodeId, temporalAnchors, validFrom, validTo, ...fields } = node;
         const written = await writePolicies({ ...fields, validFrom, validTo }, ctx);
         incoming = { ...node, ...written, nodeId, temporalAnchors };
+        // ...and the update policies judge what will actually be stored, not the
+        // copy before the write policies shaped it (Astra re-review, 2026-09-15:
+        // a write policy that archived on import slipped past an update policy
+        // that forbade archiving).
+        if (existing) for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(incoming), ctx);
       });
       await inner.restoreNode(incoming);
       await record(opts, ctx, "allowed", [node.nodeId]);
@@ -205,6 +209,28 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         if (node && (await view(opts, node, ctx))) out.push(edge);
       }
       return out;
+    },
+
+    // The embedding cache: vectors are derived from facts, so they follow the
+    // facts' visibility. Writing a vector onto a hidden fact succeeded while a
+    // missing id failed — an oracle for which hidden ids exist.
+    async setEmbedding(embedding): Promise<MemoryEmbedding> {
+      await visibleOrNotFound(embedding.nodeId, ctxFor(opts, "write"));
+      return inner.setEmbedding(embedding);
+    },
+    async getEmbeddings(nodeId: string): Promise<MemoryEmbedding[]> {
+      return (await governed.getNode!(nodeId)) ? inner.getEmbeddings(nodeId) : [];
+    },
+    async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {
+      await visibleOrNotFound(nodeId, ctxFor(opts, "write"));
+      return model === undefined ? inner.deleteEmbeddings(nodeId) : inner.deleteEmbeddings(nodeId, model);
+    },
+    async listEmbeddings(model: string): Promise<MemoryEmbedding[]> {
+      // One pass over the facts, not one lookup per vector.
+      const ctx = readCtx();
+      const visible = new Set<string>();
+      for (const node of await inner.listNodes()) if (await view(opts, node, ctx)) visible.add(node.nodeId);
+      return (await inner.listEmbeddings(model)).filter((e) => visible.has(e.nodeId));
     },
 
     async getNode(nodeId: string): Promise<MemoryNode | undefined> {

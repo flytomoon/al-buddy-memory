@@ -1,5 +1,5 @@
 import { compareRecency, effectiveConfidence } from "./decay.js";
-import { assertPatchMutable, assertRestorable } from "./immutable.js";
+import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import type {
   MemoryEdge,
@@ -173,6 +173,7 @@ export class InMemoryStore implements MemoryStore {
 
   async restoreEdge(input: MemoryEdge): Promise<void> {
     const edge = canonicalEdge(input);
+    if (edgeRestoreIsNoop(edge, this.edges.get(edge.edgeId))) return;
     this.assertEndpoints(edge);
     this.edges.set(edge.edgeId, structuredClone(edge));
   }
