@@ -226,7 +226,18 @@ const MIGRATION_V3 = [
   `DROP INDEX IF EXISTS idx_nodes_confidence`,
 ];
 
-const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3];
+/**
+ * v4 — the covering index follows the no-query ORDER BY, which gained node_id
+ * as its final key (see NO_QUERY_ORDER). Without this the planner sorts ties
+ * instead of stopping at LIMIT, which is the cost the v3 index was added to
+ * avoid at 100k facts.
+ */
+const MIGRATION_V4 = [
+  `CREATE INDEX IF NOT EXISTS idx_nodes_rank_v4 ON memory_nodes (confidence_weight DESC, created_at DESC, node_id DESC)`,
+  `DROP INDEX IF EXISTS idx_nodes_rank`,
+];
+
+const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
 
 // ---------------------------------------------------------------------------
 // SqliteMemoryStore
@@ -240,6 +251,41 @@ const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3];
  *
  * Uses SQLite FTS5 for full-text search on node content.
  */
+/**
+ * The no-query order, in SQL and in the JS re-rank below — they must be the
+ * same sort or a limited read is not the first page of an unlimited one.
+ *
+ * Reported from outside on 2026-09-14: the SQL read newest-first and the
+ * re-rank then broke confidence ties oldest-first before truncating, so asking
+ * for 5 of 230 equal-confidence facts returned five old ones from the middle of
+ * the pool. Every fact with decayRate 0 shares confidence, so the tie-break was
+ * deciding the whole result.
+ *
+ * `node_id` is the final key because `created_at` is milliseconds and a bulk
+ * write shares one: without it the pool boundary — which rows SQLite hands over
+ * at all — is arbitrary, and no JS sort can repair that.
+ */
+const NO_QUERY_ORDER = `ORDER BY confidence_weight DESC, created_at DESC, node_id DESC`;
+
+/**
+ * When the store LEARNED a fact: the `created` temporal anchor (§2.1), which is
+ * exactly what the `created_at` column is written from a few lines below.
+ *
+ * Not `validFrom`. That is valid time — when the fact became true — and it is
+ * deliberately backdatable for facts recorded after the event ("respects
+ * explicit valid-time" in the conformance suite). Ordering a page by it would
+ * put a fact imported today about last year below one recorded yesterday,
+ * which is not what "most recent" means when you ask for ten of them.
+ */
+export function learnedAt(node: MemoryNode): string {
+  return node.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? node.validFrom;
+}
+
+/** Newest first, ties settled by id so two stores (and two reads) agree exactly. */
+export function compareRecency(a: MemoryNode, b: MemoryNode): number {
+  return learnedAt(b).localeCompare(learnedAt(a)) || b.nodeId.localeCompare(a.nodeId);
+}
+
 /** With a query, SQLite hands JS this many candidates per requested result to re-rank with decay. */
 const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
@@ -383,9 +429,9 @@ export class SqliteMemoryStore implements MemoryStore {
     const ftsResult = this.db
       .prepare(`INSERT INTO memory_fts (content_text) VALUES (?)`)
       .run(node.content.text);
-    // Transaction-time best guess: the original 'created' anchor.
-    const createdAt =
-      node.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? node.validFrom;
+    // The same anchor the ordering reads, by the same function, so the column
+    // and the re-rank can never drift apart.
+    const createdAt = learnedAt(node);
 
     this.db
       .prepare(
@@ -564,11 +610,11 @@ export class SqliteMemoryStore implements MemoryStore {
       // has decayed below it — approximate past the pool, exact within it.
       params["pool"] = Math.max(limitN * FTS_POOL_MULTIPLIER, FTS_POOL_MIN);
       rows = this.db
-        .prepare(`SELECT * FROM memory_nodes ${where} ORDER BY confidence_weight DESC, created_at DESC LIMIT @pool`)
+        .prepare(`SELECT * FROM memory_nodes ${where} ${NO_QUERY_ORDER} LIMIT @pool`)
         .all(params) as NodeRow[];
     } else {
       rows = this.db
-        .prepare(`SELECT * FROM memory_nodes ${where} ORDER BY confidence_weight DESC, created_at DESC`)
+        .prepare(`SELECT * FROM memory_nodes ${where} ${NO_QUERY_ORDER}`)
         .all(params) as NodeRow[];
     }
 
@@ -579,7 +625,7 @@ export class SqliteMemoryStore implements MemoryStore {
       // Ascending BM25 (more negative = better), effective confidence as tiebreak.
       nodes.sort((a, b) => (a.row.fts_rank ?? 0) - (b.row.fts_rank ?? 0) || b.eff - a.eff);
     } else {
-      nodes.sort((a, b) => b.eff - a.eff || a.node.validFrom.localeCompare(b.node.validFrom));
+      nodes.sort((a, b) => b.eff - a.eff || compareRecency(a.node, b.node));
     }
     if (limitN !== undefined && Number.isFinite(limitN)) nodes.length = Math.min(nodes.length, limitN);
 

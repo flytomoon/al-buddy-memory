@@ -4,6 +4,7 @@ import { FakeEmbedder, cosineSimilarity } from "./embedder.js";
 import { HybridRetriever, indexMissingEmbeddings } from "./hybrid-retriever.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
+import type { MemoryNode } from "./types/memory.js";
 
 /**
  * FakeEmbedder maps known concept words onto fixed axes so tests can create
@@ -218,5 +219,42 @@ describe("HybridRetriever.findDuplicate + reinforce", () => {
     await store.addNode(makeNode({ content: { text: "lives in tokyo" } }));
     const retriever = new HybridRetriever(store);
     expect(await retriever.findDuplicate("lives in tokyo")).toBeUndefined();
+  });
+});
+
+/**
+ * Reported from outside (2026-09-14): a limited read that ties returns the
+ * OLDEST n. The store half of that is covered in the conformance suite; this is
+ * the fusion half, where a tie is not a corner case but the normal shape of
+ * reciprocal-rank fusion — one fact wins the keyword list, the other wins the
+ * vector list, and 1/61 + 1/62 is the same number both ways.
+ */
+describe("HybridRetriever ties", () => {
+  /** The store hands back the object it holds, so this is the node's own anchor. */
+  const learnedAt = (node: MemoryNode, iso: string): MemoryNode => {
+    node.temporalAnchors[0]!.timestamp = iso;
+    return node;
+  };
+
+  async function tied(olderText: string, newerText: string) {
+    const store = new InMemoryStore();
+    const embedder = conceptEmbedder();
+    // "tokyo tokyo pasta" wins the keyword list (term frequency) and loses the
+    // vector list; "tokyo japan trip notes" the other way round.
+    const older = learnedAt(await store.addNode(makeNode({ content: { text: olderText } })), "2020-01-01T00:00:00.000Z");
+    const newer = learnedAt(await store.addNode(makeNode({ content: { text: newerText } })), "2026-09-14T00:00:00.000Z");
+    await indexMissingEmbeddings(store, embedder);
+    const hits = await new HybridRetriever(store, embedder).recall("tokyo", { limit: 1 });
+    return { hits, older, newer };
+  }
+
+  it("returns the most recently learned of two facts that fuse to the same score", async () => {
+    const a = await tied("tokyo tokyo pasta", "tokyo japan trip notes");
+    expect(a.hits.map((n) => n.nodeId)).toEqual([a.newer.nodeId]);
+
+    // The same pair with the ages swapped: still the newest, so it is recency
+    // deciding and not insertion order or which list the winner came from.
+    const b = await tied("tokyo japan trip notes", "tokyo tokyo pasta");
+    expect(b.hits.map((n) => n.nodeId)).toEqual([b.newer.nodeId]);
   });
 });

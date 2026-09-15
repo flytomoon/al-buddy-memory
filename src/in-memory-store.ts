@@ -1,5 +1,6 @@
 import { effectiveConfidence } from "./decay.js";
 import { assertPatchMutable } from "./immutable.js";
+import { compareRecency } from "./sqlite-memory-store.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -104,7 +105,12 @@ export class InMemoryStore implements MemoryStore {
           (eff.get(b.nodeId) ?? 0) - (eff.get(a.nodeId) ?? 0),
       );
     } else {
-      results.sort((a, b) => (eff.get(b.nodeId) ?? 0) - (eff.get(a.nodeId) ?? 0));
+      // The same tie-break the SQLite store uses (compareRecency): equal
+      // confidence — every fact with decayRate 0 — resolves newest first, so
+      // both stores answer a limited read with the same page. Insertion order
+      // used to decide it here, which only looked right because this store
+      // reads everything and never has a candidate pool.
+      results.sort((a, b) => (eff.get(b.nodeId) ?? 0) - (eff.get(a.nodeId) ?? 0) || compareRecency(a, b));
     }
 
     if (options.after !== undefined) {

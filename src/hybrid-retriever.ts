@@ -1,3 +1,4 @@
+import { compareRecency } from "./sqlite-memory-store.js";
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
@@ -81,9 +82,16 @@ export class HybridRetriever {
     addList(keywordHits);
     addList(vectorHits.map((v) => v.node));
 
+    // The same last word as the stores (compareRecency): fused rank, then
+    // confidence, then the most recently learned. Two facts can easily tie on
+    // both — one list, equal confidence — and without a final key the winner of
+    // a `slice(0, limit)` was whichever the fusion map happened to hold first.
     return [...scores.values()]
       .sort(
-        (a, b) => b.score - a.score || b.node.confidenceWeight - a.node.confidenceWeight,
+        (a, b) =>
+          b.score - a.score ||
+          b.node.confidenceWeight - a.node.confidenceWeight ||
+          compareRecency(a.node, b.node),
       )
       .slice(0, limit)
       .map((e) => e.node);
