@@ -1,5 +1,6 @@
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable } from "./immutable.js";
+import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -30,7 +31,8 @@ export class InMemoryStore implements MemoryStore {
   // Embeddings keyed by `${nodeId}::${model}` — one vector per (node, model).
   private readonly embeddings = new Map<string, MemoryEmbedding>();
 
-  async addNode(node: NewMemoryNode): Promise<MemoryNode> {
+  async addNode(input: NewMemoryNode): Promise<MemoryNode> {
+    const node = canonicalNew(input);
     const now = new Date().toISOString();
     const full: MemoryNode = {
       ...node,
@@ -102,7 +104,7 @@ export class InMemoryStore implements MemoryStore {
       );
     }
     if (options.validAt !== undefined) {
-      const at = options.validAt;
+      const at = canonicalInstant(options.validAt, "validAt");
       // Valid-time window contains `at`: [validFrom, validTo) with null = open.
       results = results.filter((n) => n.validFrom <= at && (n.validTo === null || n.validTo > at));
     }
@@ -146,7 +148,7 @@ export class InMemoryStore implements MemoryStore {
     assertPatchMutable(patch);
     const updated: MemoryNode = {
       ...copy(existing),
-      ...copy(patch),
+      ...copy(canonicalPatch(patch)),
       temporalAnchors: [
         ...existing.temporalAnchors,
         { timestamp: new Date().toISOString(), event: anchorEvent },
@@ -156,12 +158,14 @@ export class InMemoryStore implements MemoryStore {
     return copy(updated);
   }
 
-  async restoreNode(node: MemoryNode): Promise<void> {
+  async restoreNode(input: MemoryNode): Promise<void> {
+    const node = canonicalNode(input);
     assertRestorable(node, this.nodes.get(node.nodeId));
     this.nodes.set(node.nodeId, copy(node));
   }
 
-  async restoreEdge(edge: MemoryEdge): Promise<void> {
+  async restoreEdge(input: MemoryEdge): Promise<void> {
+    const edge = canonicalEdge(input);
     this.edges.set(edge.edgeId, structuredClone(edge));
   }
 

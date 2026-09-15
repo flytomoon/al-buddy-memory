@@ -1,4 +1,5 @@
 import { compareRecency } from "./decay.js";
+import { canonicalInstant } from "./instant.js";
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
@@ -56,7 +57,7 @@ export class HybridRetriever {
 
   async recall(query: string, options: RecallOptions = {}): Promise<MemoryNode[]> {
     const limit = options.limit ?? 5;
-    const validAt = options.validAt ?? new Date().toISOString();
+    const validAt = options.validAt === undefined ? new Date().toISOString() : canonicalInstant(options.validAt, "validAt");
 
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull

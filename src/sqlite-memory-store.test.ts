@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import { makeNode, runMemoryStoreConformance } from "./memory-store-conformance.spec.js";
@@ -71,5 +72,38 @@ describe("SqliteMemoryStore — durability", () => {
     } finally {
       reopened.close();
     }
+  });
+});
+
+describe("SqliteMemoryStore — a store written before 0.4.0", () => {
+  const dir = mkdtempSync(join(tmpdir(), "al-buddy-memmigrate-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("rewrites validity bounds to one canonical spelling on open, and leaves what it cannot parse", async () => {
+    const dbPath = join(dir, "old.db");
+    const first = new SqliteMemoryStore(dbPath);
+    const a = await first.addNode(makeNode({ content: { text: "a" } }));
+    const b = await first.addNode(makeNode({ content: { text: "b" } }));
+    first.close();
+
+    // What an older version happily stored: no milliseconds, an offset, junk.
+    const raw = new Database(dbPath);
+    raw.prepare(`UPDATE memory_nodes SET valid_from = ?, valid_to = ? WHERE node_id = ?`).run("2026-01-01T00:00:00Z", "2030-01-01T00:00:00-09:00", a.nodeId);
+    raw.prepare(`UPDATE memory_nodes SET valid_from = ? WHERE node_id = ?`).run("sometime", b.nodeId);
+    raw.pragma("user_version = 4");
+    raw.close();
+
+    const reopened = new SqliteMemoryStore(dbPath);
+    try {
+      const fixed = await reopened.getNode(a.nodeId);
+      expect(fixed?.validFrom).toBe("2026-01-01T00:00:00.000Z");
+      expect(fixed?.validTo).toBe("2030-01-01T09:00:00.000Z");
+      expect((await reopened.getNode(b.nodeId))?.validFrom).toBe("sometime");
+    } finally {
+      reopened.close();
+    }
+    const check = new Database(dbPath);
+    expect(check.pragma("user_version", { simple: true })).toBe(5);
+    check.close();
   });
 });

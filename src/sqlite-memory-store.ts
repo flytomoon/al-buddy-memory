@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import Database from "better-sqlite3";
 
 import { assertPatchMutable, assertRestorable } from "./immutable.js";
+import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -237,7 +238,20 @@ const MIGRATION_V4 = [
   `DROP INDEX IF EXISTS idx_nodes_rank`,
 ];
 
-const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
+/**
+ * v5 — one spelling per instant (see instant.ts). Validity bounds are the
+ * values callers supply, so a store written before 0.4.0 can hold "…00Z" or an
+ * offset, which a string comparison misplaces. Rewrite those to canonical UTC;
+ * a value SQLite cannot parse is left exactly as it was. Creation anchors are
+ * always written by the library itself and need no rewrite.
+ */
+const CANONICAL_GLOB = "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'";
+const MIGRATION_V5 = ["valid_from", "valid_to"].map(
+  (col) =>
+    `UPDATE memory_nodes SET ${col} = strftime('%Y-%m-%dT%H:%M:%fZ', ${col})
+       WHERE ${col} IS NOT NULL AND ${col} NOT GLOB ${CANONICAL_GLOB} AND strftime('%Y-%m-%dT%H:%M:%fZ', ${col}) IS NOT NULL`,
+);
+const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5];
 
 // ---------------------------------------------------------------------------
 // SqliteMemoryStore
@@ -305,23 +319,27 @@ export class SqliteMemoryStore implements MemoryStore {
   // -------------------------------------------------------------------------
 
   private migrate(): void {
-    const current = this.db.pragma("user_version", { simple: true }) as number;
-    for (let version = current; version < MIGRATIONS.length; version++) {
-      const statements = MIGRATIONS[version]!;
-      const apply = this.db.transaction(() => {
-        for (const stmt of statements) this.db.prepare(stmt).run();
+    // IMMEDIATE takes the write lock BEFORE the version is read. Reading it
+    // outside the lock let two processes opening a fresh file both start from
+    // v0: one finished, the other then re-ran v1, failed on v2's ADD COLUMN, and
+    // left a valid schema labelled v1 for ever (review 2026-09-14).
+    const apply = this.db.transaction(() => {
+      const current = this.db.pragma("user_version", { simple: true }) as number;
+      for (let version = current; version < MIGRATIONS.length; version++) {
+        for (const stmt of MIGRATIONS[version]!) this.db.prepare(stmt).run();
         // pragma value can't be parameterized; version is a trusted integer.
         this.db.pragma(`user_version = ${version + 1}`);
-      });
-      apply();
-    }
+      }
+    });
+    apply.immediate();
   }
 
   // -------------------------------------------------------------------------
   // Node operations
   // -------------------------------------------------------------------------
 
-  async addNode(node: NewMemoryNode): Promise<MemoryNode> {
+  async addNode(input: NewMemoryNode): Promise<MemoryNode> {
+    const node = canonicalNew(input);
     const nodeId = randomUUID();
     const now = new Date().toISOString();
     const temporalAnchors: TemporalAnchor[] = [{ timestamp: now, event: "created" }];
@@ -395,7 +413,8 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   /** Verbatim insert for round-trip import — identity and anchors preserved. */
-  async restoreNode(node: MemoryNode): Promise<void> {
+  async restoreNode(input: MemoryNode): Promise<void> {
+    const node = canonicalNode(input);
     // One transaction. Over an existing fact this is an UPDATE in place: it used
     // to delete and reinsert the row, and the foreign-key cascade silently took
     // every edge and embedding with it (review 2026-09-14). Content cannot
@@ -471,7 +490,8 @@ export class SqliteMemoryStore implements MemoryStore {
   }
 
   /** Verbatim edge insert for round-trip import (idempotent by edgeId). */
-  async restoreEdge(edge: MemoryEdge): Promise<void> {
+  async restoreEdge(input: MemoryEdge): Promise<void> {
+    const edge = canonicalEdge(input);
     this.db.prepare(`DELETE FROM memory_edges WHERE edge_id = ?`).run(edge.edgeId);
     this.db
       .prepare(
@@ -569,7 +589,7 @@ export class SqliteMemoryStore implements MemoryStore {
     if (options.validAt !== undefined) {
       // Valid-time window contains the instant: [valid_from, valid_to), null = open.
       conditions.push(`valid_from <= @validAt AND (valid_to IS NULL OR valid_to > @validAt)`);
-      params["validAt"] = options.validAt;
+      params["validAt"] = canonicalInstant(options.validAt, "validAt");
     }
 
     if (options.after !== undefined) {
@@ -644,9 +664,11 @@ export class SqliteMemoryStore implements MemoryStore {
   async updateNode(
     nodeId: string,
     // Reference the interface's patch type so it can never drift from it.
-    patch: Parameters<MemoryStore["updateNode"]>[1],
+    input: Parameters<MemoryStore["updateNode"]>[1],
     anchorEvent: Parameters<MemoryStore["updateNode"]>[2] = "modified",
   ): Promise<MemoryNode> {
+    assertPatchMutable(input);
+    const patch = canonicalPatch(input);
     const existingRow = this.db
       .prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`)
       .get(nodeId) as NodeRow | undefined;
