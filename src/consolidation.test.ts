@@ -6,6 +6,13 @@ import type { MemoryStore } from "./types/memory.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
 
+/** Rewrite a node's `created` anchor, so a test can make two captures collide. */
+async function stampCreated(store: MemoryStore, nodeId: string, iso: string) {
+  const node = await store.getNode(nodeId);
+  const anchors = node!.temporalAnchors.map((a) => (a.event === "created" ? { ...a, timestamp: iso } : a));
+  await store.restoreNode({ ...node!, temporalAnchors: anchors });
+}
+
 async function seed(store: MemoryStore, texts: string[]) {
   const ids: string[] = [];
   for (const t of texts) ids.push((await store.addNode(makeNode({ content: { text: t } }))).nodeId);
@@ -25,7 +32,9 @@ describe("consolidate — sleep-time derivation that never touches the raw", () 
     const derived = await store.getNode(report.derivedNodeIds[0]!);
     expect(derived?.provenance).toBe("AIInferred");
     expect(derived?.content.text).toBe("He lives and works in Portland.");
-    expect(derived?.contextualMetadata["derivedFrom"]).toEqual([a, b]);
+    // The pair, not an order: two captures in the same millisecond have no
+    // chronological order to assert (the pass's own order is tested below).
+    expect((derived?.contextualMetadata["derivedFrom"] as string[]).slice().sort()).toEqual([a, b].sort());
     expect(derived?.confidenceWeight).toBe(0.8);
     const edges = await store.getEdges(derived!.nodeId);
     expect(edges.map((e) => e.targetNodeId).sort()).toEqual([a, b].sort());
@@ -131,5 +140,39 @@ describe.each([
     expect((await listConsolidations(store))[0]!.facts[0]!.retraction?.reason).toBe("wrong");
     const next = await consolidate(store, { since: "2000-01-01T00:00:00Z", model: "m", propose: async () => [] });
     expect(next.read).toBe(0);
+  });
+});
+
+/**
+ * CI caught this and a fast laptop did not: two captures inside one millisecond
+ * have no chronological order, so whatever the pass did with them depended on
+ * the machine. It has to be a total order — the pass reads the same facts in
+ * the same sequence tonight and tomorrow night, and `maxRaw` always cuts in the
+ * same place.
+ */
+describe("consolidate — a pass reads in a defined order, collisions included", () => {
+  it("replays oldest first and settles same-millisecond captures by id, both stores alike", async () => {
+    for (const store of [new InMemoryStore(), new SqliteMemoryStore(":memory:")] as MemoryStore[]) {
+      const ids = await seed(store, ["one", "two", "three", "four"]);
+      // Force the collision the CI machine produced by accident.
+      for (const id of ids) await stampCreated(store, id, "2026-09-14T00:00:00.000Z");
+
+      const seen: string[][] = [];
+      for (let i = 0; i < 2; i++) {
+        seen.push([]);
+        await consolidate(store, {
+          since: "2000-01-01T00:00:00Z",
+          model: "m",
+          dryRun: true, // nothing written, so the second pass reads the same four
+          propose: async (raw) => {
+            seen[i] = raw.map((r) => r.nodeId);
+            return [];
+          },
+        });
+      }
+      expect(seen[0]).toEqual([...ids].sort()); // ids ascending: the mirror of the stores' newest-first
+      expect(seen[1]).toEqual(seen[0]); // and the same every night
+      (store as { close?: () => void }).close?.();
+    }
   });
 });

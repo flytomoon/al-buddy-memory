@@ -46,6 +46,12 @@ facts, ask for them explicitly rather than by taking a short page.
 - `InMemoryStore.searchNodes` had no tie-break at all; it now matches SQLite
   exactly, which is what the shared conformance suite exists to guarantee.
 
+- `consolidate` now reads a night in a total order — oldest first, ties settled
+  by node id — so a pass replays the same sequence on any machine and `maxRaw`
+  always cuts in the same place. Same reasoning as above, read backwards: the
+  stores page newest first, a pass replays oldest first, and neither order is
+  left to chance.
+
 ### Internal
 
 - Migration v4 rebuilds the ranking index to cover the new `ORDER BY`
