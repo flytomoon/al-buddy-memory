@@ -76,3 +76,101 @@ describe("governance — policies in front of the store, audited", () => {
     expect(looksSecret("4111 1111 1111 1111")).toBe(true);
   });
 });
+
+/**
+ * Review 2026-09-14 (Astra B1/B3, Fable G1/G2): the wrapper governed four
+ * methods and passed the rest straight through. Every one of these was
+ * reproduced against the shipped code before it was fixed.
+ */
+describe("governance — no way around the policies", () => {
+  function owned() {
+    const inner = new InMemoryStore();
+    const audit = new MemoryAudit();
+    const who = { actor: "owner" };
+    const store = govern(inner, { policies: [personalDefaults({ owner: "owner" })], context: () => ({ actor: who.actor }), audit });
+    return { inner, audit, who, store };
+  }
+
+  it("a fact you cannot read, you cannot update — or read back out of the update", async () => {
+    const { inner, audit, who, store } = owned();
+    const secret = await store.addNode(fact("password: hunter2"));
+    expect(secret.privacyClassification).toBe("Sensitive");
+
+    who.actor = "intruder";
+    await expect(store.updateNode(secret.nodeId, {})).rejects.toThrow(/not found/);
+    await expect(store.updateNode(secret.nodeId, { privacyClassification: "Private" })).rejects.toThrow(/not found/);
+    expect((await inner.getNode(secret.nodeId))?.privacyClassification).toBe("Sensitive");
+    expect(audit.events.filter((e) => e.outcome === "denied" && e.actor === "intruder")).toHaveLength(2);
+
+    who.actor = "owner";
+    const lowered = await store.updateNode(secret.nodeId, { privacyClassification: "Private" });
+    expect(lowered.privacyClassification).toBe("Private");
+  });
+
+  it("erasure exists only where a policy allows it, and every attempt is audited", async () => {
+    const { inner, audit, who, store } = owned();
+    const a = await store.addNode(fact("a"));
+    const b = await store.addNode(fact("b"));
+    const edge = await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Cause", strength: 1, provenance: "UserAsserted" });
+
+    who.actor = "stranger";
+    await expect(store.deleteNode(a.nodeId)).rejects.toBeInstanceOf(PolicyDenied);
+    await expect(store.deleteEdge(edge.edgeId)).rejects.toBeInstanceOf(PolicyDenied);
+    expect(await inner.getNode(a.nodeId)).toBeDefined();
+
+    who.actor = "owner";
+    await store.deleteEdge(edge.edgeId);
+    await store.deleteNode(a.nodeId);
+    expect(await inner.getNode(a.nodeId)).toBeUndefined();
+    expect(audit.events.filter((e) => e.purpose === "erase").map((e) => `${e.actor}:${e.outcome}`)).toEqual([
+      "stranger:denied",
+      "stranger:denied",
+      "owner:allowed",
+      "owner:allowed",
+    ]);
+
+    // No policy that speaks to erasure: nobody erases anything.
+    const silent = govern(new InMemoryStore(), { policies: [enterpriseAudit({ reviewers: ["r"], exporters: ["r"] })], context: () => ({ actor: "r" }) });
+    const n = await silent.addNode(fact("kept"));
+    await expect(silent.deleteNode(n.nodeId)).rejects.toThrow(/erasure is not enabled/);
+  });
+
+  it("import runs the write policies: a restored secret is classified, a guardian's fact cannot be restored over", async () => {
+    const { store } = owned();
+    const scratch = new InMemoryStore();
+    const leaked = await scratch.addNode(fact("api_key=sk-live-abcdefghijklmnop1234"));
+    await store.restoreNode(leaked);
+    expect((await store.getNode(leaked.nodeId))?.privacyClassification).toBe("Sensitive");
+
+    let actor = "parent";
+    const guarded = govern(new InMemoryStore(), { policies: [guardianMode({ guardians: ["parent"] })], context: () => ({ actor }) });
+    const rule = await guarded.addNode(fact("bedtime is nine", { provenance: "GuardianAdded" }));
+    actor = "kid-agent";
+    await expect(guarded.restoreNode({ ...rule, validTo: "2026-01-01T00:00:00.000Z" })).rejects.toThrow(/cannot change a guardian's fact/);
+  });
+
+  it("a policy that only protects some facts never switches erasure on", async () => {
+    let actor = "parent";
+    const both = govern(new InMemoryStore(), { policies: [personalDefaults({ owner: "kid" }), guardianMode({ guardians: ["parent"] })], context: () => ({ actor }) });
+    const rule = await both.addNode(fact("bedtime is nine", { provenance: "GuardianAdded" }));
+    actor = "kid"; // the owner, but not a guardian
+    await expect(both.deleteNode(rule.nodeId)).rejects.toThrow(/cannot erase a guardian's fact/);
+
+    const guardianOnly = govern(new InMemoryStore(), { policies: [guardianMode({ guardians: ["parent"] })], context: () => ({ actor: "anyone" }) });
+    const plain = await guardianOnly.addNode(fact("likes dinosaurs"));
+    await expect(guardianOnly.deleteNode(plain.nodeId)).rejects.toThrow(/erasure is not enabled/);
+  });
+
+  it("links to a fact you cannot see are neither made nor shown", async () => {
+    const { who, store } = owned();
+    const visible = await store.addNode(fact("likes sourdough"));
+    const secret = await store.addNode(fact("password: hunter2"));
+    await store.addEdge({ sourceNodeId: visible.nodeId, targetNodeId: secret.nodeId, relationshipType: "Cause", strength: 1, provenance: "UserAsserted" });
+
+    who.actor = "intruder";
+    expect(await store.getEdges(visible.nodeId)).toEqual([]); // would disclose the secret's id
+    await expect(
+      store.addEdge({ sourceNodeId: visible.nodeId, targetNodeId: secret.nodeId, relationshipType: "Analogy", strength: 1, provenance: "AIInferred" }),
+    ).rejects.toThrow(/not found/); // would confirm the id exists
+  });
+});
