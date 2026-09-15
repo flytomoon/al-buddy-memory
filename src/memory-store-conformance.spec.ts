@@ -171,6 +171,27 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect(keys).toEqual([...keys].sort().reverse());
     });
 
+    /**
+     * The same invariant for the keyword path. Facts phrased identically score
+     * the same relevance (and, at decayRate 0, the same confidence), which is
+     * exactly what repeated captures of one fact look like.
+     */
+    it("a limited SEARCH is the first page of the unlimited one too", async () => {
+      // More than the candidate pool (200), so the pool boundary is exercised:
+      // the SQL that fills it has to order the same way the re-rank does.
+      for (let i = 0; i < 230; i++) {
+        await store.addNode(makeNode({ content: { text: "he takes his coffee black" } }));
+      }
+      const all = await store.searchNodes({ query: "coffee" });
+      const page = await store.searchNodes({ query: "coffee", limit: 4 });
+      expect(page.map((n) => n.nodeId)).toEqual(all.slice(0, 4).map((n) => n.nodeId));
+      // And asking twice gives the same answer — a total order, not the order
+      // the rows happened to come back in.
+      expect((await store.searchNodes({ query: "coffee", limit: 4 })).map((n) => n.nodeId)).toEqual(
+        page.map((n) => n.nodeId),
+      );
+    });
+
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
       await store.addNode(
         makeNode({ privacyClassification: "Sealed", content: { text: "sealed secret" } }),

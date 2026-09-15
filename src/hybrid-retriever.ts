@@ -144,9 +144,14 @@ export class HybridRetriever {
     if (!queryVector) return [];
     const embeddings = await this.embeddingsFor(this.embedder.model);
 
+    // Two recordings of the same fact have the SAME similarity, exactly — the
+    // vector is a function of the text. Which one made the pool (and which one
+    // findDuplicate reinforces) was otherwise decided by the order the rows came
+    // out of storage, so the id settles it here and recency settles it once the
+    // nodes are loaded below.
     const scored = embeddings
       .map((e) => ({ nodeId: e.nodeId, similarity: cosineSimilarity(queryVector, e.vector) }))
-      .sort((a, b) => b.similarity - a.similarity);
+      .sort((a, b) => b.similarity - a.similarity || a.nodeId.localeCompare(b.nodeId));
 
     // Filter BEFORE taking the pool: with a scope, the nearest 50 vectors may all
     // be out of scope, and slicing first would leave the vector list empty.

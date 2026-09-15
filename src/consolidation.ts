@@ -195,6 +195,7 @@ export async function listConsolidations(store: MemoryStore): Promise<Consolidat
     });
     runs.set(at, run);
   }
+  // consolidatedAt IS the pass identity (it keys `runs`), so there is no tie to break here.
   return [...runs.values()].sort((a, b) => b.consolidatedAt.localeCompare(a.consolidatedAt));
 }
 

@@ -575,13 +575,18 @@ export class SqliteMemoryStore implements MemoryStore {
     // measured cost at 100k facts is in README "Limits".
     let rows: (NodeRow & { fts_rank?: number })[];
     if (match !== null) {
+      // The pool's ORDER BY has to end the same way the JS re-rank does, or a
+      // limited read is a page of a DIFFERENT list: with hundreds of equally
+      // relevant hits, SQLite would hand over the first 200 by rowid (the
+      // oldest) and the re-rank could only pick the newest of those.
       const pool = limitN !== undefined && Number.isFinite(limitN) ? Math.max(limitN * FTS_POOL_MULTIPLIER, FTS_POOL_MIN) : FTS_POOL_UNLIMITED;
       params["pool"] = pool;
       rows = this.db
         .prepare(
           `SELECT n.*, f.rank AS fts_rank FROM memory_nodes n
              JOIN (SELECT rowid AS fts_id, rank FROM memory_fts WHERE content_text MATCH @match) f ON n.fts_rowid = f.fts_id
-             ${where} ORDER BY f.rank ASC, n.confidence_weight DESC LIMIT @pool`,
+             ${where} ORDER BY f.rank ASC, n.confidence_weight DESC, n.created_at DESC, n.node_id DESC
+             LIMIT @pool`,
         )
         .all(params) as (NodeRow & { fts_rank: number })[];
     } else if (limitN !== undefined && Number.isFinite(limitN)) {
@@ -603,8 +608,15 @@ export class SqliteMemoryStore implements MemoryStore {
     const nodes = rows.map((row) => ({ row, node: rowToNode(row), eff: 0 }));
     for (const n of nodes) n.eff = effectiveConfidence(n.node, now);
     if (match !== null) {
-      // Ascending BM25 (more negative = better), effective confidence as tiebreak.
-      nodes.sort((a, b) => (a.row.fts_rank ?? 0) - (b.row.fts_rank ?? 0) || b.eff - a.eff);
+      // Ascending BM25 (more negative = better), then effective confidence, then
+      // the same last word as every other read. Two near-identical texts score
+      // the same BM25 and, at decayRate 0, the same confidence — without the
+      // final key which of them a `limit` keeps is the row order SQLite happened
+      // to return.
+      nodes.sort(
+        (a, b) =>
+          (a.row.fts_rank ?? 0) - (b.row.fts_rank ?? 0) || b.eff - a.eff || compareRecency(a.node, b.node),
+      );
     } else {
       nodes.sort((a, b) => b.eff - a.eff || compareRecency(a.node, b.node));
     }

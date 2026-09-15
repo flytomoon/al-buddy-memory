@@ -102,7 +102,8 @@ export class InMemoryStore implements MemoryStore {
       results.sort(
         (a, b) =>
           (rel.get(b.nodeId) ?? 0) - (rel.get(a.nodeId) ?? 0) ||
-          (eff.get(b.nodeId) ?? 0) - (eff.get(a.nodeId) ?? 0),
+          (eff.get(b.nodeId) ?? 0) - (eff.get(a.nodeId) ?? 0) ||
+          compareRecency(a, b),
       );
     } else {
       // The same tie-break the SQLite store uses (compareRecency): equal
