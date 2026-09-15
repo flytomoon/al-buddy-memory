@@ -17,6 +17,15 @@ own headline claims were not true in the code. This release makes them true or
 stops making them. 0.3.4 and 0.3.5 were staged and never published — their
 changes are here.
 
+### Added
+
+- **A tamper-evident audit log.** `ChainedAudit` writes each governance event with
+  the hash of the one before it (HMAC-SHA256 with a key); `verifyAuditChain` and
+  `al-buddy-memory verify-audit` name the first edited, removed, inserted or
+  reordered line. A cut-off tail, or a rewrite by whoever holds the key, is
+  caught only against a head hash published elsewhere — the docs say so. The
+  shipped MCP server writes a chained log, keyed by `AL_BUDDY_MEMORY_AUDIT_KEY`.
+
 ### Breaking changes
 
 - **Raw content is immutable.** `updateNode` no longer accepts `content` (in the

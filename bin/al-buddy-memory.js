@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]
 // al-buddy-memory conformance --demo        score a small governed store, for comparison
+// al-buddy-memory verify-audit <audit.jsonl> [--head <hash>]
+//   check a hash-chained audit log; the HMAC key, if the log has one, comes from
+//   AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which lands in shell history)
 import { readFileSync } from "node:fs";
-import { InMemoryStore, exportPortable } from "../dist/index.js";
+import { InMemoryStore, exportPortable, verifyAuditChain } from "../dist/index.js";
 import { toConformanceInput, scoreConformance, formatReport, fromPortable } from "../dist/conformance/index.js";
 
 const args = process.argv.slice(2);
@@ -10,8 +13,20 @@ const cmd = args[0];
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const has = (name) => args.includes(name);
 
+if (cmd === "verify-audit") {
+  if (!args[1]) {
+    console.error("usage: al-buddy-memory verify-audit <audit.jsonl> [--head <hash>]");
+    process.exit(2);
+  }
+  const key = process.env.AL_BUDDY_MEMORY_AUDIT_KEY;
+  const result = await verifyAuditChain(args[1], { ...(key ? { key } : {}), ...(flag("--head") ? { head: flag("--head") } : {}) });
+  if (result.ok) console.log(`intact: ${result.count} events, head ${result.head}`);
+  else console.error(`BROKEN at line ${result.line} of ${result.count}: ${result.reason}`);
+  process.exit(result.ok ? 0 : 1);
+}
+
 if (cmd !== "conformance") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo");
+  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <audit.jsonl> [--head <hash>]");
   process.exit(2);
 }
 

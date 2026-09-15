@@ -32,7 +32,7 @@ export type { ConsolidateOptions, ConsolidationReport, ConsolidatedFact, Consoli
 // and `@modelcontextprotocol/sdk`, and the core must import without them.
 export { scoreConformance, formatReport, toConformanceInput, detectFormat, fromPortable, fromBlocks, fromRecords, proveRoundTrip } from "./conformance/index.js";
 export type { ConformanceReport, ConformanceInput, ConformanceFact, Dimension, ExportFormat } from "./conformance/index.js";
-export { govern, exportView, PolicyDenied, MemoryAudit, JsonlAudit, personalDefaults, guardianMode, enterpriseAudit, looksSecret } from "./governance/index.js";
-export type { GovernancePolicy, PolicyContext, Purpose, GovernOptions, AuditEvent, AuditSink, ErasureSubject, NodePatch } from "./governance/index.js";
+export { govern, exportView, PolicyDenied, MemoryAudit, JsonlAudit, ChainedAudit, verifyAuditChain, personalDefaults, guardianMode, enterpriseAudit, looksSecret } from "./governance/index.js";
+export type { GovernancePolicy, PolicyContext, Purpose, GovernOptions, AuditEvent, AuditSink, AuditChainResult, ErasureSubject, NodePatch } from "./governance/index.js";
 export { IMMUTABLE_NODE_FIELDS, assertRestorable } from "./immutable.js";
 export { canonicalInstant } from "./instant.js";

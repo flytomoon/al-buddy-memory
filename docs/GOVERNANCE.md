@@ -30,6 +30,17 @@ policy's name and reason. When an audit sink is supplied, every allow, hide and 
 in it as an append-only event, written after the store call succeeds; embedding calls are
 not audited.
 
+### A log you can check
+
+`JsonlAudit` appends events; `ChainedAudit` also chains them. Each line carries the hash of
+the line before and of its own event (HMAC-SHA256 when you pass a `key`), so
+`verifyAuditChain(path, { key })` — or `al-buddy-memory verify-audit <file>` with the key in
+`AL_BUDDY_MEMORY_AUDIT_KEY` — names the first line that was edited, removed, inserted or
+reordered. Two limits, stated rather than implied: a file cannot prove its tail was not cut
+off, and whoever holds the key can rewrite the whole chain. Both are caught by anchoring:
+publish `await audit.head()` somewhere the log's owner does not control (a git commit, a
+transparency log) and verify with `{ head }`. One writer per file.
+
 A fact the actor cannot read is "not found" to their updates, erasures, links and embedding
 calls, failing exactly as a missing fact does. Two edges of that rule, stated so nobody has to
 find them: importing over a hidden fact is refused with `PolicyDenied` (so an actor who can
