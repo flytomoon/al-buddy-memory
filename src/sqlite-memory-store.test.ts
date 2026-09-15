@@ -107,3 +107,27 @@ describe("SqliteMemoryStore — a store written before 0.4.0", () => {
     check.close();
   });
 });
+
+describe("SqliteMemoryStore — re-importing over a store written before 0.4.0", () => {
+  it("accepts a newer copy whose anchors differ from the stored ones only in spelling", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "al-buddy-memanchors-"));
+    const dbPath = join(dir, "old.db");
+    try {
+      const store = new SqliteMemoryStore(dbPath);
+      const node = await store.addNode(makeNode({ content: { text: "imported long ago" } }));
+      store.close();
+      // 0.3.x stored anchors verbatim, so a foreign writer's "…00Z" could sit here.
+      const raw = new Database(dbPath);
+      raw.prepare(`UPDATE memory_nodes SET temporal_anchors = ? WHERE node_id = ?`).run(JSON.stringify([{ timestamp: "2025-01-01T00:00:00Z", event: "created" }]), node.nodeId);
+      raw.close();
+
+      const reopened = new SqliteMemoryStore(dbPath);
+      const newer = { ...node, confidenceWeight: 0.4, temporalAnchors: [{ timestamp: "2025-01-01T00:00:00.000Z", event: "created" as const }, { timestamp: "2026-01-01T00:00:00.000Z", event: "modified" as const }] };
+      await expect(reopened.restoreNode(newer)).resolves.toBeUndefined();
+      expect((await reopened.getNode(node.nodeId))?.confidenceWeight).toBe(0.4);
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

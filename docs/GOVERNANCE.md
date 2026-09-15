@@ -14,18 +14,27 @@ const store = govern(new SqliteMemoryStore("brain.db"), {
 });
 ```
 
-A policy is a plain object with up to four hooks:
+A policy is a plain object with up to five hooks:
 
 | Hook | Runs | Can |
 |---|---|---|
-| `beforeWrite(node, ctx)` | before a fact is stored | transform it (classify, tag) or refuse it |
-| `beforeUpdate(existing, patch, ctx)` | before a change or invalidation | refuse it |
-| `beforeRead(node, ctx)` | on the way out of `getNode`/`searchNodes` | hide it (`null`) or redact it |
+| `beforeWrite(node, ctx)` | before a fact is stored, and on import (`restoreNode`) | transform it (classify, tag) or refuse it |
+| `beforeUpdate(existing, patch, ctx)` | before a change or invalidation, and when an import overwrites a fact | refuse it |
+| `beforeRead(node, ctx)` | on the way out of `getNode`, `searchNodes`, `listNodes`, and for the endpoints of `getEdges` and the facts behind embeddings | hide it (`null`) or redact it |
 | `beforeExport(node, ctx)` | when an `exportView` is being exported | allow or refuse |
+| `beforeErase(subject, ctx)` | before `deleteNode` / `deleteEdge` | return `true` to allow, throw to refuse, return nothing to abstain; erasure needs one allow and no refusal |
 
-`ctx` carries `actor`, optional `audience`, `purpose` (write / recall / invalidate / export)
-and `now`. Policies compose in order. Refusals throw `PolicyDenied` with the policy's name
-and reason. Every allow, hide and refusal lands in the audit sink as an append-only event.
+`ctx` carries `actor`, optional `audience`, `purpose` (write / recall / invalidate / export /
+import / erase) and `now`. Policies compose in order. Refusals throw `PolicyDenied` with the
+policy's name and reason. When an audit sink is supplied, every allow, hide and refusal lands
+in it as an append-only event, written after the store call succeeds; embedding calls are
+not audited.
+
+A fact the actor cannot read is "not found" to their updates, erasures, links and embedding
+calls, failing exactly as a missing fact does. Two edges of that rule, stated so nobody has to
+find them: importing over a hidden fact is refused with `PolicyDenied` (so an actor who can
+import and holds a candidate id learns that it exists), and `deleteEdge` is judged by the
+erase policies alone, because an edge id carries no endpoints to check.
 
 ## The three samples
 

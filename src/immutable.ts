@@ -18,6 +18,12 @@ export function assertPatchMutable(patch: object): void {
   }
 }
 
+function sameInstant(a: string | undefined, b: string | undefined): boolean {
+  if (a === b) return true;
+  const x = Date.parse(a ?? ""), y = Date.parse(b ?? "");
+  return Number.isFinite(x) && x === y;
+}
+
 /** Key-order-independent JSON, so `{a,b}` and `{b,a}` compare equal. */
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_k, v: unknown) =>
@@ -46,7 +52,9 @@ export function assertRestorable(incoming: MemoryNode, existing?: MemoryNode): v
   }
   const had = existing.temporalAnchors;
   const brings = incoming.temporalAnchors;
-  const extends_ = brings.length >= had.length && had.every((a, i) => a.event === brings[i]?.event && a.timestamp === brings[i]?.timestamp);
+  // Compared as instants: a store written before 0.4.0 can hold an anchor as
+  // "…00Z" that a canonical copy spells "…00.000Z" — the same moment.
+  const extends_ = brings.length >= had.length && had.every((a, i) => a.event === brings[i]?.event && sameInstant(a.timestamp, brings[i]?.timestamp));
   if (!extends_) {
     throw new Error(`cannot restore ${incoming.nodeId}: its history is append-only, and this copy rewrites or drops recorded anchors`);
   }

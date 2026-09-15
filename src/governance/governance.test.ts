@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
+import { SqliteMemoryStore } from "../sqlite-memory-store.js";
 import { exportPortable } from "../memory-portability.js";
 import { MemoryAudit } from "./audit.js";
 import { exportView, govern } from "./governed-store.js";
@@ -224,4 +225,35 @@ describe("governance — no way around the policies", () => {
       store.addEdge({ sourceNodeId: visible.nodeId, targetNodeId: secret.nodeId, relationshipType: "Analogy", strength: 1, provenance: "AIInferred" }),
     ).rejects.toThrow(/not found/); // would confirm the id exists
   });
+});
+
+/**
+ * Fable re-review, 2026-09-15: govern() returned a Proxy that forwarded every
+ * property the inner store had. As a stranger, `getNode(secretId)` was
+ * undefined and `governed.db.prepare("SELECT …").all()` returned the secret; on
+ * InMemoryStore `governed.nodes` was the live Map. "The governed handle is the
+ * boundary" was false on the day it became the headline.
+ */
+describe("the governed handle exposes nothing but governed methods", () => {
+  const METHODS = [
+    "addNode", "getNode", "searchNodes", "listNodes", "updateNode", "deleteNode", "restoreNode", "restoreEdge",
+    "addEdge", "getEdges", "deleteEdge", "setEmbedding", "getEmbeddings", "listEmbeddings", "deleteEmbeddings",
+  ].sort();
+
+  for (const [label, make] of [
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+    ["InMemoryStore", () => new InMemoryStore()],
+  ] as const) {
+    it(`${label}: no database, no maps, no route to the inner store`, async () => {
+      const inner = make();
+      const g = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "stranger" }) });
+      const loose = g as unknown as Record<string, unknown>;
+      for (const prop of ["db", "nodes", "edges", "embeddings", "size", "close"]) {
+        expect(loose[prop], prop).toBeUndefined();
+      }
+      expect(loose["constructor"]).not.toBe(inner.constructor); // a plain object, not the store's class
+      expect(Object.keys(g).sort()).toEqual(METHODS);
+      (inner as { close?: () => void }).close?.();
+    });
+  }
 });

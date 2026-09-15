@@ -5,7 +5,7 @@
 
 **Portable, governed, model-agnostic memory for AI agents.**
 
-A fact is invalidated, never overwritten — erasure exists only through governance, audited. Raw text is the source of truth and cannot be edited. Embeddings are a disposable, model-tagged cache. Every fact and every link exports to one documented format. The memory outlives whatever model, runtime or company produced it.
+A fact is invalidated, never overwritten; on a governed handle, erasure runs through policy and is audited. Raw text is the source of truth and cannot be edited. Embeddings are a disposable, model-tagged cache. Every fact and every link exports to one documented format. The memory outlives whatever model, runtime or company produced it.
 
 ---
 
@@ -93,7 +93,7 @@ const store = govern(new SqliteMemoryStore("brain.db"), {
 Three policies ship to copy: personal defaults (secrets auto-classified Sensitive and
 never exported by anyone but the owner), guardian mode (only a guardian may write or
 change a guardian's fact), enterprise audit (low-confidence inferences hidden from
-non-reviewers; exports gated to exporters). A policy is a plain object with four
+non-reviewers; exports gated to exporters). A policy is a plain object with five
 optional hooks; see [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
 
 Without any policy the store still guarantees: Sealed facts never surface in a search unless
@@ -120,12 +120,18 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 
 | Operation (100,000 facts) | Measured |
 |---|---|
-| Insert, one fact per call | 5,400 facts/s (18.6 s for all 100k) |
-| Keyword recall, top 10 (FTS5 + decay re-rank) | 25 ms median, 74 ms worst of five terms; first query after open ~360 ms (cold cache) |
-| Recall by filters only, top 10 | 8 ms |
-| Get by id | 0.2 ms |
-| Invalidate a fact | 0.3 ms |
-| File size | 62 MB |
+| Insert, one fact per call | 5,400–5,900 facts/s (17–18 s for all 100k) |
+| Keyword recall, top 10 (FTS5 + decay re-rank) | 30–50 ms median, ~150 ms worst of five terms; first query after open ~320–380 ms (cold cache) |
+| Recall by filters only, top 10 | 0.5–1 ms |
+| Get by id | 0.1 ms |
+| Invalidate a fact | 0.5 ms |
+| File size | 69 MB |
+
+Ranges are three runs of the same script on 0.4.0. Paging is exact: a page of ten is the
+first ten of the full ordered read. When facts have genuinely decayed, the store may have to
+read past its 200-row candidate pool to keep that promise — the worst case is a full read of
+the matching facts (~300 ms at 100k), and it only happens when a decayed fact and a fresher one
+would otherwise trade places.
 
 What that means: a personal assistant or a single-tenant service will not notice the
 store; a multi-tenant SaaS needs the Postgres backend on the roadmap. Node/TypeScript
@@ -166,8 +172,10 @@ Adapters live in `src/conformance/adapters.ts`; add one for your shape and open 
 Most memory MCP servers hand the agent a fact.
 This one hands it a fact **it can weigh**: every `recall` result carries `provenance`,
 `validFrom`, `validTo`, `current`, `confidence`, and — for a superseded fact — the id of
-what replaced it. `invalidate` closes a fact's validity and keeps the record; nothing is
-ever deleted.
+what replaced it. `invalidate` closes a fact's validity and keeps the record; the server
+has no erase tool. It serves a governed store: the owner's `personalDefaults` with the AI
+client as the audience, so a secret an agent writes is classified Sensitive and kept out of
+any AI's recall, and every call is audited beside the database.
 
 ```json
 { "mcpServers": { "memory": { "command": "npx", "args": ["al-buddy-memory-mcp"],
@@ -183,7 +191,7 @@ A `recall` result looks like this — every field an agent needs to decide how m
 
 Tools: `remember`, `recall`, `invalidate`, `pin`, `unpin`, `pinned`. SQLite on disk, no
 service, no key. The tool bodies are a plain function over a `MemoryStore`
-(`governanceTools(...)`, exported), so they run against any backend and test without a
+(`governanceTools(...)`, exported from `al-buddy-memory/mcp`), so they run against any backend and test without a
 transport.
 
 ## Roadmap
