@@ -56,7 +56,8 @@ those visible matches alone, then confidence, then recency — not by the store'
 word weights come from all facts, hidden ones included, and so let a hidden fact reorder
 visible results. Ranking uses the text the actor sees; but which facts match is decided from
 the stored words, so a redacting `beforeRead` still lets a search for a redacted word find
-the fact. To keep content out of search, hide the fact; do not merely redact it. One side channel
+the fact — and a redacted match still counts toward the word weights, so it can move the
+order of other results. To keep content out of search, hide the fact; do not merely redact it. One side channel
 remains and is inherent: a governed read that steps past many hidden facts takes longer. It
 never shows a hidden fact or its text. Where even a timing hint is unacceptable, give that
 audience a separate store.

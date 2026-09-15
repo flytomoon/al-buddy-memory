@@ -58,7 +58,9 @@ changes are here.
 - `InMemoryStore` refuses an edge or an embedding whose node does not exist, as
   SQLite always did.
 - **`InMemoryStore` matches a query the way SQLite does:** any of its words, whole
-  words, case-insensitive, ranked by word rarity among the matches. It used to match
+  words, case-insensitive, ranked by word rarity among the matches — except that
+  SQLite's FTS also folds diacritics and some Unicode case ("cafe" finds "café"),
+  which the in-memory store does not. It used to match
   the whole query as one substring, so a question found nothing that SQLite found;
   partial words ("tok" for "Tokyo") no longer match, as they never did in SQLite.
 - **Weights are validated.** A confidence outside [0,1], or a negative or
@@ -209,9 +211,13 @@ changes are here.
 ### Known issues
 
 - `searchNodes({ after })` means different things in the two stores (SQLite: facts
-  learned after the cursor; in-memory: the rest of the ordered listing) and no
-  conformance test covers it. It is unused by the library; define it or remove it
-  before 1.0.
+  learned after the cursor; in-memory and governed keyword search: the rest of the
+  ordered listing) and no conformance test covers it. It is unused by the library
+  and unreachable from the MCP server; define it or remove it before 1.0.
+- Timestamps are read as instants only in ISO 8601 extended form with a zone (or a
+  bare date). A legacy value spelled otherwise — a basic offset ("+0100"), a space
+  instead of "T", a year alone — sorts as having no creation instant (oldest). SQL
+  and JS agree about it; the stored anchor is untouched.
 - A governed read that steps past many hidden facts takes measurably longer: a
   timing hint, never content (GOVERNANCE.md).
 - Governed keyword search ranks by visible-only word rarity rather than the raw
