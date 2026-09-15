@@ -6,11 +6,20 @@ import type { MemoryStore } from "./types/memory.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
 
-/** Rewrite a node's `created` anchor, so a test can make two captures collide. */
-async function stampCreated(store: MemoryStore, nodeId: string, iso: string) {
-  const node = await store.getNode(nodeId);
-  const anchors = node!.temporalAnchors.map((a) => (a.event === "created" ? { ...a, timestamp: iso } : a));
-  await store.restoreNode({ ...node!, temporalAnchors: anchors });
+/**
+ * Facts captured in one millisecond, restored into an empty store. (Rewriting
+ * an existing fact's creation anchor is refused — history is append-only — so
+ * the collision is built rather than forged.)
+ */
+async function capturedTogether(store: MemoryStore, texts: string[], iso: string): Promise<string[]> {
+  const scratch = new InMemoryStore();
+  const ids: string[] = [];
+  for (const text of texts) {
+    const node = await scratch.addNode(makeNode({ content: { text } }));
+    await store.restoreNode({ ...node, validFrom: iso, temporalAnchors: [{ timestamp: iso, event: "created" }] });
+    ids.push(node.nodeId);
+  }
+  return ids;
 }
 
 async function seed(store: MemoryStore, texts: string[]) {
@@ -153,9 +162,8 @@ describe.each([
 describe("consolidate — a pass reads in a defined order, collisions included", () => {
   it("replays oldest first and settles same-millisecond captures by id, both stores alike", async () => {
     for (const store of [new InMemoryStore(), new SqliteMemoryStore(":memory:")] as MemoryStore[]) {
-      const ids = await seed(store, ["one", "two", "three", "four"]);
-      // Force the collision the CI machine produced by accident.
-      for (const id of ids) await stampCreated(store, id, "2026-09-14T00:00:00.000Z");
+      // The collision the CI machine produced by accident, on purpose.
+      const ids = await capturedTogether(store, ["one", "two", "three", "four"], "2026-09-14T00:00:00.000Z");
 
       const seen: string[][] = [];
       for (let i = 0; i < 2; i++) {
