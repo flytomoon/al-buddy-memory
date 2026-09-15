@@ -257,3 +257,77 @@ describe("the governed handle exposes nothing but governed methods", () => {
     });
   }
 });
+
+/**
+ * Fable final review, 2026-09-15: the governed read filtered AFTER the inner
+ * limit, so hidden facts used up page slots. As the AI audience,
+ * recall("password", limit 1) came back empty while limit 50 found the
+ * visible fact — the agent learns that the best matches for any word it tries
+ * are facts it is not allowed to see. The `after` cursor answered differently
+ * for a hidden id than for a missing one.
+ */
+describe("a governed read never lets a hidden fact take a place on the page", () => {
+  for (const [label, make] of [
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+    ["InMemoryStore", () => new InMemoryStore()],
+  ] as const) {
+    it(`${label}: the page is the first visible facts, and a hidden cursor behaves like a missing one`, async () => {
+      const inner = make();
+      const owner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+      const visible = await owner.addNode(fact("password reset procedure is in the wiki"));
+      const hidden: string[] = [];
+      for (let i = 0; i < 30; i++) hidden.push((await owner.addNode(fact(`password: secret-${i}`))).nodeId);
+      const ai = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o", audience: "agent" }) });
+
+      for (const limit of [1, 5]) {
+        const page = await ai.searchNodes({ query: "password", limit });
+        expect(page.map((n) => n.nodeId)).toEqual([visible.nodeId]);
+      }
+      const noQuery = await ai.searchNodes({ limit: 1 });
+      expect(noQuery.map((n) => n.nodeId)).toEqual([visible.nodeId]);
+
+      const afterHidden = await ai.searchNodes({ after: hidden[0]! });
+      const afterMissing = await ai.searchNodes({ after: "00000000-0000-4000-8000-00000000dead" });
+      expect(afterHidden).toEqual(afterMissing);
+      (inner as { close?: () => void }).close?.();
+    });
+  }
+});
+
+/** Fable final review, 2026-09-15 — the smaller holes in the samples and views. */
+describe("the samples and views keep their own words", () => {
+  it("personalDefaults judges export and erasure by audience as well as actor, as it already did reads", async () => {
+    const inner = new InMemoryStore();
+    const asOwner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+    const secret = await asOwner.addNode(fact("password: hunter2"));
+    const plain = await asOwner.addNode(fact("likes sourdough"));
+    const forAgent = { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o", audience: "agent" }) };
+
+    expect(await exportView(inner, forAgent).getNode(secret.nodeId)).toBeUndefined();
+    const artifact = await exportPortable(new Map([["p", exportView(inner, forAgent)]]));
+    expect(artifact.projects[0]!.nodes.map((n) => n.nodeId)).toEqual([plain.nodeId]);
+    await expect(govern(inner, forAgent).deleteNode(plain.nodeId)).rejects.toBeInstanceOf(PolicyDenied);
+  });
+
+  it("personalDefaults lets only the owner change the owner's facts", async () => {
+    const inner = new InMemoryStore();
+    const asOwner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+    const n = await asOwner.addNode(fact("lives in Lisbon"));
+    const stranger = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "stranger" }) });
+    await expect(stranger.updateNode(n.nodeId, { retentionTier: "PendingDeletion" })).rejects.toBeInstanceOf(PolicyDenied);
+    await expect(stranger.updateNode(n.nodeId, { validTo: new Date().toISOString() })).rejects.toBeInstanceOf(PolicyDenied);
+    // An agent acting FOR the owner still can: that is how an assistant invalidates a fact.
+    const agent = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o", audience: "agent" }) });
+    expect((await agent.updateNode(n.nodeId, { validTo: "2026-01-01T00:00:00Z" })).validTo).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("an exportView is read-only, as it says", async () => {
+    const inner = new InMemoryStore();
+    const n = await inner.addNode(fact("kept"));
+    const view = exportView(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+    await expect(view.deleteNode(n.nodeId)).rejects.toThrow(/read-only/);
+    await expect(view.addNode(fact("new"))).rejects.toThrow(/read-only/);
+    await expect(view.updateNode(n.nodeId, { confidenceWeight: 0.1 })).rejects.toThrow(/read-only/);
+    expect(await inner.getNode(n.nodeId)).toBeDefined();
+  });
+});

@@ -11,9 +11,14 @@ import { join } from "node:path";
 import { ChainedAudit, SqliteMemoryStore } from "../dist/index.js";
 import { attachGovernanceServer, serverStore } from "../dist/mcp/governance-server.js";
 const db = process.env.AL_BUDDY_MEMORY_DB ?? join(homedir(), ".al-buddy-memory", "brain.db");
-const store = serverStore(new SqliteMemoryStore(db), {
-  owner: process.env.AL_BUDDY_MEMORY_OWNER ?? "owner",
-  audit: new ChainedAudit(process.env.AL_BUDDY_MEMORY_AUDIT ?? `${db}.audit.jsonl`, process.env.AL_BUDDY_MEMORY_AUDIT_KEY ? { key: process.env.AL_BUDDY_MEMORY_AUDIT_KEY } : {}),
-});
+const audit = new ChainedAudit(process.env.AL_BUDDY_MEMORY_AUDIT ?? `${db}.audit.jsonl`, process.env.AL_BUDDY_MEMORY_AUDIT_KEY ? { key: process.env.AL_BUDDY_MEMORY_AUDIT_KEY } : {});
+// Fail at start, with the reason, if the log cannot be extended — never after a write.
+try {
+  await audit.head();
+} catch (err) {
+  console.error(`al-buddy-memory-mcp: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
+const store = serverStore(new SqliteMemoryStore(db), { owner: process.env.AL_BUDDY_MEMORY_OWNER ?? "owner", audit });
 const { connectStdio } = await attachGovernanceServer({ store });
 await connectStdio();

@@ -71,4 +71,14 @@ describe("the shipped server's store", () => {
     expect(audit.events.some((e) => e.outcome === "hidden" && e.nodeIds.includes(secret.id))).toBe(true);
     expect(audit.events.every((e) => e.audience === "mcp-client")).toBe(true);
   });
+
+  it("a hidden secret never takes the place of a fact the AI may see (no probing by page count)", async () => {
+    const inner = new InMemoryStore();
+    const owner = governanceTools({ store: inner });
+    for (let i = 0; i < 12; i++) await owner.remember({ text: `password: hunter-${i}` }); // raw store: written Private...
+    for (const n of await inner.listNodes()) await inner.updateNode(n.nodeId, { privacyClassification: "Sensitive" }); // ...and made Sensitive
+    await owner.remember({ text: "password managers are allowed at work" });
+    const ai = governanceTools({ store: serverStore(inner, { owner: "owner" }) });
+    expect((await ai.recall({ query: "password", limit: 1 })).map((f) => f.text)).toEqual(["password managers are allowed at work"]);
+  });
 });

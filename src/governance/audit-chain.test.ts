@@ -94,9 +94,38 @@ describe("the hash-chained audit log", () => {
     expect(await verifyAuditChain(path, { key })).toMatchObject({ ok: false, line: 1, reason: expect.stringMatching(/edited/) });
   });
 
-  it("an empty or missing log verifies as empty, and garbage is named", async () => {
-    expect(await verifyAuditChain(join(dir, "nope.jsonl"))).toMatchObject({ ok: true, count: 0 });
+  it("an empty log verifies as empty; a missing one is NOT intact; garbage is named", async () => {
+    // A verifier that calls a wrong path "intact: 0 events" is worse than none (Fable final review).
+    expect(await verifyAuditChain(join(dir, "nope.jsonl"))).toMatchObject({ ok: false, reason: expect.stringMatching(/no such file/) });
+    writeFileSync(path, "");
+    expect(await verifyAuditChain(path)).toMatchObject({ ok: true, count: 0 });
     writeFileSync(path, "not json\n");
     expect(await verifyAuditChain(path)).toMatchObject({ ok: false, line: 1, reason: expect.stringMatching(/JSON/) });
+  });
+
+  it("refuses to extend a log whose last line is not a chained record — with an error, not a dead process", async () => {
+    // Fable final review: the head promise was left rejected with no handler, so
+    // an old-format or crash-truncated last line killed the process on the next
+    // write — after the store write had already committed.
+    for (const lastLine of [JSON.stringify(event(0)), '{"prev":"00000000']) {
+      writeFileSync(path, lastLine + "\n");
+      const audit = new ChainedAudit(path);
+      await expect(audit.head()).rejects.toThrow(/chained audit log|incomplete/);
+      await expect(audit.record(event(1))).rejects.toThrow(/chained audit log|incomplete/);
+      await expect(audit.record(event(2))).rejects.toThrow(/chained audit log|incomplete/);
+      expect(readFileSync(path, "utf8")).toBe(lastLine + "\n"); // nothing appended to a log it cannot chain
+    }
+  });
+
+  it("covers every field on a line, and never exposes the key", async () => {
+    const key = "keep-me-private";
+    const audit = new ChainedAudit(path, { key });
+    await audit.record(event(0));
+    const [only] = lines();
+    rewrite([JSON.stringify({ ...JSON.parse(only!), note: "planted" })]);
+    expect(await verifyAuditChain(path, { key })).toMatchObject({ ok: false, line: 1, reason: expect.stringMatching(/outside the chain/) });
+    const { inspect } = await import("node:util");
+    expect(JSON.stringify(audit)).not.toContain(key);
+    expect(inspect(audit, { showHidden: true, depth: 5 })).not.toContain(key);
   });
 });

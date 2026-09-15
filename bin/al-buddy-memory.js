@@ -21,7 +21,7 @@ if (cmd === "verify-audit") {
   const key = process.env.AL_BUDDY_MEMORY_AUDIT_KEY;
   const result = await verifyAuditChain(args[1], { ...(key ? { key } : {}), ...(flag("--head") ? { head: flag("--head") } : {}) });
   if (result.ok) console.log(`intact: ${result.count} events, head ${result.head}`);
-  else console.error(`BROKEN at line ${result.line} of ${result.count}: ${result.reason}`);
+  else console.error(result.line > 0 ? `BROKEN at line ${result.line} of ${result.count}: ${result.reason}` : `NOT VERIFIED: ${result.reason}`);
   process.exit(result.ok ? 0 : 1);
 }
 

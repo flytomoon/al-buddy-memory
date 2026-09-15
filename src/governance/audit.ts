@@ -76,12 +76,17 @@ async function digest(prev: string, event: unknown, key: string | undefined): Pr
  * against it. One writer per file — two processes appending would fork the chain.
  */
 export class ChainedAudit implements AuditSink {
-  private tail: Promise<string> | null = null;
+  // A true private field: JSON.stringify and util.inspect printed the key when it
+  // was an ordinary property (Fable final review, 2026-09-15).
+  readonly #key: string | undefined;
+  #tail: Promise<string> | null = null;
 
   constructor(
     private readonly path: string,
-    private readonly opts: { key?: string } = {},
-  ) {}
+    opts: { key?: string } = {},
+  ) {
+    this.#key = opts.key;
+  }
 
   private async readHead(): Promise<string> {
     const { readFile } = await import("node:fs/promises");
@@ -93,28 +98,43 @@ export class ChainedAudit implements AuditSink {
     }
     const last = text.trimEnd().split("\n").at(-1);
     if (!last) return GENESIS;
-    const hash = (JSON.parse(last) as { hash?: unknown }).hash;
-    if (typeof hash !== "string") throw new Error(`${this.path} is not a chained audit log (its last line has no hash)`);
-    return hash;
+    let rec: { hash?: unknown };
+    try {
+      rec = JSON.parse(last) as typeof rec;
+    } catch {
+      throw new Error(`${this.path}: the last line is incomplete or not JSON, so the chain cannot be extended; remove that line (verify-audit names it) and restart`);
+    }
+    if (typeof rec.hash !== "string") throw new Error(`${this.path} is not a chained audit log (its last line has no hash); use a new file`);
+    return rec.hash;
   }
 
-  /** The hash of the newest line — the value to anchor elsewhere. */
+  /** Keep a promise we hold from ever surfacing as an unhandled rejection; callers still see it reject. */
+  #hold(p: Promise<string>): Promise<string> {
+    p.catch(() => undefined);
+    this.#tail = p;
+    return p;
+  }
+
+  /** The hash of the newest line — the value to anchor elsewhere. Rejects if the file cannot be chained. */
   head(): Promise<string> {
-    return (this.tail ??= this.readHead());
+    return this.#tail ?? this.#hold(this.readHead());
   }
 
   record(event: AuditEvent): Promise<void> {
     const base = this.head();
     // Appends are serialised in order, so concurrent calls still form one chain;
-    // a failed append leaves the head where it was.
+    // a failed append leaves the head where it was. A log that cannot be chained
+    // rejects every record with the same error — it used to leave a rejected
+    // promise with no handler, which killed the process after the store write
+    // had committed.
     const next = base.then(async (prev) => {
       const plain = JSON.parse(JSON.stringify(event)) as AuditEvent;
-      const hash = await digest(prev, plain, this.opts.key);
+      const hash = await digest(prev, plain, this.#key);
       const { appendFile } = await import("node:fs/promises");
       await appendFile(this.path, JSON.stringify({ prev, hash, event: plain }) + "\n", { encoding: "utf8", mode: 0o600 });
       return hash;
     });
-    this.tail = next.catch(() => base);
+    this.#hold(next.catch(() => base));
     return next.then(() => undefined);
   }
 }
@@ -129,8 +149,10 @@ export async function verifyAuditChain(path: string, opts: { key?: string; head?
   let text: string;
   try {
     text = await readFile(path, "utf8");
-  } catch {
-    text = "";
+  } catch (err) {
+    // A verifier must never call a wrong path "intact: 0 events".
+    const missing = (err as { code?: string }).code === "ENOENT";
+    return { ok: false, count: 0, line: 0, reason: missing ? `no such file: ${path}` : `cannot read ${path}: ${(err as Error).message}` };
   }
   const lines = text.split("\n").filter((l) => l.trim() !== "");
   let prev = GENESIS;
@@ -145,6 +167,9 @@ export async function verifyAuditChain(path: string, opts: { key?: string; head?
     if (typeof rec.prev !== "string" || typeof rec.hash !== "string" || rec.event === undefined) {
       return { ...at, reason: `line ${i + 1} is not a chained audit record` };
     }
+    // The hash covers prev and event; anything else on the line would be unprotected.
+    const extra = Object.keys(rec).filter((k) => k !== "prev" && k !== "hash" && k !== "event");
+    if (extra.length > 0) return { ...at, reason: `line ${i + 1} has fields outside the chain (${extra.join(", ")})` };
     if (rec.prev !== prev) {
       return { ...at, reason: `line ${i + 1} does not follow the line before it: a line was removed, inserted or reordered` };
     }
