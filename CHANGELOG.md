@@ -8,7 +8,27 @@ under **Behaviour change**, because a version number alone is not a warning.
 On npm today: 0.3.0, 0.3.1 and 0.3.3. Numbers marked "never published" were
 staged and superseded before anyone could install them.
 
-## 0.4.0 — unreleased
+## 0.4.1 — 2026-09-15
+
+### Added
+
+- **The MCP server tells every client how to use it.** It sends `instructions` at
+  connection: recall at the start of a conversation and when a known person,
+  project or preference comes up; remember durable facts in one plain sentence;
+  never remember secrets, small talk or one-off requests; invalidate what stops
+  being true. The essentials fit in the first 512 characters, which some clients
+  truncate to. (Claude Desktop connected to the 0.4.0 server five times and never
+  called a tool — a client that isn't told when to use memory doesn't.)
+- **Every fact written through the MCP server records which app wrote it:**
+  `contextualMetadata.origin = { app, appVersion, via: "mcp" }`, taken from the
+  connection handshake rather than from anything the model says. `remember` and
+  `pin` stamp it; `GovernanceDeps.origin` lets another host supply its own
+  (`agent`, `channel`, `model`). `withOrigin` and the `Origin` type are exported;
+  `modelClaimed` is reserved for a model's self-report, kept apart from `model`
+  because nothing verifies it. A first-class, immutable origin field in the spec
+  and portable format is planned for 0.5.
+
+## 0.4.0 — 2026-09-15
 
 Everything between 0.3.3 and here. It began with one outside bug report (tied
 reads returned the oldest facts), which was real; chasing it, and then two
