@@ -4,9 +4,10 @@
  * it, with every recall. 217 memory MCP servers hand agents facts; this one
  * hands them facts they can weigh.
  *
- * Tools: remember, recall, invalidate, pin, unpin, pinned, export. Every
- * answer carries provenance, validFrom, validTo, confidence, and — for a
- * superseded fact — the id of what replaced it. Nothing is ever deleted.
+ * Tools: remember, recall, invalidate, pin, unpin, pinned. Every answer
+ * carries provenance, validFrom, validTo, confidence, and — for a superseded
+ * fact — the id of what replaced it. There is no erase tool; invalidation keeps
+ * the record. The shipped server serves `serverStore(...)`, a governed handle.
  *
  * The server body is a plain function over a MemoryStore so it is testable
  * without a transport; `bin/al-buddy-memory-mcp.js` wires stdio.

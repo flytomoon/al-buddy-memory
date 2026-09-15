@@ -237,12 +237,16 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
     });
 
     it("refuses an instant it cannot place exactly", async () => {
-      for (const bad of ["not a date", "2026-01-01T00:00:00", "13/01/2026"]) {
+      // 2026-02-30 used to be accepted and silently became 2 March (Fable re-review).
+      for (const bad of ["not a date", "2026-01-01T00:00:00", "13/01/2026", "2026-02-30T00:00:00Z", "2026-13-01T00:00:00Z", "2026-01-01T24:00:00Z", "2026-01-01T00:60:00Z"]) {
         await expect(store.addNode(makeNode({ validFrom: bad }))).rejects.toThrow(/instant/);
         await expect(store.searchNodes({ validAt: bad })).rejects.toThrow(/instant/);
       }
       const n = await store.addNode(makeNode());
       await expect(store.updateNode(n.nodeId, { validTo: "yesterday" })).rejects.toThrow(/instant/);
+      // RFC 3339 allows lowercase separators; a date alone is midnight UTC.
+      expect((await store.addNode(makeNode({ validFrom: "2026-01-01t12:00:00z" }))).validFrom).toBe("2026-01-01T12:00:00.000Z");
+      expect((await store.addNode(makeNode({ validFrom: "2024-02-29" }))).validFrom).toBe("2024-02-29T00:00:00.000Z");
     });
 
     /**
@@ -269,6 +273,72 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
         expect(all[0]?.nodeId).toBe(fresh.nodeId);
         const page = await store.searchNodes(query === undefined ? { limit: 5 } : { query, limit: 5 });
         expect(page.map((n) => n.nodeId)).toEqual(all.slice(0, 5).map((n) => n.nodeId));
+      }
+    });
+
+    /**
+     * The widening must stay exact when it is narrowed for speed (Fable
+     * re-review, 2026-09-15): a fact left out of the pool that TIES the page's
+     * lowest effective confidence, but is newer, belongs on the page. A strict
+     * "stored > floor" widening would miss it; so would none at all.
+     */
+    it("a left-out fact that ties the page on confidence but is newer still makes the page", async () => {
+      const old = "2020-01-01T00:00:00.000Z";
+      for (let i = 0; i < 200; i++) {
+        await store.restoreNode({
+          ...makeNode({ content: { text: `coffee stale ${i}` }, confidenceWeight: 1, decayRate: 1 }), // decays to exactly the 0.5 floor
+          nodeId: globalThis.crypto.randomUUID(),
+          temporalAnchors: [{ timestamp: old, event: "created" }],
+          validFrom: old,
+          validTo: null,
+        });
+      }
+      const tie = await store.addNode(makeNode({ content: { text: "coffee fresh tie" }, confidenceWeight: 0.5, decayRate: 0 }));
+      for (const query of [undefined, "coffee"]) {
+        const page = await store.searchNodes(query === undefined ? { limit: 1 } : { query, limit: 1 });
+        const all = await store.searchNodes(query === undefined ? {} : { query });
+        expect(page.map((n) => n.nodeId)).toEqual(all.slice(0, 1).map((n) => n.nodeId));
+        if (query === undefined) expect(page[0]?.nodeId).toBe(tie.nodeId);
+      }
+    });
+
+    /**
+     * The paging rule has three moving parts (the pool, the decay-aware widening
+     * and the skip when nothing can win), so it is held to the property itself
+     * on random stores built to tie: few confidence values, few creation
+     * instants, a third of facts decaying, two texts. Seeded, so a failure
+     * reproduces.
+     */
+    it("on random stores full of ties, every limited read is a prefix of the unlimited one", async () => {
+      let seed = 20260915;
+      const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+      const instants = ["2020-01-01T00:00:00.000Z", "2024-06-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z", new Date().toISOString()];
+      // Shaped to stress the pool's edge: most facts are stored at 1 and decayed
+      // (they fill the pool), a minority are fresh at 0.5 (tying the decayed ones)
+      // or 0.9 (beating them) and sort AFTER them in SQL — exactly the rows a
+      // wrong widening would leave out.
+      for (let i = 0; i < 300; i++) {
+        const stale = rnd() < 0.75;
+        const at = stale ? pick(instants.slice(0, 2)) : pick(instants.slice(1));
+        await store.restoreNode({
+          ...makeNode({
+            content: { text: pick(["coffee black", "coffee with milk and sugar"]) },
+            confidenceWeight: stale ? 1 : pick([0.5, 0.5, 0.9]),
+            decayRate: stale ? 1 : pick([0, 0, 0.001]),
+          }),
+          nodeId: globalThis.crypto.randomUUID(),
+          temporalAnchors: [{ timestamp: at, event: "created" }],
+          validFrom: at,
+          validTo: null,
+        });
+      }
+      for (const query of [undefined, "coffee", "milk"]) {
+        const all = (await store.searchNodes(query === undefined ? {} : { query })).map((n) => n.nodeId);
+        for (const limit of [1, 2, 7, 10, 15, 20]) {
+          const page = (await store.searchNodes(query === undefined ? { limit } : { query, limit })).map((n) => n.nodeId);
+          expect(page, `query=${query} limit=${limit}`).toEqual(all.slice(0, limit));
+        }
       }
     });
 

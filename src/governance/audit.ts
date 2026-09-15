@@ -37,6 +37,7 @@ export class JsonlAudit implements AuditSink {
   constructor(private readonly path: string) {}
   async record(event: AuditEvent): Promise<void> {
     const { appendFile } = await import("node:fs/promises");
-    await appendFile(this.path, JSON.stringify(event) + "\n", "utf8");
+    // Owner-only, like the database it describes: the trail names actors and fact ids.
+    await appendFile(this.path, JSON.stringify(event) + "\n", { encoding: "utf8", mode: 0o600 });
   }
 }

@@ -35,8 +35,10 @@ changes are here.
   mutable state and a longer anchor trail, but refuses a different provenance,
   content or key reference, and any anchor trail that rewrites or drops recorded
   history. A restored fact must begin with its `created` anchor.
-- **Instants must carry a zone.** A timestamp with no zone (local time on
-  whichever machine reads it), or one that does not parse, is refused.
+- **Instants must be exact.** A date-time with no zone (local time on whichever
+  machine reads it), an impossible calendar date (2026-02-30 used to roll into
+  March), or anything that does not parse is refused. A date alone means midnight
+  UTC; separators are case-insensitive, as RFC 3339 allows.
 - **The MCP exports left the package root.** `governanceTools`,
   `toGovernedFact`, `serverStore` and `attachGovernanceServer` are at
   `al-buddy-memory/mcp`. The root imported the optional `zod`, so installing
@@ -61,7 +63,11 @@ changes are here.
 - **Every instant is stored in one canonical spelling** (`Date#toISOString()`:
   UTC, milliseconds, `Z`). "…00Z" and "…00.000Z" are one moment and used to sort
   apart, which reversed the half-open `validAt` boundary; an offset moved one by
-  hours. Existing stores are rewritten on open (migration v5).
+  hours. Existing stores have their validity bounds rewritten on open (migration
+  v5); anchors written before 0.4.0 are compared as instants rather than rewritten.
+- **Paging costs.** Exact paging is not free when facts decay: see README
+  "Limits, measured", re-measured for this release (keyword recall 30–50 ms median
+  at 100k facts, from 23 ms; filters-only 0.5–1 ms, from 8 ms; 69 MB, from 62).
 - **Recall** breaks fused ties on effective, not stored, confidence; settles
   equal vector similarities by effective confidence then recency (they went to
   the smaller id — a 0.3.5 comment claimed otherwise); and skips vectors of a
@@ -97,6 +103,11 @@ changes are here.
   the update policies on what will actually be stored. `addEdge`/`restoreEdge`
   refuse endpoints the actor cannot see; `getEdges` omits edges to hidden facts;
   `listNodes` is filtered like any read.
+- **The governed handle forwarded the raw store.** `govern()` returned a Proxy
+  that passed through every property the inner store had, so as a stranger
+  `governed.db.prepare(...)` read a hidden secret and `governed.nodes` was the
+  in-memory store's live map. The handle is now a frozen object holding exactly
+  the `MemoryStore` methods, every one of them governed.
 - **Links and vectors leaked around governance.** `restoreEdge` over an existing
   id replaced the link, so a caller refused an erasure could rewrite it instead:
   a link is now immutable (identical re-import is a no-op, anything else is

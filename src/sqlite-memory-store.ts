@@ -42,6 +42,8 @@ interface NodeRow {
   contextual_metadata: string;
   temporal_anchors: string;
   valid_from: string;
+  /** learnedAt(node), written from the created anchor; the ranking's recency key. */
+  created_at: string;
   valid_to: string | null;
   confidence_weight: number;
   decay_rate: number;
@@ -658,22 +660,38 @@ export class SqliteMemoryStore implements MemoryStore {
     // lowers — so a limited read used to be exact only when nothing decayed
     // (review 2026-09-14). Widen exactly as far as a row could still reach the
     // page, then re-rank; the page is then the first page of the unlimited read.
-    if (limited && first.length === pool && nodes.length >= limitN!) {
+    if (limited && limitN! > 0 && first.length === pool && nodes.length >= limitN!) {
       const boundary = nodes[limitN! - 1]!;
       const last = first[first.length - 1]!;
+      // A left-out row reaches the page only by beating the boundary row: a
+      // higher effective confidence (which needs a STORED confidence above the
+      // floor, since decay only lowers), or an equal one and a more recent
+      // learning (created_at is learnedAt by construction). Read exactly those.
+      // The first version read every row with stored >= floor, which on the
+      // usual store — most facts at confidence 1 — was the whole table: 8 ms
+      // became 325 ms at 100k facts (Fable re-review, 2026-09-15). A bare
+      // "stored > floor" is not enough; the tie clause is what keeps it exact.
+      params["floor"] = boundary.eff;
+      params["boundaryCreated"] = boundary.row.created_at;
+      const beats = (col: (c: string) => string) =>
+        `(${col("confidence_weight")} > @floor OR (${col("confidence_weight")} = @floor AND ${col("created_at")} >= @boundaryCreated))`;
+      // And read nothing when nothing can. The pool is in SQL order (rank, then
+      // stored confidence, then recency), so every left-out row is no better
+      // than the last pooled row on those keys, and its effective confidence is
+      // no higher than its stored one. If the last pooled row could not beat the
+      // boundary on (stored confidence, recency), no row after it can. On a
+      // store where nothing has decayed — the usual one — this skips the second
+      // read entirely; a store with real decay still gets it.
+      const lastCouldBeat =
+        last.confidence_weight > boundary.eff ||
+        (last.confidence_weight === boundary.eff && last.created_at >= boundary.row.created_at);
       if (match === null) {
-        // Anything left out has effective ≤ stored ≤ the last pooled row's
-        // stored confidence. It can reach the page only if that is ≥ the page's
-        // lowest effective confidence — and then every such row must be read.
-        if (last.confidence_weight >= boundary.eff) {
-          params["floor"] = boundary.eff;
-          nodes = rank(read("confidence_weight >= @floor", -1));
-        }
-      } else if ((last.fts_rank ?? 0) <= (boundary.row.fts_rank ?? 0)) {
-        // Relevance is not decayed, so only rows of the boundary's own rank can
-        // overtake it — read the whole of that rank group.
+        if (lastCouldBeat) nodes = rank(read(beats((c) => c), -1));
+      } else if ((last.fts_rank ?? 0) <= (boundary.row.fts_rank ?? 0) && lastCouldBeat) {
+        // Relevance does not decay: better-ranked rows are all in the pool already,
+        // and within the boundary's own rank the same confidence rule applies.
         params["boundaryRank"] = boundary.row.fts_rank ?? 0;
-        nodes = rank(read("f.rank <= @boundaryRank", -1));
+        nodes = rank(read(`(f.rank < @boundaryRank OR (f.rank = @boundaryRank AND ${beats((c) => `n.${c}`)}))`, -1));
       }
     }
 

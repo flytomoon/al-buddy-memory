@@ -117,7 +117,13 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     if (!allowed) throw new PolicyDenied("govern", "erasure is not enabled: no policy allows it");
   }
 
-  const governed: Partial<MemoryStore> = {
+  // A plain object holding exactly the MemoryStore methods — typed as the full
+  // interface so a new store method cannot be forgotten here. It used to be a
+  // Proxy over the inner store that forwarded every other property, so
+  // `governed.db` (SQLite) and `governed.nodes` (in-memory) handed a stranger
+  // the raw data (Fable re-review, 2026-09-15). Whoever should close or tune the
+  // store holds the inner one.
+  const governed: MemoryStore = {
     async addNode(node: NewMemoryNode): Promise<MemoryNode> {
       const ctx = ctxFor(opts, "write");
       const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
@@ -200,7 +206,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
 
     async getEdges(nodeId: string): Promise<MemoryEdge[]> {
       const ctx = readCtx();
-      if (!(await governed.getNode!(nodeId))) return [];
+      if (!(await governed.getNode(nodeId))) return [];
       const out: MemoryEdge[] = [];
       for (const edge of await inner.getEdges(nodeId)) {
         const other = edge.sourceNodeId === nodeId ? edge.targetNodeId : edge.sourceNodeId;
@@ -219,7 +225,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       return inner.setEmbedding(embedding);
     },
     async getEmbeddings(nodeId: string): Promise<MemoryEmbedding[]> {
-      return (await governed.getNode!(nodeId)) ? inner.getEmbeddings(nodeId) : [];
+      return (await governed.getNode(nodeId)) ? inner.getEmbeddings(nodeId) : [];
     },
     async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {
       await visibleOrNotFound(nodeId, ctxFor(opts, "write"));
@@ -251,13 +257,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     },
   };
 
-  return new Proxy(inner, {
-    get(target, prop, receiver) {
-      if (prop in governed) return governed[prop as keyof MemoryStore];
-      const value = Reflect.get(target, prop, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  }) as MemoryStore;
+  return Object.freeze(governed);
 }
 
 /** A read-only view whose purpose is "export": beforeExport decides what leaves. Feed it to exportPortable. */
