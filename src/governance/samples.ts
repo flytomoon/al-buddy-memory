@@ -30,7 +30,11 @@ export function personalDefaults(opts: { owner: string }): GovernancePolicy {
   const isOwner = (ctx: PolicyContext) => ctx.actor === opts.owner && (ctx.audience === undefined || ctx.audience === opts.owner);
   return {
     name: "personal-defaults",
-    beforeWrite(node: NewMemoryNode): NewMemoryNode {
+    beforeWrite(node: NewMemoryNode, ctx: PolicyContext): NewMemoryNode {
+      // Import restores facts verbatim, history and all: the owner's act, not a stranger's.
+      if (ctx.purpose === "import" && ctx.actor !== opts.owner) {
+        throw new PolicyDenied("personal-defaults", `${ctx.actor} is not the owner and cannot import memory`);
+      }
       if (node.privacyClassification !== "Sealed" && node.privacyClassification !== "Sensitive" && looksSecret(node.content.text)) {
         return { ...node, privacyClassification: "Sensitive", contextualMetadata: { ...node.contextualMetadata, classifiedBy: "personal-defaults" } };
       }

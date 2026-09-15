@@ -79,34 +79,47 @@ export class ChainedAudit implements AuditSink {
   // A true private field: JSON.stringify and util.inspect printed the key when it
   // was an ordinary property (Fable final review, 2026-09-15).
   readonly #key: string | undefined;
+  readonly #append: (path: string, data: string) => Promise<void>;
   #tail: Promise<string> | null = null;
 
   constructor(
     private readonly path: string,
-    opts: { key?: string } = {},
+    opts: { key?: string; /** For tests: the write itself. */ append?: (path: string, data: string) => Promise<void> } = {},
   ) {
     this.#key = opts.key;
+    this.#append =
+      opts.append ??
+      (async (file, data) => {
+        const { appendFile } = await import("node:fs/promises");
+        await appendFile(file, data, { encoding: "utf8", mode: 0o600 });
+      });
   }
 
+  /**
+   * The head the next line will chain from — but only once the whole existing log
+   * verifies under THIS key and ends cleanly. It used to trust the last line: opened
+   * with the wrong key it kept appending, a final record without its newline merged
+   * with the next, and an unreadable file counted as a new log (Astra final review,
+   * 2026-09-15). Verifying costs one read of the file at start.
+   */
   private async readHead(): Promise<string> {
     const { readFile } = await import("node:fs/promises");
     let text: string;
     try {
       text = await readFile(this.path, "utf8");
-    } catch {
-      return GENESIS;
+    } catch (err) {
+      if ((err as { code?: string }).code === "ENOENT") return GENESIS;
+      throw new Error(`${this.path}: cannot read the audit log (${(err as Error).message}); refusing to start a new chain over it`);
     }
-    const last = text.trimEnd().split("\n").at(-1);
-    if (!last) return GENESIS;
-    let rec: unknown;
-    try {
-      rec = JSON.parse(last);
-    } catch {
-      throw new Error(`${this.path}: the last line is incomplete or not JSON, so the chain cannot be extended; remove that line (verify-audit names it) and restart`);
+    if (text === "") return GENESIS;
+    if (!text.endsWith("\n")) {
+      throw new Error(`${this.path}: the last line is incomplete (no final newline), so the chain cannot be extended; remove that line (verify-audit names it) and restart`);
     }
-    const hash = rec && typeof rec === "object" ? (rec as { hash?: unknown }).hash : undefined;
-    if (typeof hash !== "string") throw new Error(`${this.path} is not a chained audit log (its last line has no hash); use a new file`);
-    return hash;
+    const result = await verifyChainText(text, this.#key === undefined ? {} : { key: this.#key });
+    if (!result.ok) {
+      throw new Error(`${this.path} does not verify${this.#key === undefined ? "" : " with this key"} (${result.reason}); refusing to extend it — check it with verify-audit`);
+    }
+    return result.head;
   }
 
   /** Keep a promise we hold from ever surfacing as an unhandled rejection; callers still see it reject. */
@@ -116,26 +129,35 @@ export class ChainedAudit implements AuditSink {
     return p;
   }
 
-  /** The hash of the newest line — the value to anchor elsewhere. Rejects if the file cannot be chained. */
+  /** The hash of the newest line — the value to anchor elsewhere. Rejects if the log cannot be extended. */
   head(): Promise<string> {
     return this.#tail ?? this.#hold(this.readHead());
   }
 
   record(event: AuditEvent): Promise<void> {
     const base = this.head();
-    // Appends are serialised in order, so concurrent calls still form one chain;
-    // a failed append leaves the head where it was. A log that cannot be chained
-    // rejects every record with the same error — it used to leave a rejected
-    // promise with no handler, which killed the process after the store write
-    // had committed.
+    let torn: Error | null = null;
+    // Appends are serialised in order, so concurrent calls still form one chain.
     const next = base.then(async (prev) => {
       const plain = JSON.parse(JSON.stringify(event)) as AuditEvent;
       const hash = await digest(prev, plain, this.#key);
-      const { appendFile } = await import("node:fs/promises");
-      await appendFile(this.path, JSON.stringify({ prev, hash, event: plain }) + "\n", { encoding: "utf8", mode: 0o600 });
+      try {
+        await this.#append(this.path, JSON.stringify({ prev, hash, event: plain }) + "\n");
+      } catch (err) {
+        // A failed append may have written part of the line. Nothing more is written
+        // until the log is checked: continuing would chain on top of a fragment
+        // (Astra final review, 2026-09-15). A restart re-verifies and refuses a torn log.
+        torn = new Error(`${this.path}: an append failed part-way (${(err as Error).message}); no more events are written until the log is checked with verify-audit and the process restarts`);
+        throw err;
+      }
       return hash;
     });
-    this.#hold(next.catch(() => base));
+    this.#hold(
+      next.catch(() => {
+        if (torn) throw torn;
+        return base;
+      }),
+    );
     return next.then(() => undefined);
   }
 }
@@ -155,16 +177,28 @@ export async function verifyAuditChain(path: string, opts: { key?: string; head?
     const missing = (err as { code?: string }).code === "ENOENT";
     return { ok: false, count: 0, line: 0, reason: missing ? `no such file: ${path}` : `cannot read ${path}: ${(err as Error).message}` };
   }
-  const lines = text.split("\n").filter((l) => l.trim() !== "");
+  return verifyChainText(text, opts);
+}
+
+async function verifyChainText(text: string, opts: { key?: string; head?: string }): Promise<AuditChainResult> {
+  // Line numbers are physical lines of the file, blank ones included, so the number
+  // a person is told is the line their editor shows.
+  const physical = text.split("\n");
+  const count = physical.filter((l) => l.trim() !== "").length;
   let prev = GENESIS;
-  for (const [i, line] of lines.entries()) {
-    const at = { ok: false as const, count: lines.length, line: i + 1 };
-    let rec: { prev?: unknown; hash?: unknown; event?: unknown };
+  for (const [i, line] of physical.entries()) {
+    if (line.trim() === "") continue;
+    const at = { ok: false as const, count, line: i + 1 };
+    let parsed: unknown;
     try {
-      rec = JSON.parse(line) as typeof rec;
+      parsed = JSON.parse(line);
     } catch {
       return { ...at, reason: `line ${i + 1} is not JSON` };
     }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...at, reason: `line ${i + 1} is not a chained audit record` };
+    }
+    const rec = parsed as { prev?: unknown; hash?: unknown; event?: unknown };
     if (typeof rec.prev !== "string" || typeof rec.hash !== "string" || rec.event === undefined) {
       return { ...at, reason: `line ${i + 1} is not a chained audit record` };
     }
@@ -183,7 +217,7 @@ export async function verifyAuditChain(path: string, opts: { key?: string; head?
     prev = rec.hash;
   }
   if (opts.head !== undefined && prev !== opts.head) {
-    return { ok: false, count: lines.length, line: lines.length, reason: "the newest line does not match the anchored head: the log was cut short or has diverged" };
+    return { ok: false, count, line: physical.length, reason: "the newest line does not match the anchored head: the log was cut short or has diverged" };
   }
-  return { ok: true, count: lines.length, head: prev };
+  return { ok: true, count, head: prev };
 }

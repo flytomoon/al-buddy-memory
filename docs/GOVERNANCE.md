@@ -39,15 +39,25 @@ the line before and of its own event (HMAC-SHA256 when you pass a `key`), so
 reordered. Two limits, stated rather than implied: a file cannot prove its tail was not cut
 off, and whoever holds the key can rewrite the whole chain. Both are caught by anchoring:
 publish `await audit.head()` somewhere the log's owner does not control (a git commit, a
-transparency log) and verify with `{ head }`. One writer per file. Without a key — the MCP
+transparency log) and verify with `{ head }`. One writer per file, and one key per log: the
+chain proves a log is internally intact, not which log it is, so two logs under the same key
+can be swapped for each other undetected unless their heads are anchored. On start the log is
+verified in full under its key and must end with a complete line; after an append fails
+part-way, nothing more is written until it has been checked and the process restarted — the
+audit fails closed. Without a key — the MCP
 server's default — the chain catches accidental damage and careless edits, not a deliberate
 rewrite: anyone who can write the file can recompute the whole chain. A line whose last entry
 is incomplete (a crash mid-append) stops the log from being extended until that line is
 removed; the MCP server refuses to start rather than write unaudited.
 
-One side channel is inherent and stated: a governed read that has to step past many hidden
-facts to fill a page takes longer than one that does not. The page never shows them; the
-clock can hint that they exist.
+Two side channels are inherent and stated. A governed read that has to step past many hidden
+facts to fill a page takes longer than one that does not. And keyword relevance (BM25) is
+computed from statistics over the whole store, hidden facts included, so a hidden fact that
+contains a word can change the ORDER of visible results for a query with that word. Neither
+ever puts a hidden fact, or its text, on a page; both can hint that such a fact exists to an
+actor who compares carefully chosen queries. This is the same limit search engines with
+per-document permissions document. Where even that hint is unacceptable, give that audience a
+separate store.
 
 ### What no hook governs yet
 

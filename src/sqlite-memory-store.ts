@@ -253,7 +253,18 @@ const MIGRATION_V5 = ["valid_from", "valid_to"].map(
     `UPDATE memory_nodes SET ${col} = strftime('%Y-%m-%dT%H:%M:%fZ', ${col})
        WHERE ${col} IS NOT NULL AND ${col} NOT GLOB ${CANONICAL_GLOB} AND strftime('%Y-%m-%dT%H:%M:%fZ', ${col}) IS NOT NULL`,
 );
-const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5];
+/**
+ * v6 — the creation sort key, canonical. v5 rewrote validity bounds; created_at
+ * was left as 0.3.3's restoreNode stored it, and a spelled offset ("…-01:00")
+ * sorts by its sign character instead of by time, so SQL and JS disagreed about
+ * a page (Astra final review, 2026-09-15). The anchors themselves stay verbatim —
+ * they are history — and JS compares them as instants.
+ */
+const MIGRATION_V6 = [
+  `UPDATE memory_nodes SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
+     WHERE created_at IS NOT NULL AND created_at NOT GLOB ${CANONICAL_GLOB} AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS NOT NULL`,
+];
+const MIGRATIONS = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6];
 
 // ---------------------------------------------------------------------------
 // SqliteMemoryStore
@@ -673,8 +684,11 @@ export class SqliteMemoryStore implements MemoryStore {
       // "stored > floor" is not enough; the tie clause is what keeps it exact.
       params["floor"] = boundary.eff;
       params["boundaryCreated"] = boundary.row.created_at;
+      params["boundaryId"] = boundary.row.node_id;
+      // The whole order, id included: without the id, 100k facts sharing one
+      // creation instant all "tied" the boundary and were all re-read (Astra).
       const beats = (col: (c: string) => string) =>
-        `(${col("confidence_weight")} > @floor OR (${col("confidence_weight")} = @floor AND ${col("created_at")} >= @boundaryCreated))`;
+        `(${col("confidence_weight")} > @floor OR (${col("confidence_weight")} = @floor AND (${col("created_at")} > @boundaryCreated OR (${col("created_at")} = @boundaryCreated AND ${col("node_id")} >= @boundaryId))))`;
       // And read nothing when nothing can. The pool is in SQL order (rank, then
       // stored confidence, then recency), so every left-out row is no better
       // than the last pooled row on those keys, and its effective confidence is
@@ -684,7 +698,8 @@ export class SqliteMemoryStore implements MemoryStore {
       // read entirely; a store with real decay still gets it.
       const lastCouldBeat =
         last.confidence_weight > boundary.eff ||
-        (last.confidence_weight === boundary.eff && last.created_at >= boundary.row.created_at);
+        (last.confidence_weight === boundary.eff &&
+          (last.created_at > boundary.row.created_at || (last.created_at === boundary.row.created_at && last.node_id >= boundary.row.node_id)));
       if (match === null) {
         if (lastCouldBeat) nodes = rank(read(beats((c) => c), -1));
       } else if ((last.fts_rank ?? 0) <= (boundary.row.fts_rank ?? 0) && lastCouldBeat) {
