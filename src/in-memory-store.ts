@@ -37,6 +37,10 @@ export class InMemoryStore implements MemoryStore {
     return full;
   }
 
+  async listNodes(): Promise<MemoryNode[]> {
+    return [...this.nodes.values()].sort((a, b) => compareRecency(b, a));
+  }
+
   async getNode(nodeId: string): Promise<MemoryNode | undefined> {
     return this.nodes.get(nodeId);
   }

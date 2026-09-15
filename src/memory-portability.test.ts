@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { exportPortable, importPortable } from "./memory-portability.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
+import { SqliteMemoryStore } from "./sqlite-memory-store.js";
+import { exportView, personalDefaults } from "./governance/index.js";
+import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
+import type { MemoryStore } from "./types/memory.js";
 
 async function seededStore(): Promise<InMemoryStore> {
   const store = new InMemoryStore();
@@ -122,3 +126,52 @@ async function withSealed(store: InMemoryStore) {
   const sealed = await store.searchNodes({ privacyClassification: ["Sealed"] });
   return [...open, ...sealed];
 }
+
+/**
+ * Found by review, 2026-09-14: export enumerated through searchNodes, whose
+ * default read hides Archived and PendingDeletion facts — so a "lossless"
+ * backup silently dropped them, kept the edges that pointed at them, and SQLite
+ * then refused the import halfway through.
+ */
+describe("exportPortable is complete, in both stores", () => {
+  for (const [label, make] of [
+    ["InMemoryStore", () => new InMemoryStore()],
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+  ] as const) {
+    it(`${label}: every privacy × retention cell leaves, and the artifact imports back whole`, async () => {
+      const store: MemoryStore = make();
+      const ids: string[] = [];
+      for (const privacyClassification of PRIVACY_CLASSIFICATIONS) {
+        for (const retentionTier of RETENTION_TIERS) {
+          ids.push((await store.addNode(makeNode({ privacyClassification, retentionTier, content: { text: `${privacyClassification}/${retentionTier}` } }))).nodeId);
+        }
+      }
+      const live = ids[1]!; // Public / Summarized
+      const archived = ids[2]!; // Public / Archived
+      await store.addEdge({ sourceNodeId: live, targetNodeId: archived, relationshipType: "Conceptual", strength: 0.5, provenance: "AIInferred" });
+
+      const artifact = await exportPortable(new Map([["p", store]]));
+      expect(artifact.projects[0]!.nodes.map((n) => n.nodeId).sort()).toEqual([...ids].sort());
+      expect(artifact.projects[0]!.edges).toHaveLength(1);
+
+      const into = new SqliteMemoryStore(":memory:");
+      await expect(importPortable(artifact, () => into)).resolves.toEqual({ nodes: ids.length, edges: 1 });
+      expect((await into.listNodes()).map((n) => n.nodeId).sort()).toEqual([...ids].sort());
+      (store as { close?: () => void }).close?.();
+      into.close();
+    });
+  }
+
+  it("a filtered export never carries an edge to a node it left out", async () => {
+    const store = new InMemoryStore();
+    const kept = await store.addNode(makeNode({ content: { text: "kept" } }));
+    const hidden = await store.addNode(makeNode({ privacyClassification: "Sensitive", content: { text: "hidden" } }));
+    await store.addEdge({ sourceNodeId: kept.nodeId, targetNodeId: hidden.nodeId, relationshipType: "Cause", strength: 1, provenance: "UserAsserted" });
+    const view = exportView(store, { policies: [personalDefaults({ owner: "owner" })], context: () => ({ actor: "someone-else" }) });
+
+    const artifact = await exportPortable(new Map([["p", view]]));
+    expect(artifact.projects[0]!.nodes.map((n) => n.nodeId)).toEqual([kept.nodeId]);
+    // The edge would disclose the hidden fact's id and how it relates.
+    expect(artifact.projects[0]!.edges).toEqual([]);
+  });
+});
