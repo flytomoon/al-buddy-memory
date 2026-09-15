@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
-import { governanceTools } from "./governance-server.js";
+import { MemoryAudit } from "../governance/audit.js";
+import { governanceTools, serverStore } from "./governance-server.js";
 
 const clock = (iso: string) => () => new Date(iso);
 
@@ -46,5 +47,28 @@ describe("governance MCP tools — every answer carries provenance and validity"
     expect((await t.pinned()).rendered).toContain("[identity] Al has no gender");
     expect(await t.unpin({ id: p.nodeId })).toEqual({ unpinned: true });
     expect((await t.pinned()).blocks).toHaveLength(0);
+  });
+});
+
+/**
+ * The "governance MCP server" ran on the raw store: no policy, no audit
+ * (review 2026-09-14, Fable §2.4). The shipped server now serves a governed
+ * handle whose audience is the AI client, so the owner's own policy applies.
+ */
+describe("the shipped server's store", () => {
+  it("classifies a secret the AI writes, keeps it out of the AI's recall, and audits every call", async () => {
+    const audit = new MemoryAudit();
+    const inner = new InMemoryStore();
+    const t = governanceTools({ store: serverStore(inner, { owner: "owner", audit }) });
+
+    const secret = await t.remember({ text: "the deploy password: hunter2-staging" });
+    await t.remember({ text: "prefers Pacific time" });
+    expect((await inner.getNode(secret.id))?.privacyClassification).toBe("Sensitive");
+
+    const recalled = await t.recall({ query: "password" });
+    expect(recalled).toEqual([]);
+    expect((await t.recall({ query: "Pacific" })).map((f) => f.text)).toEqual(["prefers Pacific time"]);
+    expect(audit.events.some((e) => e.outcome === "hidden" && e.nodeIds.includes(secret.id))).toBe(true);
+    expect(audit.events.every((e) => e.audience === "mcp-client")).toBe(true);
   });
 });
