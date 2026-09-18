@@ -2,6 +2,7 @@
 
 > **Al Buddy** — that's *Al*, a name, said like "pal". Not A.I.
 
+### A memory you can't take with you isn't yours.
 
 **Portable, governed, model-agnostic memory for AI agents.**
 
