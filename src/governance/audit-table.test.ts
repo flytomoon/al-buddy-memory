@@ -184,6 +184,49 @@ describe("the audit event and the fact it describes are one transaction", () => 
     const ok = await governed.addNode(node("after"));
     expect(rows(dbPath).some((r) => r.parsed.nodeIds.includes(ok.nodeId))).toBe(true);
   });
+
+  /**
+   * The test above fails the append of a MUTATION's event, which is the case
+   * the table was built for. Reads and refusals do not go through
+   * `commitAudited` — they call `record()`, which latches any sink it is given,
+   * this table included. So a disk-full during a governed SEARCH bricked a store
+   * that had lost nothing, which is exactly what four places in the docs said
+   * could not happen (Fable 5.1, reviewing the merge, 2026-09-19 — reproduced
+   * with a real SQLITE_FULL, not only a monkeypatch).
+   *
+   * The rule the latch encodes: refuse further writes while an unrecorded write
+   * may exist. On this path none can, whichever kind of event failed.
+   */
+  for (const kind of ["a read", "a refusal"] as const) {
+    it(`does not latch when the failed event belongs to ${kind}`, async () => {
+      store = new SqliteMemoryStore(dbPath);
+      const governed = govern(store, { policies: [], context: () => ({ actor: "owner" }), audit: storeAudit(store) });
+      const existing = await governed.addNode(node("a fact that exists"));
+
+      const real = Database.prototype.prepare;
+      let failures = 1;
+      Database.prototype.prepare = function (this: Database.Database, sql: string) {
+        if (failures > 0 && /INSERT INTO audit_events/.test(sql)) {
+          failures--;
+          throw new Error("SQLITE_FULL: database or disk is full");
+        }
+        return real.call(this, sql);
+      } as typeof Database.prototype.prepare;
+      try {
+        // Both of these audit through `record()`: a read's "allowed", and the
+        // "denied" of an erasure no policy permits.
+        const attempt = kind === "a read" ? governed.searchNodes("fact") : governed.deleteNode(existing.nodeId);
+        await expect(attempt).rejects.toThrow(/SQLITE_FULL/);
+      } finally {
+        Database.prototype.prepare = real;
+      }
+
+      // Nothing was lost — a read changes nothing, and a refusal refuses. So the
+      // next write must go through, carrying its own event.
+      const ok = await governed.addNode(node("after the failed event"));
+      expect(rows(dbPath).some((r) => r.parsed.nodeIds.includes(ok.nodeId))).toBe(true);
+    });
+  }
 });
 
 describe("verify-audit reads the table", () => {

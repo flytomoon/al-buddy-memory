@@ -90,9 +90,10 @@ unrecorded and its caller is told it failed. That window is the honest limit and
 window went through as well, so a retrying MCP client compounded changes nothing could
 attest to (R3, release review 2026-09-18).
 
-On the `audit_events` path there is no such window, and so no latch: an append that fails
-rolls the fact back with it, the caller is told, and nothing was lost — so the store is left
-working rather than bricked by a transient failure. That is the failure the latch bounds
+On the `audit_events` path there is no such window, and so no latch — for a mutation's event,
+a read's, or a refusal's alike: an append that fails rolls the fact back with it, the caller is
+told, and nothing was lost — so the store is left working rather than bricked by a transient
+failure. That is the failure the latch bounds
 becoming unreachable, not the latch being weakened; it still guards every sink that writes
 beside the database.
 

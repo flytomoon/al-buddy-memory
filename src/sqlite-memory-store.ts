@@ -467,9 +467,15 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     this.pendingAudit = pending;
     try {
       const result = await mutate();
-      // Belt and braces. Every mutating method goes through `mutation()`, so
-      // this cannot fire; if a new one ever skips it, the caller is told rather
-      // than being left with a committed fact nothing attests to.
+      // Belt and braces, and it is a DETECTOR, not a preventer: it runs after
+      // `mutate()` returned, so a method that skipped `mutation()` has already
+      // committed by the time this fires. The caller is told, loudly, and the
+      // fact is in the database with nothing attesting to it — demonstrated by
+      // Fable 5.1 on 2026-09-19 with a deliberately un-transacted `addEdge`.
+      // What makes the guarantee hold is the enumeration, not this line: all
+      // nine mutators of `MemoryStore` go through `mutation()`, so nothing
+      // reaches here. This exists so that if a tenth is ever added and forgets,
+      // it fails on its first call in the first test rather than silently.
       if (!pending.written) {
         throw new Error("al-buddy-memory: that store call committed without carrying its audit event; it does not run through mutation()");
       }
