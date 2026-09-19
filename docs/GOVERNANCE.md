@@ -64,8 +64,15 @@ nothing could attest to (R3, release review 2026-09-18).
 **One writer per log, not one writer per memory.** A chain has exactly one writer, but a
 person legitimately runs two assistants against one memory. So the MCP server gives each
 process its own log — `<db>.audit/<start>-<pid>.jsonl` — and
-`al-buddy-memory verify-audit <db>.audit` checks every chain in the directory; the set is
-intact when each of them is. Two processes appending to one file fork the chain at the first
+`al-buddy-memory verify-audit <db>.audit` checks every chain in the directory.
+
+**What that verification does and does not establish.** It proves each log that is *present*
+is internally intact. It cannot prove the set is *complete*: there is no manifest and no
+cross-chain binding, so deleting an entire process log leaves the rest verifying clean and
+the command exits 0 — confirmed by experiment (Astra release review, 2026-09-19). Splitting
+the chain to let two assistants share a memory bought that concurrency at this cost, and the
+honest claim is per-file integrity, not a complete history. An anchored manifest would close
+it and is not in 0.4.2. Two processes appending to one file fork the chain at the first
 interleaved pair, and then no server can start, because refusing to extend a broken chain is
 what this class does (B1, release review 2026-09-18). A lock file was considered and
 rejected: making the second assistant fail to start is worse than two verifiable logs. A log
@@ -80,6 +87,14 @@ between its policy checks and its commit, no other governed handle over the same
 commit. Without that, an agent's allowed update landed after the owner had made a fact
 Sensitive and left it Private and readable (R2, release review 2026-09-18) — the policies
 are async by design, and every await was a window.
+
+**Who is fixed when you call, not when the queue reaches you.** The authorising context is
+read at the moment the mutation is requested; only the clock is read when the queued step
+runs. The first version of the queue read both at execution time, so a mutation waiting its
+turn could pick up whatever authority the caller's context reported by then — a write called
+as a stranger committed and audited as the owner, which the pre-queue code had refused
+(Astra release review, 2026-09-19). Freezing the clock too would have been the opposite
+mistake: every audit event behind a slow policy would carry a backdated time.
 
 The queue is per store object, in **one process**. Two processes on one SQLite file are
 still protected only by SQLite's own write lock, which covers the write and not the

@@ -246,6 +246,13 @@ package of its own, so `--package=` is what tells npx where to find it — `npx
 al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.4.1`
 to track the latest release instead of the one you tested.
 
+> **Releasing?** This pin is a documented version and goes stale the moment a new one
+> publishes — the example would then install an older server than the page describes.
+> **Advance it in the same commit as the version bump.** It was `@0.4.1` while 0.4.1 was
+> current; running the pinned command against a newer release returns the older server's
+> handshake, which is how a reader ends up reading documentation that does not match what
+> they just installed (Astra release review, 2026-09-19).
+
 The memory lands in `~/.al-buddy-memory/brain.db`; set `AL_BUDDY_MEMORY_DB` to put it
 somewhere else. Give it an **absolute path** — a JSON config is not a shell, and a `~`
 in it is expanded by this server but not by everything else that may read the value.
