@@ -306,6 +306,35 @@ const MIGRATION_V6 = [
  */
 const MIGRATION_V7 = AUDIT_EVENTS_SCHEMA;
 
+/**
+ * One migration statement, tolerating the one way a replayed migration can
+ * fail on a schema that is already correct.
+ *
+ * `sqlite3 .dump` — a normal way to back up a SQLite database, and the one most
+ * people reach for — does not carry `user_version`. A restore is therefore a
+ * modern schema labelled v0, so the whole chain replays over it: every
+ * `CREATE ... IF NOT EXISTS` is a no-op, the one backfill is `WHERE ... IS
+ * NULL`, and the only statement that throws is `ADD COLUMN` on a column the
+ * dump already created. The restored database then could not be opened at all
+ * ("duplicate column name: valid_from") — measured 2026-09-19, and the same
+ * statement had already left a store stranded once before, when two processes
+ * opened a fresh file at the same moment (review 2026-09-14).
+ *
+ * A column that is already there is precisely what `ADD COLUMN` wanted, so it
+ * is treated as done rather than as a failure. Nothing else is swallowed:
+ * another error on an ADD COLUMN, or any error on any other statement, still
+ * aborts the transaction and leaves the version where it was.
+ */
+function runMigrationStep(db: Database.Database, stmt: string): void {
+  try {
+    db.prepare(stmt).run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\bADD COLUMN\b/i.test(stmt) && /duplicate column name/i.test(message)) return;
+    throw err;
+  }
+}
+
 const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7];
 
 /** The `user_version` a store is brought up to on open. */
@@ -566,7 +595,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       for (let version = current; version < MIGRATIONS.length; version++) {
         const migration = MIGRATIONS[version]!;
         if (typeof migration === "function") migration(this.db);
-        else for (const stmt of migration) this.db.prepare(stmt).run();
+        else for (const stmt of migration) runMigrationStep(this.db, stmt);
         // pragma value can't be parameterized; version is a trusted integer.
         this.db.pragma(`user_version = ${version + 1}`);
       }

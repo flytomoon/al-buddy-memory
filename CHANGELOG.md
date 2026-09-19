@@ -102,6 +102,14 @@ everything here, with the measurements, are in
 
 ### Fixed
 
+- **A `sqlite3 .dump` backup could not be restored.** `.dump` does not carry
+  `user_version`, so a restored file is a current schema labelled v0 and the whole
+  migration chain replays over it. Everything tolerated that except `ADD COLUMN`,
+  which threw on a column the dump had already created — so the restored database
+  could not be opened at all (`duplicate column name: valid_from`). A column that
+  already exists is now treated as that step being done; nothing else is swallowed.
+  `.backup` and `VACUUM INTO` were, and remain, the recommended forms.
+
 - Every mutating method of `SqliteMemoryStore` now runs in one `BEGIN IMMEDIATE`
   transaction (`mutation()`). `addEdge`, `deleteEdge`, `setEmbedding` and
   `deleteEmbeddings` were bare statements before; all four are now atomic and take

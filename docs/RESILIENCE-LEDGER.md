@@ -207,6 +207,39 @@ reality rather than described.*
   missing item.** "Read this exactly as written" raises the standard the sentence
   is held to; it had better be complete.
 
+### A backup you could take but could not restore
+
+- **Reported by:** Fable 5.1, 2026-09-19, as a pre-existing item outside the
+  diff it was reviewing. Ranked "after"; done anyway, because the failure is
+  "someone restores their backup and their memory will not open".
+- **The failure:** `sqlite3 .dump` is one of the two normal ways to back up a
+  SQLite database, and it does not carry `user_version`. A restored dump is
+  therefore a **current schema labelled v0**, so the whole migration chain
+  replays over it. Everything in the chain tolerates that — the tables are
+  `CREATE ... IF NOT EXISTS`, the one backfill is `WHERE ... IS NULL` — except
+  `ALTER TABLE memory_nodes ADD COLUMN valid_from`, which throws on a column
+  the dump already created. The store then could not be opened **at all**:
+  `duplicate column name: valid_from`. Not degraded, not missing facts —
+  refused.
+- **Us:** ours, since v2 existed. Fixed 2026-09-19 (unreleased).
+- **Evidence:** `runMigrationStep` in `src/sqlite-memory-store.ts` treats
+  "duplicate column name" on an `ADD COLUMN` as already done, and swallows
+  nothing else: any other error on that statement, and any error on any other
+  statement, still aborts the transaction with the version unmoved.
+  `src/sqlite-memory-store.test.ts`, *opens a database whose schema is current
+  but whose version was lost (a .dump restore)* — restored, facts intact,
+  searchable, writable, and migrated to the current version. It fails with the
+  original error when the tolerance is removed. Verified against a real
+  `sqlite3 .dump | sqlite3` round trip as well as the hermetic test, which
+  reproduces the condition without needing the binary.
+- **Notes:** the same statement had stranded a store once before — two
+  processes opening a fresh file at the same instant, one finishing while the
+  other replayed v1 and died on v2, leaving a valid schema labelled v1 for ever
+  (review 2026-09-14, fixed by taking the write lock before reading the
+  version). **The same line, reached by two unrelated routes, ten weeks apart.**
+  A migration step that cannot survive being run twice is a latent outage with
+  a queue of causes, and the fix is not to enumerate the causes.
+
 ### The check that caught deletion also accused the innocent
 
 - **Reported by:** Fable 5.1, reviewing the tail check within hours of it being

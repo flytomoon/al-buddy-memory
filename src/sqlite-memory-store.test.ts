@@ -108,6 +108,49 @@ describe("SqliteMemoryStore — a store written before 0.4.0", () => {
     expect(check.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
     check.close();
   });
+
+  /**
+   * `sqlite3 .dump` is a normal way to back up a SQLite database and it does
+   * not carry `user_version`, so a restore is a modern schema labelled v0 and
+   * the whole chain replays over it. Every step is a no-op except `ADD COLUMN`
+   * on a column that is already there, and that one error meant a restored
+   * backup **could not be opened at all** — "duplicate column name:
+   * valid_from". Someone restoring a backup lost their memory to it.
+   *
+   * Reproduced here without the sqlite3 binary, because the condition is just
+   * "correct schema, version says 0" and depending on a CLI would make this
+   * test skip on the machines least likely to have one.
+   */
+  it("opens a database whose schema is current but whose version was lost (a .dump restore)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "al-buddy-dumprestore-"));
+    const dbPath = join(dir, "restored.db");
+    try {
+      const original = new SqliteMemoryStore(dbPath);
+      const kept = await original.addNode(makeNode({ content: { text: "a fact worth restoring" } }));
+      original.close();
+
+      const stripped = new Database(dbPath);
+      stripped.pragma("user_version = 0");
+      stripped.close();
+
+      const restored = new SqliteMemoryStore(dbPath);
+      try {
+        expect((await restored.getNode(kept.nodeId))?.content.text).toBe("a fact worth restoring");
+        // And it is usable, not merely openable.
+        const written = await restored.addNode(makeNode({ content: { text: "written after the restore" } }));
+        expect((await restored.getNode(written.nodeId))).not.toBeNull();
+        expect((await restored.searchNodes({ query: "restoring" })).length).toBeGreaterThan(0);
+      } finally {
+        restored.close();
+      }
+
+      const check = new Database(dbPath);
+      expect(check.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
+      check.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("SqliteMemoryStore — re-importing over a store written before 0.4.0", () => {
