@@ -87,7 +87,12 @@ export class StoreAudit implements AuditSink {
   record(event: AuditEvent): Promise<void> {
     return this.store.recordAuditEvent(event);
   }
-  /** The value to anchor elsewhere — the only thing that catches a cut-off tail or a key holder's rewrite. */
+  /**
+   * The value to anchor elsewhere — the only thing that catches a key holder's
+   * rewrite, and the only thing that catches a cut-off tail in a log FILE. In
+   * the table a careless truncation is caught without it (`tailFault`); a
+   * deliberate one, which resets the counter too, still needs this.
+   */
   head(): Promise<string> {
     return this.store.auditHead();
   }

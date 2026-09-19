@@ -22,8 +22,11 @@
  *   Whoever holds the HMAC key (or, with no key, whoever can write the file)
  *   can recompute the whole chain. The answer is the same as before: publish
  *   `head()` somewhere the database's owner does not control.
- * - A cut-off tail is invisible to the file itself. Truncating the newest
- *   records leaves a chain that verifies. Only an anchored head catches it.
+ * - A cut-off tail is invisible to a log FILE. Truncating the newest records
+ *   leaves a chain that verifies, and only an anchored head catches it. In
+ *   THIS form it is caught, as long as nobody resets `sqlite_sequence` — see
+ *   `tailFault` below, which is a defence against accident and careless
+ *   deletion, not against a deliberate edit.
  * - It says nothing about **authorisation** across processes. The decision a
  *   policy took still happens before the transaction opens; two processes can
  *   still interleave a check and a write (C3 in the ledger stays open).
@@ -117,17 +120,34 @@ function walk(records: Iterable<{ seq: number; prev: string; hash: string; event
  * Reported by the second reviewer of the audit-chain merge, 2026-09-19, which
  * noticed the evidence was already in the file and nothing read it.
  */
+/**
+ * Deletion is not the only thing that looks like this. A database copied while
+ * it was being written to — `cp` of a live file, a backup tool that is not
+ * atomic — can land with the mark ahead of the rows, and 15 of 16 readable torn
+ * copies in one measured run were reported here as deletion. So the message
+ * names both, and says which one check separates them.
+ *
+ * It also names the way out, because a refusal with no exit is a brick: this
+ * check gates appends, so a trail the owner deleted on purpose stops the store
+ * until the mark is brought back in line with the rows.
+ */
+const TORN =
+  ". If this file was copied while it was being written to, that looks the same from here — run `PRAGMA integrity_check` to tell them apart. If you deleted events on purpose, anchor `head()` first if the old history still needs to be checkable, then bring the counter back in line: `UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(seq), 0) FROM audit_events) WHERE name = 'audit_events'` (or DELETE that row if the trail is empty). The chain that follows does not attest to anything before it";
+
 function tailFault(db: Database.Database, count: number, lastSeq: number | null, firstSeq: number | null): string | null {
-  const mark = db.prepare(`SELECT seq FROM sqlite_sequence WHERE name = 'audit_events'`).get() as { seq?: number } | undefined;
-  if (mark?.seq === undefined) return null; // nothing was ever appended: no claim to check
+  // MAX, not the first row: a `.dump` restore emits its own INSERT without
+  // deleting the one the explicit-rowid inserts already made, so the table can
+  // carry two rows for this name and the lower one would hide a real cut.
+  const mark = db.prepare(`SELECT MAX(seq) AS seq FROM sqlite_sequence WHERE name = 'audit_events'`).get() as { seq?: number | null } | undefined;
+  if (mark?.seq === undefined || mark.seq === null) return null; // nothing was ever appended: no claim to check
   if (count === 0) {
-    return `the table is empty but ${mark.seq} event${mark.seq === 1 ? " was" : "s were"} appended to it: the trail was deleted`;
+    return `the table is empty but ${mark.seq} event${mark.seq === 1 ? " was" : "s were"} appended to it: the trail was deleted${TORN}`;
   }
   if (lastSeq !== null && lastSeq < mark.seq) {
-    return `the newest event is seq ${lastSeq} but seq ${mark.seq} was reached: ${mark.seq - lastSeq} record(s) were removed from the end`;
+    return `the newest event is seq ${lastSeq} but seq ${mark.seq} was reached: ${mark.seq - lastSeq} record(s) were removed from the end${TORN}`;
   }
   if (firstSeq !== null && firstSeq !== 1) {
-    return `the chain starts at seq ${firstSeq} rather than 1: everything before it was deleted`;
+    return `the chain starts at seq ${firstSeq} rather than 1: everything before it was deleted${TORN}`;
   }
   return null;
 }
@@ -216,14 +236,34 @@ export class AuditEventTable {
   }
 }
 
-/** One pass plus the tail check, over an already-open database. */
+/**
+ * One pass plus the tail check, over an already-open database — all of it in
+ * ONE read snapshot.
+ *
+ * The transaction is the whole correctness of the tail check. It reads three
+ * things: how many events there are, the rows themselves, and the high-water
+ * mark. As three autocommit statements they are three different moments, and in
+ * WAL a reader never blocks a writer — so another process appending in between
+ * leaves the mark ahead of the largest `seq` this call saw, which is exactly the
+ * signature of a deleted tail. It then reports records "removed from the end"
+ * of a chain nobody touched, and because this same check gates the first append,
+ * that false report REFUSES a healthy store.
+ *
+ * Measured on the day it was introduced, 2026-09-19, against one process
+ * appending every ~2 ms to a 120,000-event chain: 30/30 false "removed from the
+ * end" from `verify-audit`, 24/30 refused first writes, and one running writer
+ * refused 12 times in a row. In one transaction, 15/15 clean under the same
+ * load. Readers hold no lock in WAL, so the snapshot blocks nobody.
+ */
 function verifyOpenTable(db: Database.Database, key: string | undefined, head?: string): AuditTableResult {
-  const bounds = db.prepare(`SELECT COUNT(*) AS n, MIN(seq) AS lo, MAX(seq) AS hi FROM audit_events`).get() as { n: number; lo: number | null; hi: number | null };
-  const rows = db.prepare(`SELECT seq, prev, hash, event FROM audit_events ORDER BY seq`).iterate() as Iterable<EventRow>;
-  const walked = walk(rows, bounds.n, key, head);
-  if (!walked.ok) return walked;
-  const cut = tailFault(db, bounds.n, bounds.hi, bounds.lo);
-  return cut === null ? walked : { ok: false, count: bounds.n, line: bounds.n, reason: cut };
+  return db.transaction((): AuditTableResult => {
+    const bounds = db.prepare(`SELECT COUNT(*) AS n, MIN(seq) AS lo, MAX(seq) AS hi FROM audit_events`).get() as { n: number; lo: number | null; hi: number | null };
+    const rows = db.prepare(`SELECT seq, prev, hash, event FROM audit_events ORDER BY seq`).iterate() as Iterable<EventRow>;
+    const walked = walk(rows, bounds.n, key, head);
+    if (!walked.ok) return walked;
+    const cut = tailFault(db, bounds.n, bounds.hi, bounds.lo);
+    return cut === null ? walked : { ok: false, count: bounds.n, line: bounds.n, reason: cut };
+  })();
 }
 
 /**

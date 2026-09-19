@@ -53,7 +53,10 @@ everything here, with the measurements, are in
   claims to be the first. This is a defence against accident and careless
   deletion, not tamper-proofing: whoever can delete the records can reset the
   counter too. Measured: the mark survives `DELETE`, `VACUUM`, `VACUUM INTO` and
-  `.backup()`, so ordinary maintenance does not trip it.
+  `.backup()` (including one taken mid-write), and verification takes a single
+  read snapshot so a second assistant writing at the same moment does not trip
+  it. Pruning the trail is a deletion and trips it deliberately; the refusal
+  message names the way out.
 - **`al-buddy-memory verify-audit` takes a database.** Point it at `brain.db` and
   it checks the `audit_events` chain, plus any per-process JSONL logs still at
   `brain.db.audit/`, and says which is which. Files and directories of files work

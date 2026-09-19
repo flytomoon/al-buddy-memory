@@ -10,6 +10,7 @@ import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { verifyAuditLogs, type AuditEvent } from "./audit.js";
+import { AUDIT_EVENTS_SCHEMA, verifyAuditTable } from "./audit-table.js";
 
 /**
  * B1 and C2 in docs/RESILIENCE-LEDGER.md. A chained JSONL log has exactly one
@@ -113,6 +114,36 @@ store.close();
 console.log(JSON.stringify({ actor, written: count - errors.length, errors }));
 `;
 
+/**
+ * A writer that keeps appending until a stop file appears, so the parent can
+ * verify the chain WHILE it is being extended. Nothing about the trail is being
+ * deleted here; that is the point.
+ */
+const APPENDER_CHILD = `
+import { existsSync, writeFileSync } from "node:fs";
+
+import { SqliteMemoryStore } from "../sqlite-memory-store.js";
+import { govern, storeAudit } from "./index.js";
+
+const [dbPath, dir] = process.argv.slice(2);
+const store = new SqliteMemoryStore(dbPath);
+const governed = govern(store, { policies: [], context: () => ({ actor: "writer" }), audit: storeAudit(store) });
+
+writeFileSync(dir + "/ready-writer", "");
+let n = 0;
+while (!existsSync(dir + "/stop")) {
+  await governed.addNode({
+    provenance: "UserInput", encryptionKeyRef: "local", memoryType: "Experience",
+    privacyClassification: "Private", retentionTier: "FullRetention",
+    content: { text: "fact " + n++ },
+    contextualMetadata: {}, confidenceWeight: 1, decayRate: 0,
+  });
+  await new Promise((r) => setTimeout(r, 2));
+}
+store.close();
+console.log(JSON.stringify({ actor: "writer", written: n, errors: [] }));
+`;
+
 interface ChildResult {
   actor: string;
   written: number;
@@ -125,6 +156,7 @@ describe("two processes, one chain", () => {
   let rig: string;
   let child: string;
   let updateChild: string;
+  let appenderChild: string;
   let dir: string;
 
   beforeAll(async () => {
@@ -143,7 +175,12 @@ describe("two processes, one chain", () => {
         outfile,
         logLevel: "silent",
       });
-    await Promise.all([compile(CHILD, child, "audit-child.ts"), compile(UPDATE_CHILD, updateChild, "audit-update-child.ts")]);
+    appenderChild = join(rig, "audit-appender-child.mjs");
+    await Promise.all([
+      compile(CHILD, child, "audit-child.ts"),
+      compile(UPDATE_CHILD, updateChild, "audit-update-child.ts"),
+      compile(APPENDER_CHILD, appenderChild, "audit-appender-child.ts"),
+    ]);
   }, 60_000);
 
   afterAll(() => rmSync(rig, { recursive: true, force: true }));
@@ -222,6 +259,59 @@ describe("two processes, one chain", () => {
    * So this asserts the thing a caller actually cares about: every update that
    * was asked for landed.
    */
+  /**
+   * The tail check reads three things — how many events, the rows, the
+   * high-water mark. As three separate statements they are three different
+   * moments, and an append landing between them leaves the mark ahead of the
+   * rows: the exact signature of a deleted tail. It then refuses a healthy
+   * store, because the same check gates the first append.
+   *
+   * Nothing is deleted anywhere in this test. Every failure it can produce is
+   * a false accusation.
+   */
+  it("does not accuse a chain that is being extended while it is read", async () => {
+    const dbPath = join(dir, "memory.db");
+
+    // A chain long enough that the walk takes real time; the race window is the
+    // walk. Seeded directly so the test does not spend a minute writing facts.
+    const { chainDigest, GENESIS } = await import("./chain.js");
+    const seed = new Database(dbPath);
+    seed.pragma("journal_mode = WAL");
+    for (const stmt of AUDIT_EVENTS_SCHEMA) seed.exec(stmt);
+    const insert = seed.prepare(`INSERT INTO audit_events (prev, hash, event) VALUES (?, ?, ?)`);
+    let prev = GENESIS;
+    seed.transaction(() => {
+      for (let i = 0; i < 20_000; i++) {
+        const event = { at: new Date().toISOString(), actor: "seed", audience: "self", purpose: "recall", outcome: "allowed", nodeIds: [`n${i}`], count: 1 };
+        const hash = chainDigest(prev, event, undefined);
+        insert.run(prev, hash, JSON.stringify(event));
+        prev = hash;
+      }
+    })();
+    seed.close();
+
+    const writer = run(process.execPath, [appenderChild, dbPath, dir], { encoding: "utf8" }).then(
+      (r) => JSON.parse(r.stdout.trim()) as ChildResult,
+      (e: { stdout?: string; stderr?: string }) => {
+        throw new Error(`child failed: ${String(e.stderr ?? "")} ${String(e.stdout ?? "")}`);
+      },
+    );
+    const until = Date.now() + 15_000;
+    while (Date.now() < until && !existsSync(join(dir, "ready-writer"))) await new Promise((r) => setTimeout(r, 10));
+    expect(existsSync(join(dir, "ready-writer")), "the writer never started; this proves nothing").toBe(true);
+
+    const failures: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const checked = await verifyAuditTable(dbPath);
+      if (!checked.ok) failures.push(checked.reason);
+    }
+    writeFileSync(join(dir, "stop"), "");
+    const result = await writer;
+
+    expect(result.written, "the writer never appended, so nothing was concurrent").toBeGreaterThan(0);
+    expect(failures, `verify accused a chain nobody deleted from: ${failures.slice(0, 2).join(" | ")}`).toEqual([]);
+  }, 60_000);
+
   it("loses no writer's update under contention (the guard on IMMEDIATE)", async () => {
     const dbPath = join(dir, "memory.db");
     const each = 15;
