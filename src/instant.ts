@@ -105,12 +105,26 @@ function assertOneOf(value: unknown, allowed: readonly string[], field: string):
   }
 }
 
-/** The classification words, checked wherever they are written or changed. */
-function assertNodeVocabulary(node: Partial<Pick<MemoryNode, "provenance" | "memoryType" | "privacyClassification" | "retentionTier">>): void {
-  if ("provenance" in node) assertOneOf(node.provenance, MEMORY_PROVENANCES, "provenance");
-  if ("memoryType" in node) assertOneOf(node.memoryType, MEMORY_NODE_TYPES, "memoryType");
-  if ("privacyClassification" in node) assertOneOf(node.privacyClassification, PRIVACY_CLASSIFICATIONS, "privacyClassification");
-  if ("retentionTier" in node) assertOneOf(node.retentionTier, RETENTION_TIERS, "retentionTier");
+type NodeWords = Partial<Pick<MemoryNode, "provenance" | "memoryType" | "privacyClassification" | "retentionTier">>;
+
+/**
+ * The classification words of a whole fact — all four required, because a fact
+ * is not a fact without them. (SQLite's NOT NULL caught a missing provenance a
+ * row too late, and the in-memory store had no backstop at all.)
+ */
+export function assertNodeVocabulary(node: NodeWords): void {
+  assertOneOf(node.provenance, MEMORY_PROVENANCES, "provenance");
+  assertOneOf(node.memoryType, MEMORY_NODE_TYPES, "memoryType");
+  assertOneOf(node.privacyClassification, PRIVACY_CLASSIFICATIONS, "privacyClassification");
+  assertOneOf(node.retentionTier, RETENTION_TIERS, "retentionTier");
+}
+
+/** The same words in a patch, where a key that is absent simply is not changing. */
+function assertPatchVocabulary(patch: NodeWords): void {
+  if ("memoryType" in patch) assertOneOf(patch.memoryType, MEMORY_NODE_TYPES, "memoryType");
+  if ("privacyClassification" in patch) assertOneOf(patch.privacyClassification, PRIVACY_CLASSIFICATIONS, "privacyClassification");
+  if ("retentionTier" in patch) assertOneOf(patch.retentionTier, RETENTION_TIERS, "retentionTier");
+  // provenance is immutable: assertPatchMutable refuses it before it gets here.
 }
 
 /** A lifecycle event on a fact's append-only trail. The schema publishes the list. */
@@ -161,7 +175,7 @@ export function canonicalPatch<T extends ValidityPatch>(patch: T): T {
   assertWeights(out);
   // A patch's classification fields are outside ValidityPatch's shape but very
   // much inside what updateNode accepts, so they are checked by key.
-  assertNodeVocabulary(out as Partial<MemoryNode>);
+  assertPatchVocabulary(out as NodeWords);
   if (out.validFrom !== undefined) out.validFrom = canonicalInstant(out.validFrom, "validFrom");
   if (out.validTo !== undefined) out.validTo = canonicalInstantOrNull(out.validTo, "validTo");
   return out;

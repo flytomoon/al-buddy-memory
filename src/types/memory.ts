@@ -250,6 +250,24 @@ export interface MemoryQueryOptions {
   after?: string; // Cursor-based pagination (nodeId)
 }
 
+/** A whole memory graph as one state of a store: every node, every edge. */
+export interface GraphSnapshot {
+  nodes: MemoryNode[];
+  edges: MemoryEdge[];
+}
+
+/**
+ * An optional capability, not part of {@link MemoryStore}: the whole graph read
+ * as ONE state, for export and backup. Both shipped stores implement it (SQLite
+ * inside a read transaction, the in-memory store without an await inside), so
+ * `exportPortable` produces a graph the store actually had rather than nodes
+ * from one instant and edges from another. A store that does not implement it
+ * still exports, with the weaker guarantee named in `memory-portability.ts`.
+ */
+export interface SnapshotCapable {
+  snapshot(): Promise<GraphSnapshot>;
+}
+
 /**
  * Storage-agnostic interface for the memory graph.
  * Implementations may be local SQLite, Neptune, Neo4j, or an in-memory store —
