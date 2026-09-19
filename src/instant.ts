@@ -12,6 +12,15 @@
  * the same.
  */
 
+import {
+  ANCHOR_EVENTS,
+  EDGE_PROVENANCES,
+  MEMORY_NODE_TYPES,
+  MEMORY_PROVENANCES,
+  PRIVACY_CLASSIFICATIONS,
+  RELATIONSHIP_TYPES,
+  RETENTION_TIERS,
+} from "./types/memory.js";
 import type { MemoryEdge, MemoryNode, NewMemoryNode } from "./types/memory.js";
 
 // A date (midnight UTC), or a date-time WITH a zone in extended form. A
@@ -76,35 +85,104 @@ function assertWeights(v: { confidenceWeight?: number; decayRate?: number }): vo
   }
 }
 
+/**
+ * One spelling per word, too.
+ *
+ * The weights were checked and the vocabulary was not, so a JavaScript caller,
+ * an import, or a port in another language could write `provenance:"Hacker"`,
+ * `memoryType:"Whatever"`, `retentionTier:"Forever"` — and, worst of the four,
+ * `privacyClassification:"sensitive"`. That last one is not pedantry: every
+ * governance rule in this library compares the classification by string
+ * equality, so a fact the person spelled in lower case is not Sensitive to any
+ * policy and IS returned to a stranger. The store's own export then failed the
+ * published schema under ajv. TypeScript callers were never able to do this;
+ * everyone else now gets the same refusal they do (Astra R8 + Fable,
+ * 2026-09-18).
+ */
+function assertOneOf(value: unknown, allowed: readonly string[], field: string): void {
+  if (!allowed.includes(value as string)) {
+    throw new Error(`${field} must be one of ${allowed.join(", ")}; got ${JSON.stringify(value)}`);
+  }
+}
+
+/** The classification words, checked wherever they are written or changed. */
+function assertNodeVocabulary(node: Partial<Pick<MemoryNode, "provenance" | "memoryType" | "privacyClassification" | "retentionTier">>): void {
+  if ("provenance" in node) assertOneOf(node.provenance, MEMORY_PROVENANCES, "provenance");
+  if ("memoryType" in node) assertOneOf(node.memoryType, MEMORY_NODE_TYPES, "memoryType");
+  if ("privacyClassification" in node) assertOneOf(node.privacyClassification, PRIVACY_CLASSIFICATIONS, "privacyClassification");
+  if ("retentionTier" in node) assertOneOf(node.retentionTier, RETENTION_TIERS, "retentionTier");
+}
+
+/** A lifecycle event on a fact's append-only trail. The schema publishes the list. */
+export function assertAnchorEvent(event: unknown): void {
+  assertOneOf(event, ANCHOR_EVENTS, "temporalAnchors[].event");
+}
+
+/**
+ * A link's vocabulary and its weight. `addEdge` takes an edge without an id or
+ * a createdAt, so the check lives here rather than in {@link canonicalEdge},
+ * and both write paths call it.
+ */
+export function assertEdge(edge: Pick<MemoryEdge, "relationshipType" | "strength" | "provenance">): void {
+  assertOneOf(edge.relationshipType, RELATIONSHIP_TYPES, "relationshipType");
+  assertOneOf(edge.provenance, EDGE_PROVENANCES, "edge provenance");
+  if (!(Number.isFinite(edge.strength) && edge.strength >= 0 && edge.strength <= 1)) {
+    throw new Error(`edge strength must be a number in [0, 1]; got ${String(edge.strength)}`);
+  }
+}
+
 /** A new fact's validity window, canonical. */
 export function canonicalNew<T extends NewMemoryNode>(node: T): T {
   assertWeights(node);
+  assertNodeVocabulary(node);
   const out = { ...node };
   if (node.validFrom !== undefined) out.validFrom = canonicalInstant(node.validFrom, "validFrom");
   if (node.validTo !== undefined) out.validTo = canonicalInstantOrNull(node.validTo, "validTo");
   return out;
 }
 
-/** An update's validity fields, canonical; everything else untouched. */
+/**
+ * An update's validity fields, canonical; everything else untouched.
+ *
+ * A key whose value is `undefined` is DROPPED. In JavaScript
+ * `{validTo: undefined}` is how an omitted key arrives — a caller spreading an
+ * optional field, or JSON that never had one — and spreading it over the stored
+ * fact used to leave `validTo: undefined` in memory: the fact fell out of every
+ * validAt read, reported itself not current, and failed the export schema,
+ * while SQLite made a different mess of the same patch (Fable, 2026-09-18).
+ * Erasing a field is not something a patch can express; closing a fact's
+ * validity is `validTo: null` or an instant.
+ */
 export function canonicalPatch<T extends ValidityPatch>(patch: T): T {
-  assertWeights(patch);
-  const out = { ...patch };
-  if (patch.validFrom !== undefined) out.validFrom = canonicalInstant(patch.validFrom, "validFrom");
-  if (patch.validTo !== undefined) out.validTo = canonicalInstantOrNull(patch.validTo, "validTo");
+  const out = {} as T;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) (out as Record<string, unknown>)[key] = value;
+  }
+  assertWeights(out);
+  // A patch's classification fields are outside ValidityPatch's shape but very
+  // much inside what updateNode accepts, so they are checked by key.
+  assertNodeVocabulary(out as Partial<MemoryNode>);
+  if (out.validFrom !== undefined) out.validFrom = canonicalInstant(out.validFrom, "validFrom");
+  if (out.validTo !== undefined) out.validTo = canonicalInstantOrNull(out.validTo, "validTo");
   return out;
 }
 
 /** A restored fact: validity and every anchor, canonical. */
 export function canonicalNode(node: MemoryNode): MemoryNode {
   assertWeights(node);
+  assertNodeVocabulary(node);
   return {
     ...node,
     validFrom: canonicalInstant(node.validFrom, "validFrom"),
     validTo: canonicalInstantOrNull(node.validTo, "validTo"),
-    temporalAnchors: (node.temporalAnchors ?? []).map((a) => ({ ...a, timestamp: canonicalInstant(a.timestamp, "temporalAnchors[].timestamp") })),
+    temporalAnchors: (node.temporalAnchors ?? []).map((a) => {
+      assertAnchorEvent(a?.event);
+      return { ...a, timestamp: canonicalInstant(a.timestamp, "temporalAnchors[].timestamp") };
+    }),
   };
 }
 
 export function canonicalEdge(edge: MemoryEdge): MemoryEdge {
+  assertEdge(edge);
   return { ...edge, createdAt: canonicalInstant(edge.createdAt, "edge.createdAt") };
 }

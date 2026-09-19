@@ -1,6 +1,6 @@
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
+import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import { queryTokens, visibleRelevance } from "./query-filter.js";
 import type {
   MemoryEdge,
@@ -146,6 +146,7 @@ export class InMemoryStore implements MemoryStore {
     const existing = this.nodes.get(nodeId);
     if (!existing) throw new Error(`Memory node not found: ${nodeId}`);
     assertPatchMutable(patch);
+    assertAnchorEvent(anchorEvent);
     const updated: MemoryNode = {
       ...copy(existing),
       ...copy(canonicalPatch(patch)),
@@ -192,6 +193,7 @@ export class InMemoryStore implements MemoryStore {
   }
 
   async addEdge(edge: Omit<MemoryEdge, "edgeId" | "createdAt">): Promise<MemoryEdge> {
+    assertEdge(edge);
     this.assertEndpoints(edge);
     const full: MemoryEdge = {
       ...edge,

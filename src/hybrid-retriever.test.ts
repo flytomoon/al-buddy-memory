@@ -112,21 +112,21 @@ describe("HybridRetriever scoped recall", () => {
     const embedder = conceptEmbedder();
     await store.addNode(makeNode({ content: { text: "his own words: japan trip" }, contextualMetadata: { tags: ["voice"] } }));
     await store.addNode(makeNode({ content: { text: "a news item about tokyo" }, contextualMetadata: { tags: ["news"] } }));
-    await store.addNode(makeNode({ content: { text: "tokyo tokyo tokyo schedule" }, memoryType: "Task" }));
+    await store.addNode(makeNode({ content: { text: "tokyo tokyo tokyo schedule" }, memoryType: "Skill" }));
     await indexMissingEmbeddings(store, embedder);
     return { store, retriever: new HybridRetriever(store, embedder) };
   }
 
   it("keeps out-of-scope facts off BOTH the keyword and the vector list", async () => {
     const { retriever } = await seeded();
-    // "tokyo" hits the news item and the task by keyword, and all three by vector.
+    // "tokyo" hits the news item and the Skill fact by keyword, and all three by vector.
     const voice = await retriever.recall("tokyo", { limit: 5, tags: ["voice"] });
     expect(voice.map((n) => n.content.text)).toEqual(["his own words: japan trip"]);
   });
 
   it("scopes by memory type and minimum confidence", async () => {
     const { store, retriever } = await seeded();
-    const tasks = await retriever.recall("tokyo", { limit: 5, memoryType: "Task" });
+    const tasks = await retriever.recall("tokyo", { limit: 5, memoryType: "Skill" });
     expect(tasks.map((n) => n.content.text)).toEqual(["tokyo tokyo tokyo schedule"]);
     await store.addNode(makeNode({ content: { text: "unsure: tokyo maybe" }, confidenceWeight: 0.1 }));
     const confident = await retriever.recall("tokyo", { limit: 10, minConfidence: 0.5 });
