@@ -357,6 +357,69 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect((await store.getNode(n.nodeId))?.confidenceWeight).toBe(1);
     });
 
+    /**
+     * The same rule for the words. A store that accepted `privacyClassification:
+     * "sensitive"` wrote a fact governance reads by string equality — so a fact
+     * the person meant to hide was visible to a stranger — and its own export
+     * then failed the published schema. TypeScript callers cannot write these;
+     * JavaScript callers, imports and other-language ports can, so the store
+     * refuses them at runtime (Astra R8 + Fable, 2026-09-18).
+     */
+    it("refuses a word outside the published vocabulary, on every write path", async () => {
+      const bad: Partial<NewMemoryNode>[] = [
+        { provenance: "Hacker" as never },
+        { memoryType: "Whatever" as never },
+        { privacyClassification: "sensitive" as never },
+        { retentionTier: "Forever" as never },
+      ];
+      for (const b of bad) {
+        await expect(store.addNode(makeNode(b))).rejects.toThrow(/provenance|memoryType|privacyClassification|retentionTier/);
+      }
+      const n = await store.addNode(makeNode());
+      await expect(store.updateNode(n.nodeId, { privacyClassification: "sensitive" as never })).rejects.toThrow(/privacyClassification/);
+      await expect(store.updateNode(n.nodeId, { retentionTier: "Forever" as never })).rejects.toThrow(/retentionTier/);
+      await expect(store.updateNode(n.nodeId, { memoryType: "Whatever" as never })).rejects.toThrow(/memoryType/);
+      await expect(store.restoreNode({ ...n, provenance: "Hacker" as never })).rejects.toThrow(/provenance/);
+      await expect(
+        store.restoreNode({ ...n, temporalAnchors: [...n.temporalAnchors, { timestamp: n.validFrom, event: "invented" as never }] }),
+      ).rejects.toThrow(/event/);
+      await expect(store.updateNode(n.nodeId, {}, "invented" as never)).rejects.toThrow(/event/);
+      expect((await store.getNode(n.nodeId))?.privacyClassification).toBe("Private");
+      expect((await store.getNode(n.nodeId))?.provenance).toBe("UserInput");
+    });
+
+    it("refuses an edge outside the published vocabulary, or a strength outside [0,1]", async () => {
+      const a = await store.addNode(makeNode());
+      const b = await store.addNode(makeNode());
+      const edge = { sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Reinforcement" as const, strength: 0.5, provenance: "UserAsserted" as const };
+      await expect(store.addEdge({ ...edge, relationshipType: "Friend" as never })).rejects.toThrow(/relationshipType/);
+      await expect(store.addEdge({ ...edge, provenance: "Nobody" as never })).rejects.toThrow(/provenance/);
+      await expect(store.addEdge({ ...edge, strength: 7 })).rejects.toThrow(/strength/);
+      await expect(store.addEdge({ ...edge, strength: Number.NaN })).rejects.toThrow(/strength/);
+      expect(await store.getEdges(a.nodeId)).toEqual([]);
+      const saved = await store.addEdge(edge);
+      await expect(store.restoreEdge({ ...saved, edgeId: "other", strength: 9 })).rejects.toThrow(/strength/);
+    });
+
+    /**
+     * `{validTo: undefined}` is a JavaScript caller's omitted key, not an
+     * instruction to erase the field. It left `validTo: undefined` in memory —
+     * the fact vanished from every validAt read and the export failed the
+     * schema — while SQLite wrote null: two stores, two answers (Fable,
+     * 2026-09-18).
+     */
+    it("treats an undefined patch value as an absent key, not as an erasure", async () => {
+      const n = await store.addNode(makeNode({ validFrom: "2026-01-01T00:00:00Z", validTo: "2026-02-01T00:00:00Z" }));
+      const patched = await store.updateNode(n.nodeId, { validTo: undefined, confidenceWeight: 0.5 });
+      expect(patched.validTo).toBe("2026-02-01T00:00:00.000Z");
+      expect(patched.confidenceWeight).toBe(0.5);
+      const fresh = await store.getNode(n.nodeId);
+      expect(fresh?.validTo).toBe("2026-02-01T00:00:00.000Z");
+      expect(await store.searchNodes({ validAt: "2026-01-15T00:00:00Z" })).toHaveLength(1);
+      const open = await store.addNode(makeNode({ validFrom: "2026-01-01T00:00:00Z" }));
+      expect((await store.updateNode(open.nodeId, { validFrom: undefined })).validTo).toBeNull();
+    });
+
     it("excludes Sealed nodes from search by default (governance boundary)", async () => {
       await store.addNode(
         makeNode({ privacyClassification: "Sealed", content: { text: "sealed secret" } }),

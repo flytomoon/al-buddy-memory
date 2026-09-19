@@ -25,12 +25,49 @@ has been retired) is reported as unproven and **left out of the mean**. It is ne
 counted as a failure. If you think your system keeps history, export a sample that
 contains a retired fact and the score will show it.
 
-## Why it cannot be gamed
+## What is read from the export, and what the adapter declares
 
-- **Adapters map only what the export records.** They are written against shapes, not
-  vendors, and every field they read is named in `src/conformance/adapters.ts`. A fact
-  with no provenance field scores 0% on provenance because there is nothing to read, not
-  because of who made it.
+Five of the seven dimensions are counted off the records in the file you pasted. Two are
+not, and saying which is which is the only thing that keeps "it grades its own homework"
+from being a fair hit.
+
+**Read from the export itself** — provenance, temporal, retention, confidence,
+relationships. Each is a count over the facts and edges the adapter produced: how many
+carry a provenance label, a `validFrom`, a `validTo` and a successor, a confidence in
+[0,1], a relation with provenance. A fact with no provenance field scores 0% on
+provenance because there is nothing to read, not because of who made it. Change the
+sample and these move.
+
+**Declared by whoever wrote the adapter** — invalidation, and two of portability's three
+parts:
+
+| Trait | Who decides | Where it is written |
+|---|---|---|
+| `invalidation` (`kept` / `expiry-only` / `overwritten` / `deleted` / `unknown`) | the adapter author | `adapters.ts:57`, `:95`, `:134` |
+| `schema.published` (34% of portability) | the adapter author | `adapters.ts:57`, `:96`, `:135` |
+| `itemised` (33% of portability) | the adapter author | `adapters.ts:57`, `:98`, `:137` |
+| `roundTrip` (33% of portability) | **executed** where an importer exists; declared otherwise | `adapters.ts:50` |
+
+These are system properties, not sample properties: whether a retired fact survives is a
+fact about the store, and no single export can prove it either way. So they are asserted,
+with a comment saying why, in one file a reader can check in a minute — and every one of
+them appears in the report's own reason line, so a wrong trait is visible in the output
+rather than buried in the total.
+
+The round-trip is the one that is genuinely proven rather than claimed: for our portable
+format, `proveRoundTrip` imports the artifact into a fresh store, exports it again, and
+compares the two canonically (`adapters.ts:20`) — that is a real test, run on your file,
+and it fails to `lossy` if it does not hold. For block-style agent files it is declared
+`lossless`, and for flat memory records `unknown`, because no importer for those shapes
+exists here to run.
+
+**What follows from that.** Our own format scores 100% on invalidation because someone
+wrote `invalidation: "kept"`, and the evidence that this is true is not in the scorer —
+it is in `src/consolidation.ts` and its tests. If you think a trait is wrong for your
+format, that is a one-line PR and the rest of your score does not change with it.
+
+## Why the rest cannot be gamed
+
 - **The reference implementation gets no special path.** Its adapter runs the same
   scorer; its round-trip is proven by importing the artifact and exporting it again.
 - **Raising a grade is one field away.** Record who asserted each fact and the

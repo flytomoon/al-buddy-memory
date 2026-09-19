@@ -33,9 +33,69 @@ function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
   return { actor: c.actor, audience: c.audience, purpose, now: c.now ?? new Date() };
 }
 
+/**
+ * A sink that has failed once cannot be trusted to record what happens next, so
+ * nothing more is changed through it. Keyed by sink, not by handle: every
+ * governed store writing to the same trail stops together.
+ *
+ * The window this does NOT close is the documented one — a mutation commits and
+ * then its event is written, so the write that broke the sink is itself
+ * unrecorded (docs/policies/ENFORCEMENT.md). What used to happen after that is
+ * the defect: every later write went through as well, each one rejecting, so a
+ * retrying client compounded changes nothing could attest to (R3, release
+ * review 2026-09-18).
+ */
+const POISONED_AUDIT = new WeakMap<AuditSink, Error>();
+
+/** Refuse before touching the store if this trail is already broken. */
+function assertAuditUsable(opts: GovernOptions): void {
+  const failed = opts.audit ? POISONED_AUDIT.get(opts.audit) : undefined;
+  if (failed) throw failed;
+}
+
 async function record(opts: GovernOptions, ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): Promise<void> {
   if (!opts.audit) return;
-  await opts.audit.record({ at: ctx.now.toISOString(), actor: ctx.actor, audience: ctx.audience, purpose: ctx.purpose, outcome, nodeIds: ids.slice(0, AUDIT_ID_SAMPLE), count: ids.length, policy: extra.policy, reason: extra.reason });
+  try {
+    await opts.audit.record({ at: ctx.now.toISOString(), actor: ctx.actor, audience: ctx.audience, purpose: ctx.purpose, outcome, nodeIds: ids.slice(0, AUDIT_ID_SAMPLE), count: ids.length, policy: extra.policy, reason: extra.reason });
+  } catch (err) {
+    if (!POISONED_AUDIT.has(opts.audit)) {
+      POISONED_AUDIT.set(
+        opts.audit,
+        new Error(`the audit sink failed (${err instanceof Error ? err.message : String(err)}); this store is not changing anything more until the log is checked with \`al-buddy-memory verify-audit\` and the process restarts`),
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Authorisation and the mutation it authorises, run as one step.
+ *
+ * The checks await — policy hooks are async by design — so between "this actor
+ * may change this fact" and the write itself, another handle over the same
+ * store could change the fact out from under the decision. An agent's allowed
+ * update landed after the owner had made the fact Sensitive and left it Private
+ * and readable (R2, release review 2026-09-18).
+ *
+ * The queue is keyed on the INNER store, so every governed handle over one
+ * store shares it; a per-handle lock would have missed the reported case
+ * exactly. Reads are not queued: they take no decision they then act on.
+ *
+ * Two limits, stated rather than implied. This is one process — two processes
+ * on one SQLite file are still only protected by SQLite's own write lock, which
+ * covers the write and not the decision. And a policy hook must not call a
+ * mutating method on a governed store over the same inner store: it would be
+ * waiting for the queue it is already holding.
+ */
+const MUTATIONS = new WeakMap<object, Promise<unknown>>();
+
+function serialise<T>(inner: object, step: () => Promise<T>): Promise<T> {
+  const queued = MUTATIONS.get(inner) ?? Promise.resolve();
+  // `step` runs whether the one before it resolved or rejected: a refusal must
+  // not jam the queue for everyone after it.
+  const next = queued.then(step, step);
+  MUTATIONS.set(inner, next.then(() => undefined, () => undefined));
+  return next;
 }
 
 /** One fact as this actor would see it on a read: the node (possibly redacted), or null. No audit. */
@@ -144,8 +204,12 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   const governed: MemoryStore = {
     async addNode(input: NewMemoryNode): Promise<MemoryNode> {
       const node = snapshot(input);
+      // Not queued: a brand-new fact answers no earlier question, so nothing
+      // can have changed under it. The audit latch still applies.
+      assertAuditUsable(opts);
       const ctx = ctxFor(opts, "write");
       const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
+      assertAuditUsable(opts);
       const saved = await inner.addNode(current);
       await record(opts, ctx, "allowed", [saved.nodeId]);
       return saved;
@@ -153,81 +217,107 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
 
     async updateNode(nodeId, input, anchorEvent): Promise<MemoryNode> {
       const patch = snapshot(input);
-      const ctx = ctxFor(opts, patch.validTo !== undefined ? "invalidate" : "write");
-      // A fact this actor cannot read is a fact this actor cannot change, and
-      // its text must not come back in the response. This used to fetch the
-      // node unfiltered, so `updateNode(secretId, {})` returned the secret and
-      // `{ privacyClassification: "Private" }` made it readable for good.
-      const { node: existing, seen } = await visibleOrNotFound(nodeId, ctx);
-      await guarded(opts, ctx, [nodeId], async () => {
-        for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = ctxFor(opts, patch.validTo !== undefined ? "invalidate" : "write");
+        // A fact this actor cannot read is a fact this actor cannot change, and
+        // its text must not come back in the response. This used to fetch the
+        // node unfiltered, so `updateNode(secretId, {})` returned the secret and
+        // `{ privacyClassification: "Private" }` made it readable for good.
+        const { node: existing, seen } = await visibleOrNotFound(nodeId, ctx);
+        await guarded(opts, ctx, [nodeId], async () => {
+          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
+        });
+        assertAuditUsable(opts);
+        const updated = anchorEvent === undefined ? await inner.updateNode(nodeId, patch) : await inner.updateNode(nodeId, patch, anchorEvent);
+        await record(opts, ctx, "allowed", [nodeId]);
+        // What they could already see, plus what they themselves wrote. Safe to
+        // fall back on `seen` only because nothing else could commit between
+        // the read and this line — see `serialise`.
+        return (await view(opts, updated, { ...ctx, purpose: "recall" })) ?? { ...seen, ...patch, temporalAnchors: updated.temporalAnchors };
       });
-      const updated = anchorEvent === undefined ? await inner.updateNode(nodeId, patch) : await inner.updateNode(nodeId, patch, anchorEvent);
-      await record(opts, ctx, "allowed", [nodeId]);
-      // What they could already see, plus what they themselves wrote.
-      return (await view(opts, updated, { ...ctx, purpose: "recall" })) ?? { ...seen, ...patch, temporalAnchors: updated.temporalAnchors };
     },
 
     async restoreNode(input: MemoryNode): Promise<void> {
       const node = snapshot(input);
-      const ctx = ctxFor(opts, "import");
-      const existing = await inner.getNode(node.nodeId);
-      let incoming = node;
-      await guarded(opts, ctx, [node.nodeId], async () => {
-        // The write policies run FIRST: they authorise the import before anything
-        // depends on whether the fact already exists, so a refused actor learns
-        // nothing about which ids are there (Astra final review, 2026-09-15). They
-        // also see an import exactly as they see a new fact, so a restored secret is
-        // classified the same way a written one is...
-        const { nodeId, temporalAnchors, validFrom, validTo, ...fields } = node;
-        const written = await writePolicies({ ...fields, validFrom, validTo }, ctx);
-        incoming = { ...node, ...written, nodeId, temporalAnchors };
-        if (existing && !(await view(opts, existing, { ...ctx, purpose: "recall" }))) {
-          throw new PolicyDenied("govern", "cannot restore over a fact this actor cannot read");
-        }
-        // ...and the update policies judge what will actually be stored, not the
-        // copy before the write policies shaped it (Astra re-review, 2026-09-15:
-        // a write policy that archived on import slipped past an update policy
-        // that forbade archiving).
-        if (existing) for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(incoming), ctx);
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = ctxFor(opts, "import");
+        const existing = await inner.getNode(node.nodeId);
+        let incoming = node;
+        await guarded(opts, ctx, [node.nodeId], async () => {
+          // The write policies run FIRST: they authorise the import before anything
+          // depends on whether the fact already exists, so a refused actor learns
+          // nothing about which ids are there (Astra final review, 2026-09-15). They
+          // also see an import exactly as they see a new fact, so a restored secret is
+          // classified the same way a written one is...
+          const { nodeId, temporalAnchors, validFrom, validTo, ...fields } = node;
+          const written = await writePolicies({ ...fields, validFrom, validTo }, ctx);
+          incoming = { ...node, ...written, nodeId, temporalAnchors };
+          if (existing && !(await view(opts, existing, { ...ctx, purpose: "recall" }))) {
+            throw new PolicyDenied("govern", "cannot restore over a fact this actor cannot read");
+          }
+          // ...and the update policies judge what will actually be stored, not the
+          // copy before the write policies shaped it (Astra re-review, 2026-09-15:
+          // a write policy that archived on import slipped past an update policy
+          // that forbade archiving).
+          if (existing) for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(incoming), ctx);
+        });
+        assertAuditUsable(opts);
+        await inner.restoreNode(incoming);
+        await record(opts, ctx, "allowed", [node.nodeId]);
       });
-      await inner.restoreNode(incoming);
-      await record(opts, ctx, "allowed", [node.nodeId]);
     },
 
     async deleteNode(nodeId: string): Promise<void> {
-      const ctx = ctxFor(opts, "erase");
-      const { node } = await visibleOrNotFound(nodeId, ctx);
-      await guarded(opts, ctx, [nodeId], () => erasePolicies({ node }, ctx));
-      await inner.deleteNode(nodeId);
-      await record(opts, ctx, "allowed", [nodeId]);
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = ctxFor(opts, "erase");
+        const { node } = await visibleOrNotFound(nodeId, ctx);
+        await guarded(opts, ctx, [nodeId], () => erasePolicies({ node }, ctx));
+        assertAuditUsable(opts);
+        await inner.deleteNode(nodeId);
+        await record(opts, ctx, "allowed", [nodeId]);
+      });
     },
 
     async deleteEdge(edgeId: string): Promise<void> {
-      const ctx = ctxFor(opts, "erase");
-      await guarded(opts, ctx, [], () => erasePolicies({ edgeId }, ctx));
-      await inner.deleteEdge(edgeId);
-      await record(opts, ctx, "allowed", [], { reason: `edge ${edgeId}` });
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = ctxFor(opts, "erase");
+        await guarded(opts, ctx, [], () => erasePolicies({ edgeId }, ctx));
+        assertAuditUsable(opts);
+        await inner.deleteEdge(edgeId);
+        await record(opts, ctx, "allowed", [], { reason: `edge ${edgeId}` });
+      });
     },
 
     async addEdge(input): Promise<MemoryEdge> {
       const edge = snapshot(input);
-      const ctx = ctxFor(opts, "write");
-      // Linking to a hidden fact would confirm that its id exists.
-      await visibleOrNotFound(edge.sourceNodeId, ctx);
-      await visibleOrNotFound(edge.targetNodeId, ctx);
-      const saved = await inner.addEdge(edge);
-      await record(opts, ctx, "allowed", [edge.sourceNodeId, edge.targetNodeId], { reason: `edge ${saved.edgeId}` });
-      return saved;
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = ctxFor(opts, "write");
+        // Linking to a hidden fact would confirm that its id exists.
+        await visibleOrNotFound(edge.sourceNodeId, ctx);
+        await visibleOrNotFound(edge.targetNodeId, ctx);
+        assertAuditUsable(opts);
+        const saved = await inner.addEdge(edge);
+        await record(opts, ctx, "allowed", [edge.sourceNodeId, edge.targetNodeId], { reason: `edge ${saved.edgeId}` });
+        return saved;
+      });
     },
 
     async restoreEdge(input: MemoryEdge): Promise<void> {
       const edge = snapshot(input);
-      const ctx = ctxFor(opts, "import");
-      await visibleOrNotFound(edge.sourceNodeId, ctx);
-      await visibleOrNotFound(edge.targetNodeId, ctx);
-      await inner.restoreEdge(edge);
-      await record(opts, ctx, "allowed", [edge.sourceNodeId, edge.targetNodeId], { reason: `edge ${edge.edgeId}` });
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = ctxFor(opts, "import");
+        await visibleOrNotFound(edge.sourceNodeId, ctx);
+        await visibleOrNotFound(edge.targetNodeId, ctx);
+        assertAuditUsable(opts);
+        await inner.restoreEdge(edge);
+        await record(opts, ctx, "allowed", [edge.sourceNodeId, edge.targetNodeId], { reason: `edge ${edge.edgeId}` });
+      });
     },
 
     async getEdges(nodeId: string): Promise<MemoryEdge[]> {
@@ -248,15 +338,19 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     // missing id failed — an oracle for which hidden ids exist.
     async setEmbedding(input): Promise<MemoryEmbedding> {
       const embedding = snapshot(input);
-      await visibleOrNotFound(embedding.nodeId, ctxFor(opts, "write"));
-      return inner.setEmbedding(embedding);
+      return serialise(inner, async () => {
+        await visibleOrNotFound(embedding.nodeId, ctxFor(opts, "write"));
+        return inner.setEmbedding(embedding);
+      });
     },
     async getEmbeddings(nodeId: string): Promise<MemoryEmbedding[]> {
       return (await governed.getNode(nodeId)) ? inner.getEmbeddings(nodeId) : [];
     },
     async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {
-      await visibleOrNotFound(nodeId, ctxFor(opts, "write"));
-      return model === undefined ? inner.deleteEmbeddings(nodeId) : inner.deleteEmbeddings(nodeId, model);
+      return serialise(inner, async () => {
+        await visibleOrNotFound(nodeId, ctxFor(opts, "write"));
+        return model === undefined ? inner.deleteEmbeddings(nodeId) : inner.deleteEmbeddings(nodeId, model);
+      });
     },
     async listEmbeddings(model: string): Promise<MemoryEmbedding[]> {
       // One pass over the facts, not one lookup per vector.
