@@ -44,7 +44,9 @@ describe("indexMissingEmbeddings", () => {
     await store.setEmbedding({
       nodeId: a.nodeId,
       model: embedder.model,
-      modelVersion: "1",
+      // This embedder's own version: a row from any other version is not a
+      // vector this embedder can use, and the backfill replaces it.
+      modelVersion: embedder.modelVersion,
       dimensions: 3,
       metric: "cosine",
       vector: [1, 0, 0],
@@ -292,9 +294,11 @@ describe("HybridRetriever ranks the vector side the way the stores rank", () => 
       const embedder = conceptEmbedder();
       const good = await store.addNode(makeNode({ content: { text: "tokyo" } }));
       const bad = await store.addNode(makeNode({ content: { text: "tokyo too" } }));
+      // Both rows claim this embedder's model AND version, so the length check
+      // is the only thing that can save the order — which is the point here.
       const put = {
-        good: () => store.setEmbedding({ nodeId: good.nodeId, model: embedder.model, modelVersion: "1", dimensions: 3, metric: "cosine", vector: [1, 0, 0] }),
-        bad: () => store.setEmbedding({ nodeId: bad.nodeId, model: embedder.model, modelVersion: "0", dimensions: 2, metric: "cosine", vector: [1, 0] }),
+        good: () => store.setEmbedding({ nodeId: good.nodeId, model: embedder.model, modelVersion: embedder.modelVersion, dimensions: 3, metric: "cosine", vector: [1, 0, 0] }),
+        bad: () => store.setEmbedding({ nodeId: bad.nodeId, model: embedder.model, modelVersion: embedder.modelVersion, dimensions: 3, metric: "cosine", vector: [1, 0] }),
       };
       if (order === "bad-first") await put.bad().then(put.good);
       else await put.good().then(put.bad);
@@ -317,5 +321,33 @@ describe("HybridRetriever ranks the vector side the way the stores rank", () => 
     await indexMissingEmbeddings(store, embedder);
     const hits = await new HybridRetriever(store, embedder).recall("tokyo", { limit: 1 });
     expect(hits[0]?.nodeId).toBe(OLD_ID);
+  });
+});
+
+/**
+ * A vector cache is only disposable if the library can tell when it is stale.
+ * The vectors are tagged with the model's NAME, and a provider that ships new
+ * weights under the same name puts a different vector space behind the same
+ * tag: the retriever went on comparing the old vectors, and the backfill
+ * reported nothing to do. The tag that matters is (model, modelVersion,
+ * dimensions) (Astra R9, 2026-09-18).
+ */
+describe("HybridRetriever — a model whose weights changed under the same name", () => {
+  it("neither compares nor keeps the vectors from the version before", async () => {
+    const store = new InMemoryStore();
+    const flat = await store.addNode(makeNode({ content: { text: "the flat in shibuya" } }));
+    // Both versions answer every text with the same vector, so nothing but the
+    // version tag can distinguish them.
+    const v1 = new FakeEmbedder("m", 2, () => [1, 0]);
+    expect(await indexMissingEmbeddings(store, v1)).toBe(1);
+
+    const v2 = new FakeEmbedder("m", 2, () => [1, 0], "2");
+    // "japan" is in no fact's text, so a hit can only come from a vector — and
+    // the only vectors in the store belong to a model that no longer exists.
+    expect(await new HybridRetriever(store, v2).recall("japan", { limit: 5 })).toEqual([]);
+
+    expect(await indexMissingEmbeddings(store, v2)).toBe(1);
+    expect((await store.getEmbeddings(flat.nodeId)).map((e) => e.modelVersion)).toEqual(["2"]);
+    expect((await new HybridRetriever(store, v2).recall("japan", { limit: 5 })).map((n) => n.nodeId)).toEqual([flat.nodeId]);
   });
 });
