@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Al Buddy — a memory that's yours</title>
-<meta name="description" content="Al Buddy is an open memory for AI assistants. It never forgets on purpose, knows where every fact came from, and leaves with you.">
+<meta name="description" content="Al Buddy is an open memory for AI assistants. A fact that stops being true gets an end date instead of being overwritten, every fact says where it came from, and it all leaves with you.">
 <link rel="icon" href="al-icon.png"><link rel="apple-touch-icon" href="al-icon.png">
-<meta property="og:title" content="Al Buddy — a memory that's yours"><meta property="og:description" content="An open memory for AI assistants: never deletes, knows where every fact came from, leaves with you."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
+<meta property="og:title" content="Al Buddy — a memory that's yours"><meta property="og:description" content="An open memory for AI assistants: facts are invalidated, never overwritten; every fact says where it came from; it leaves with you."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
 <style>
   :root { color-scheme: light dark;
     --paper:#f4efe5; --panel:#fffdf8; --panel-2:#faf6ec; --fg:#26231d; --fg-dim:#57534a; --fg-faint:#6e6a5f; --line:rgba(38,35,29,.10);
@@ -73,7 +73,7 @@
   <section class="hero">
     <img src="al-icon.png" alt="The Al Buddy mark: a lowercase al">
     <h1>A memory that's yours.</h1>
-    <p class="lead">Al Buddy is an open memory for AI assistants. It never forgets on purpose, it knows where every fact came from, and it leaves with you.</p>
+    <p class="lead">Al Buddy is an open memory for AI assistants. Nothing is dropped to make room, it knows where every fact came from, and it leaves with you.</p>
     <p class="say"><strong>Al</strong> — a name, said like "pal". Not A.I.</p>
     <div class="cta"><a class="btn primary" href="#try">Score your assistant's memory</a><a class="btn" href="https://github.com/flytomoon/al-buddy-memory">Read the code</a></div>
   </section>
@@ -82,7 +82,7 @@
     <h2>What we believe a memory owes you</h2>
     <p class="sub">Most AI memory is a scratchpad the vendor owns: facts get overwritten, nobody can say who claimed what, and you can't take it with you. We built the opposite.</p>
     <div class="grid">
-      <div class="card"><span class="k">Never deleted</span><h3>Change is kept, not erased</h3><p>When something stops being true, it gets an end date and stays. You moved cities; your Al still knows where you used to live, and when that changed.</p></div>
+      <div class="card"><span class="k">Invalidated, not overwritten</span><h3>Change is kept, with a date on it</h3><p>When something stops being true, it gets an end date and stays. You moved cities; your Al still knows where you used to live, and when that changed. Erasing a fact is possible — it is refused unless a policy allows it, and it is written to the audit trail.</p></div>
       <div class="card"><span class="k">Provenance</span><h3>Every fact says who said it</h3><p>You, the assistant's guess, a guardian, or the system. And how sure it was. So an assistant can weigh a fact instead of just repeating it.</p></div>
       <div class="card"><span class="k">Portable</span><h3>It leaves with you</h3><p>One documented export format with a schema and a proven round-trip. Switch assistants, switch models, switch vendors. Nothing is lost.</p></div>
       <div class="card"><span class="k">Raw text is the truth</span><h3>Models come and go</h3><p>Your words are the record. The vectors a model builds from them are a cache: throw them away, rebuild them with a better model, keep everything.</p></div>
@@ -109,14 +109,14 @@
       <span id="status" class="err" role="status"></span>
     </div>
     <section id="out" class="card" hidden></section>
-    <p class="notes">The rules are public: <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/SCORING.md">how each question is scored and what the score does not measure</a>. The adapters map only what an export records, so any system that starts recording provenance scores higher. That's the point.</p>
+    <p class="notes">The rules are public: <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/SCORING.md">how each question is scored, which parts are counted off your file and which the adapter declares, and what the score does not measure</a>. Five of the seven are counted from the records you paste, so any system that starts recording provenance scores higher. That's the point.</p>
   </section>
 
   <section class="block" id="governance">
     <h2>Governance, in plain words</h2>
     <p class="sub">A memory that plugs into anything needs rules you can read, and an honest line between what the code enforces and what a person still decides.</p>
     <div class="grid">
-      <div class="card"><span class="k">Enforced in code</span><h3>What the store will not let happen</h3><p>Nothing is deleted. Who said a fact, and when, can never be changed after it is written. Sealed facts never surface unless asked for by name. A policy can refuse a write, hide a fact from an audience, or stop it leaving in an export, and every decision lands in an audit trail.</p></div>
+      <div class="card"><span class="k">Enforced in code</span><h3>What the store will not let happen</h3><p>A fact is never overwritten — it is closed with an end date and kept. Erasure exists, and a governed store refuses it unless a policy explicitly allows it. Who said a fact, and when, can never be changed after it is written. Sealed facts never surface unless asked for by name. A policy can refuse a write, hide a fact from an audience, or stop it leaving in an export, and every decision lands in an audit trail.</p></div>
       <div class="card"><span class="k">Guardians</span><h3>Someone can protect what needs protecting</h3><p>A parent, a carer, a team lead: a guardian's facts can only be changed by a guardian, and everyone can still read them. Built for the people who are looked after, not only the people who look.</p></div>
       <div class="card"><span class="k">Human decisions</span><h3>Nothing consequential without a person</h3><p>An assistant on this memory can advise and anticipate freely. Money, deletion, public posts, credentials, new services: those need a human's explicit yes. A false escalation costs less than a false claim of authority.</p></div>
       <div class="card"><span class="k">Honesty</span><h3>What we do not claim</h3><p>We do not claim it is safe. We list exactly what is enforced, what is only a prompt, and what is still a person's call, and we change the list in the open. <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/policies/README.md">Read the rules.</a></p></div>
