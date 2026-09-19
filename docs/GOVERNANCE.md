@@ -125,7 +125,14 @@ extend it rather than starting a second chain that claims to be the first. That 
 against accident and careless deletion, **not** tamper-proofing: whoever can delete the records
 can reset the counter in the same breath, and against a deliberate edit the anchored head is
 still the only answer. (Measured 2026-09-19: the mark survives `DELETE`, `VACUUM`,
-`VACUUM INTO` and `.backup()`, so ordinary maintenance does not trip it.) It is tamper-**evident**, not tamper-proof: whoever
+`VACUUM INTO` and `.backup()`, including a `.backup()` taken while another process was
+writing, and reading the chain while another process extends it is one snapshot, so a live
+second assistant does not trip it either. **Pruning the trail is a deletion and trips it by
+design** — that is the point of it; if you meant to prune, anchor `head()` first and then
+bring the counter back in line with
+`UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(seq), 0) FROM audit_events) WHERE name = 'audit_events'`,
+which the refusal message also tells you. The chain that follows does not attest to anything
+before it.) It is tamper-**evident**, not tamper-proof: whoever
 holds the HMAC key — or, with no key, anyone who can write the file — can recompute the
 whole chain, and a restored backup carries a self-consistent chain of its own. What
 distinguishes a rewrite or a restored backup from the real history is the anchored head

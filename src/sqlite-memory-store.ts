@@ -501,6 +501,11 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
   }
 
   async recordAuditEvent(event: AuditEvent): Promise<void> {
+    // Same reason as `auditedMutation`: the one-time chain check is a full pass,
+    // and inside the transaction below it would hold the write lock. A process
+    // whose FIRST governed call is a read reaches the check here rather than
+    // there, so it has to be lifted out in both places.
+    this.auditTable.ensureChecked();
     // A refusal or a read has no fact to be atomic with: its own transaction.
     this.db.transaction(() => this.auditTable.append(event)).immediate();
   }

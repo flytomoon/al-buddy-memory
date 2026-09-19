@@ -85,7 +85,11 @@ worse than no entry, because this file is meant to survive review.
   had. What
   changed is the *pairing* of a fact with its event and the number of chains,
   not how much trust either form can carry. A cut-off tail is still invisible to
-  the trail itself; only an anchored head catches it.
+  a log FILE; only an anchored head catches it there. (**Corrected 2026-09-19:**
+  this sentence said "invisible to the trail itself", of both forms. The table
+  catches a careless truncation on its own — see *The tail a table can prove,
+  and a file cannot*. A deliberate edit still needs the anchor, so the paragraph's
+  point stands.)
 
 ---
 
@@ -202,6 +206,47 @@ reality rather than described.*
   claim than a description, and invites exactly the reading that finds the
   missing item.** "Read this exactly as written" raises the standard the sentence
   is held to; it had better be complete.
+
+### The check that caught deletion also accused the innocent
+
+- **Reported by:** Fable 5.1, reviewing the tail check within hours of it being
+  written, 2026-09-19. Called release-blocking, correctly.
+- **The failure:** the tail check reads three things — how many events there
+  are, the rows themselves, and the high-water mark — and they were three
+  separate statements, so three different moments. In WAL a reader never blocks
+  a writer, so another process appending in between left the mark ahead of the
+  largest `seq` this call had seen: **exactly the signature of a deleted tail**.
+  It then reported records "removed from the end" of a chain nobody had touched
+  — and because the same check gates the first append, that false report
+  *refused a healthy store*. Two assistants on one memory is the ordinary case
+  this whole feature exists to serve, and three documents said in that same
+  commit that "ordinary maintenance does not trip it".
+- **Us:** ours, hours old, introduced by the fix two entries above and found
+  before it reached anyone. Fixed 2026-09-19 (unreleased).
+- **Evidence:** measured against one process appending every ~2 ms to a
+  120,000-event chain: **30/30** false "removed from the end" from
+  `verify-audit`, **24/30** refused first writes, and one running writer refused
+  **12 times in a row** (the check only caches on success, so a refused process
+  re-walks the whole chain every call). In one read snapshot, 15/15 clean under
+  the same load. `src/governance/audit-cross-process.test.ts`, *does not accuse
+  a chain that is being extended while it is read*: 20,000 seeded events, a real
+  second process appending throughout, twelve verifications, zero failures —
+  and it fails 11/12 when the snapshot is taken away, so it has been shown to
+  fail on the defect.
+- **Notes:** the general lesson, and it is the third time this file has recorded
+  a version of it: **a detector's false-positive rate is part of its
+  correctness, not a footnote to it.** A check that refuses is a check that can
+  brick, so the bar for it is higher than for one that only reports — and this
+  one was written, measured against every *deletion* shape anybody could think
+  of, documented, and shipped to review without once being run while somebody
+  else was writing. The deletions were the interesting case; the innocent chain
+  was the one that mattered. Two more consequences were taken with it: a torn
+  copy of a live database looks identical to a deletion from here (15 of 16
+  readable mid-write copies were reported as deletion), so the message now names
+  `PRAGMA integrity_check` as the way to tell them apart; and a refusal with no
+  exit is a brick, so it now carries the two-line way out — anchor `head()`,
+  then bring the counter back in line — because an owner who pruned their own
+  trail on purpose is the likeliest person to meet it.
 
 ### The tail a table can prove, and a file cannot
 
