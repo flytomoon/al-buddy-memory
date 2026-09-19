@@ -8,10 +8,7 @@ under **Behaviour change**, because a version number alone is not a warning.
 On npm today: 0.3.0, 0.3.1 and 0.3.3. Numbers marked "never published" were
 staged and superseded before anyone could install them.
 
-## Unreleased
-
-Which version this lands under is decided at release, not here: the 0.4.2 work
-is still on branches and this may ship with it or after it. Dated 2026-09-19.
+## 0.4.2 — 2026-09-19
 
 Alongside it, six fixes to the **MCP surface** — the only surface most people
 will ever touch — which carry no schema change of their own. Full write-ups of
