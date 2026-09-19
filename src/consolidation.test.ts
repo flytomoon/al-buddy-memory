@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
+import { MemoryAudit, type AuditSink } from "./governance/audit.js";
+import { govern } from "./governance/governed-store.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import type { MemoryStore } from "./types/memory.js";
 import { InMemoryStore } from "./in-memory-store.js";
@@ -256,5 +258,68 @@ describe("consolidate — the whole pass, and only what the pass wrote", () => {
     const standing = (await store.searchNodes({})).filter((n) => n.content.text.startsWith("a conclusion"));
     // Never deleted — but never left standing on evidence nobody can check.
     expect(standing.every((n) => n.validTo !== null)).toBe(true);
+  });
+
+  /**
+   * Two of the 2026-09-18 fixes did not compose, found by GPT-6-Astra on
+   * 2026-09-19. The correctness merge retracts a derived fact whose evidence
+   * could not be recorded; the release merge latches a failed audit sink so the
+   * store refuses every later change. When the audit sink is what failed, the
+   * compensating retraction is a change — so it was refused, consolidate threw,
+   * and the conclusion stayed LIVE with one of its two evidence edges.
+   *
+   * Bypassing the latch would undo the other fix, so the order is inverted
+   * instead: a derived fact is written already retracted and only stands once
+   * all of its evidence is recorded. There is then nothing to compensate — the
+   * failure mode is a withdrawn conclusion, not an unsupported one.
+   */
+  it("does not leave a conclusion standing when the audit trail dies mid-pass", async () => {
+    const inner = new InMemoryStore();
+    const [a, b] = await seed(inner, ["raw one", "raw two"]);
+    let writes = 0;
+    const audit: AuditSink = {
+      record(event) {
+        // The sink survives the derived fact and dies on its first evidence edge.
+        if (event.purpose === "write" && ++writes === 2) throw new Error("ENOSPC: no space left on device");
+      },
+    };
+    const store = govern(inner, { policies: [], context: () => ({ actor: "owner" }), audit });
+
+    await expect(
+      consolidate(store, {
+        since: "2000-01-01T00:00:00Z",
+        model: "m",
+        propose: async () => [{ text: "a conclusion whose evidence broke the trail", sourceNodeIds: [a!, b!] }],
+      }),
+    ).rejects.toThrow(/audit/i);
+
+    const derived = (await inner.listNodes()).find((n) => n.provenance === "AIInferred");
+    expect(derived).toBeDefined();
+    // THE DEFECT at cce9cf9: validTo was null — the conclusion stood, unretracted,
+    // on one of the two edges it claims to rest on.
+    expect(derived?.validTo).not.toBeNull();
+    expect((await inner.getEdges(derived!.nodeId)).length).toBeLessThan(2);
+  });
+
+  it("stands a derived fact up only once all of its evidence is recorded", async () => {
+    const inner = new InMemoryStore();
+    const [a, b] = await seed(inner, ["raw one", "raw two"]);
+    const audit = new MemoryAudit();
+    const store = govern(inner, { policies: [], context: () => ({ actor: "owner" }), audit });
+
+    const report = await consolidate(store, {
+      since: "2000-01-01T00:00:00Z",
+      model: "m",
+      propose: async () => [{ text: "a conclusion that rests on both", sourceNodeIds: [a!, b!] }],
+    });
+
+    expect(report.written).toBe(1);
+    const derived = await inner.getNode(report.derivedNodeIds[0]!);
+    expect(derived?.validTo).toBeNull();
+    expect(derived?.contextualMetadata["retraction"]).toBeUndefined();
+    expect(await inner.getEdges(derived!.nodeId)).toHaveLength(2);
+    // Every step of it is on the trail, and the fact only became current at the end.
+    const forDerived = audit.events.filter((e) => e.nodeIds.includes(derived!.nodeId));
+    expect(forDerived.at(-1)?.purpose).toBe("invalidate"); // the validity change that stood it up
   });
 });

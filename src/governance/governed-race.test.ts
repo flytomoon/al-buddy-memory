@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
+import { MemoryAudit } from "./audit.js";
 import { govern } from "./governed-store.js";
 import { PolicyDenied, type GovernancePolicy } from "./policy.js";
+import { personalDefaults } from "./samples.js";
 
 /**
  * R2 (release review, 2026-09-18): `updateNode` read the fact, awaited the
@@ -212,5 +214,115 @@ describe("authorisation and mutation are one step", () => {
     expect(new Set(many.map((n) => n.nodeId)).size).toBe(12);
     await Promise.all(many.map((n) => owner.updateNode(n.nodeId, { confidenceWeight: 0.4 })));
     for (const n of many) expect((await inner.getNode(n.nodeId))?.confidenceWeight).toBe(0.4);
+  });
+});
+
+/**
+ * The regression the R2 fix introduced, found by GPT-6-Astra re-reviewing the
+ * merged result on 2026-09-19. Queueing the mutation also moved `context()`
+ * inside the queued step, so the authority the call ran under was whatever the
+ * caller's context said when the QUEUE reached it — not when the call was made.
+ *
+ * `context` is documented as "called per operation, so one governed store can
+ * serve many actors", and an application that serves many actors sets it from
+ * whoever is being served right now. A stranger's mutation, scheduled and then
+ * overtaken by the owner's request, therefore committed and audited as the
+ * owner. No busy queue was needed: one promise hop is enough.
+ *
+ * The rule these tests hold: WHO is fixed when the call is made; WHEN is read
+ * when the work runs (so an audit event carries the instant it committed).
+ */
+describe("a queued mutation keeps the authority it was called with", () => {
+  /** A store whose caller-identity changes between the call and the queue. */
+  function shifting(inner: MemoryStore, policies: GovernancePolicy[]) {
+    const audit = new MemoryAudit();
+    let actor = "stranger";
+    const store = govern(inner, { policies, context: () => ({ actor }), audit });
+    return { store, audit, becomeOwner: () => (actor = "owner") };
+  }
+
+  it("does not let a stranger's update commit as the owner (the re-review's repro)", async () => {
+    const inner = new InMemoryStore();
+    const fact = await inner.addNode(newNode("the door code is 4417"));
+    const { store, audit, becomeOwner } = shifting(inner, [personalDefaults({ owner: "owner" })]);
+
+    const pending = store.updateNode(fact.nodeId, { confidenceWeight: 0.1 });
+    becomeOwner(); // the next request arrives before the queue runs the step
+
+    await expect(pending).rejects.toThrow();
+    expect((await inner.getNode(fact.nodeId))?.confidenceWeight).toBe(1);
+    // …and nothing in the trail says the owner did it.
+    expect(audit.events.map((e) => e.actor)).not.toContain("owner");
+  });
+
+  it("does not let a stranger's erasure run under an owner-only policy", async () => {
+    const inner = new InMemoryStore();
+    const fact = await inner.addNode(newNode("erase me if you are allowed"));
+    const ownerOnlyErase: GovernancePolicy = { name: "owner-only-erase", beforeErase: (_subject, ctx) => ctx.actor === "owner" };
+    const { store, becomeOwner } = shifting(inner, [ownerOnlyErase]);
+
+    const pending = store.deleteNode(fact.nodeId);
+    becomeOwner();
+
+    await expect(pending).rejects.toThrow(PolicyDenied);
+    expect(await inner.getNode(fact.nodeId)).toBeDefined();
+  });
+
+  it("does not let a stranger's link reach a fact only the owner may see", async () => {
+    const inner = new InMemoryStore();
+    const a = await inner.addNode(newNode("end a"));
+    const b = await inner.addNode(newNode("end b"));
+    const ownerOnlyRead: GovernancePolicy = { name: "owner-only-read", beforeRead: (node, ctx) => (ctx.actor === "owner" ? node : null) };
+    const { store, becomeOwner } = shifting(inner, [ownerOnlyRead]);
+
+    const pending = store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Reinforcement", strength: 1, provenance: "UserAsserted" });
+    becomeOwner();
+
+    await expect(pending).rejects.toThrow(/not found/i);
+    expect(await inner.getEdges(a.nodeId)).toHaveLength(0);
+  });
+
+  // A guard, not a repro: `addNode` read its context at call time already, and
+  // serialising it (the fix for the audit-latch bound) must not move that read
+  // into the queued step the way the R2 fix did for everything else.
+  it("writes a new fact as the actor who asked for it", async () => {
+    const inner = new InMemoryStore();
+    const { store, audit, becomeOwner } = shifting(inner, []);
+    const pending = store.addNode(newNode("who wrote this?"));
+    becomeOwner();
+    await pending;
+    expect(audit.events.map((e) => e.actor)).toEqual(["stranger"]);
+  });
+
+  // The other half of the rule, so the fix for the above does not go too far:
+  // the CLOCK is still read when the queued work runs. Freezing the whole
+  // context at call time would backdate every event behind a slow policy.
+  it("reads the clock when the queued work runs, not when the call was made", async () => {
+    const inner = new InMemoryStore();
+    const a = await inner.addNode(newNode("first"));
+    const b = await inner.addNode(newNode("second"));
+    const audit = new MemoryAudit();
+    const g = gate();
+    const holdsTheQueue: GovernancePolicy = {
+      name: "holds-the-queue",
+      async beforeUpdate(existing) {
+        if (existing.nodeId === a.nodeId) {
+          g.reach();
+          await g.held;
+        }
+      },
+    };
+    const store = govern(inner, { policies: [holdsTheQueue], context: () => ({ actor: "owner" }), audit });
+
+    const first = store.updateNode(a.nodeId, { confidenceWeight: 0.5 });
+    await g.entered;
+    const queued = store.updateNode(b.nodeId, { confidenceWeight: 0.5 }); // called now, runs later
+    const calledAt = Date.now();
+    await new Promise((r) => setTimeout(r, 25));
+    g.release();
+    await Promise.all([first, queued]);
+
+    const forB = audit.events.find((e) => e.outcome === "allowed" && e.nodeIds.includes(b.nodeId));
+    expect(Date.parse(forB!.at)).toBeGreaterThan(calledAt);
   });
 });

@@ -134,24 +134,35 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
       decayRate: 0,
     };
     // The fact and its evidence are separate writes and this interface has no
-    // transaction to put them in, so the failure is handled instead of ignored:
-    // a source deleted while the model was thinking used to leave the
-    // conclusion committed with no evidence edge and the pass thrown out
-    // mid-flight (Astra R11, reproduced in both stores). A conclusion nobody
-    // can check does not stand — and, this being the invalidate-never-delete
-    // library, it is retracted rather than deleted, with the reason on it.
+    // transaction to put them in, so a conclusion nobody can check must not be
+    // able to stand: a source deleted while the model was thinking used to
+    // leave the conclusion committed with no evidence edge and the pass thrown
+    // out mid-flight (Astra R11, reproduced in both stores).
+    //
+    // It is written RETRACTED and stood up last. Retracting it afterwards was
+    // the first attempt, and it does not compose with the audit latch: when the
+    // audit sink is what failed, the store correctly refuses every further
+    // change — including the compensating retraction — so the conclusion stayed
+    // live on half its evidence and the pass threw (GPT-6-Astra on the merged
+    // result, 2026-09-19). Bypassing the latch would undo the guarantee the
+    // latch exists for. Inverting the order needs no compensation at all: the
+    // only write that can make a derived fact current is the one that happens
+    // after all of its evidence is recorded, so every way this can fail leaves
+    // a withdrawn conclusion rather than an unsupported one.
+    const pending: Retraction = { at: now, by: "consolidate", reason: "evidence not recorded yet" };
     let saved: MemoryNode | undefined;
     try {
-      saved = await store.addNode(node);
+      saved = await store.addNode({ ...node, validTo: now, contextualMetadata: { ...node.contextualMetadata, retraction: pending } });
       for (const src of sources) {
         await store.addEdge({ sourceNodeId: saved.nodeId, targetNodeId: src, relationshipType: "Reinforcement", strength: node.confidenceWeight, provenance: "AIInferred" });
       }
+      saved = await store.updateNode(saved.nodeId, { validTo: null, contextualMetadata: node.contextualMetadata });
     } catch (err) {
       const why = `evidence could not be recorded: ${err instanceof Error ? err.message : String(err)}`;
-      if (saved) {
-        const retraction: Retraction = { at: now, by: "consolidate", reason: why };
-        await store.updateNode(saved.nodeId, { validTo: now, contextualMetadata: { ...node.contextualMetadata, retraction } });
-      }
+      // Already retracted; all that is left is to say why, and even that is
+      // allowed to fail — the reason is a courtesy, the retraction is the
+      // guarantee.
+      if (saved) await store.updateNode(saved.nodeId, { validTo: now, contextualMetadata: { ...node.contextualMetadata, retraction: { at: now, by: "consolidate", reason: why } } }).catch(() => undefined);
       report.refused.push({ text, why });
       continue;
     }

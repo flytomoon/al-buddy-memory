@@ -5,16 +5,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ProjectMemory, projectDbPath } from "./project-memory.js";
 
 describe("projectDbPath", () => {
-  // The filename is a readable stub plus a digest of the whole scope. Until
-  // 0.4.2 it was the stub alone, so two scopes that sanitised alike shared one
-  // database (R1, release review 2026-09-18 — see project-memory-isolation.test.ts).
+  // The filename is a readable stub, a dot, then a digest of the whole scope.
+  // Until 0.4.2 it was the stub alone, so two scopes that sanitised alike shared
+  // one database (R1, release review 2026-09-18 — see
+  // project-memory-isolation.test.ts). The dot separates the two schemes: the
+  // stub never contains one, so no 0.4.1 filename can also be a 0.4.2 filename
+  // (2026-09-19 — same file, "cannot name a file the previous scheme could").
   it("puts each project in its own file under the base dir", () => {
-    expect(projectDbPath("al-buddy", "/base")).toMatch(/^\/base\/al-buddy-[0-9a-f]{16}\.db$/);
+    expect(projectDbPath("al-buddy", "/base")).toMatch(/^\/base\/al-buddy\.[0-9a-f]{16}\.db$/);
   });
 
   it("sanitizes unsafe characters in the project name", () => {
     const path = projectDbPath("../evil/project", "/base");
-    expect(path).toMatch(/^\/base\/evil-project-[0-9a-f]{16}\.db$/);
+    expect(path).toMatch(/^\/base\/evil-project\.[0-9a-f]{16}\.db$/);
     expect(path).not.toContain("..");
   });
 
