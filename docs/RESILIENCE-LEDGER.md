@@ -88,6 +88,136 @@ worse than no entry, because this file is meant to survive review.
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
 
+### A queue that also deferred the question of who was asking
+- **Reported by:** GPT-6-Astra, re-reviewing the merged 0.4.2 work, 2026-09-19.
+  Two of its three blockers were defects we had introduced the day before while
+  fixing something else; this is the first, and the worse one.
+- **The failure:** closing the R2 race put governed mutations on a queue, and
+  moved the `context()` call *inside* the queued step. `context` is documented
+  as called per operation "so one governed store can serve many actors" — which
+  means an application sets it from whoever is being served right now. So a
+  mutation asked for by one actor ran under whoever the context named by the
+  time the queue reached it. A stranger's update, scheduled and then overtaken
+  by the owner's request, committed **and was audited** as the owner. The
+  pre-fix build denied the same call. No busy queue is needed: the promise hop
+  the queue itself adds is enough.
+- **Us:** ours, introduced 2026-09-18 and fixed 2026-09-19.
+- **Evidence:** Astra's `governance-probes.mjs`, second probe, on the merged
+  build: `{calledAs: "stranger", result: "committed", actualConfidence: 0.1,
+  auditActors: ["owner"]}`. After the fix, the same probe:
+  `{result: "personal-defaults: stranger is not the owner and cannot change the
+  owner's memory", actualConfidence: 1, auditActors: ["stranger"]}`. Three
+  tests in `src/governance/governed-race.test.ts` ("a queued mutation keeps the
+  authority it was called with") fail first on `cce9cf9`; the five tests that
+  prove R2 is still closed are in the same file and still pass.
+- **Notes:** the shape is the lesson, and it is a general one: a fix that
+  introduces a queue moves *when* things happen, and anything read at the point
+  of execution silently becomes late. The rule now written into the code is
+  **who is fixed at call time, when is read at run time** — authority must not
+  drift, but an audit event must still carry the instant the change landed, so
+  freezing the whole context would have been the opposite mistake. A reviewer
+  should ask what else in this library is read after an `await` that was
+  written before one.
+
+### A claim that was a read and a write
+- **Reported by:** GPT-6-Astra, same re-review, 2026-09-19.
+- **The failure:** recording a scope inside a database — the other half of the
+  R1 fix — read the stamp and then wrote it, with nothing holding the two
+  together. Two processes that both looked at an unstamped 0.4.1 file before
+  either wrote both found it free, and `INSERT OR REPLACE` let the second
+  overwrite the first's name. Both opened it, both wrote into it, and each
+  recalled the other's private facts: R1 again, through the mechanism added to
+  prevent R1.
+- **Us:** ours, introduced 2026-09-18 and fixed 2026-09-19.
+- **Evidence:** reproduced with two real processes parked between the read and
+  the write (`src/scope-claim-race.test.ts`, which fails on `cce9cf9` with both
+  processes opening and one reading `["a private fact from 1", "a private fact
+  from 2"]`). The claim is now one `BEGIN IMMEDIATE` transaction — the write
+  lock is taken *before* the stamp is read — with a conditional insert and a
+  read-back inside it, so the value the caller is told about is the value in the
+  file. Astra's own `scope-race.mjs`, with its barrier matched to the new SQL,
+  now reports one process claiming and the other exiting 1.
+- **Notes:** this is the same defect as R2 one layer down, and worth saying so
+  in the paper: "check, then act" is not a guarantee at any level — in the
+  governed store it needed a queue, in SQLite it needed `IMMEDIATE`. It is also
+  the one place in this library where a cross-process guarantee is real rather
+  than per-process, because SQLite is doing the work.
+
+### A new filename that was somebody else's old one
+- **Reported by:** GPT-6-Astra, same re-review, 2026-09-19.
+- **The failure:** the R1 fix gave each scope a filename of `<stub>-<16 hex>`,
+  and resolved to it the moment a file existed there, without asking whose it
+  was. But the *old* scheme's output was `<anything over [A-Za-z0-9_-]>.db` — so
+  a canonical name was a name the old scheme could also produce. A 0.4.1 project
+  called literally `foo-2c26b46b68ffc68f` owned the exact file that the new
+  scope `foo` resolved to: `foo` claimed it, stamped it, and read its private
+  facts, while the original owner reopened to an empty store. No collision under
+  the old scheme was needed, which is why the "only already-mixed stores lose
+  access" claim in this file was wrong.
+- **Us:** ours, introduced 2026-09-18 and fixed 2026-09-19.
+- **Evidence:** Astra's `scope-probes.mjs` on the merged build read
+  `["unrelated legacy private memory"]` for the scope `foo` and `[]` for its
+  rightful owner; after the fix it reads `[]` and
+  `["unrelated legacy private memory"]` respectively, and the ordinary 0.4.1
+  migration in the same probe still lands on the old file. Two tests in
+  `src/project-memory-isolation.test.ts` fail first on `cce9cf9`.
+- **Notes:** the fix is one character — the separator is a dot, and `slug()`
+  strips every dot, so a canonical stem always contains something the old scheme
+  could not leave behind. That is the point worth making: the two namespaces now
+  *cannot* meet, instead of being checked for meeting. `projectDbPath` was
+  tightened as well (it prefers the canonical path only when the file there is
+  stamped with this scope), but that is belt to the braces. A reviewer should
+  push on the fact that this class of bug — a new key space that overlaps an old
+  one — is invisible to every test written about the new scheme alone.
+
+### Two fixes that did not compose: a retraction the audit latch refused
+- **Reported by:** GPT-6-Astra, same re-review, 2026-09-19.
+- **The failure:** one 2026-09-18 fix made consolidation retract a derived fact
+  whose evidence edges could not be written; another latched a failed audit sink
+  so the store refuses every later change. When the audit sink is what failed,
+  the compensating retraction is itself a change — so it was refused, the pass
+  threw, and the conclusion stayed **live, unretracted, resting on one of its
+  two evidence edges**. Each fix was correct alone and the pair was not, which
+  is the only way this could have passed both reviews.
+- **Us:** ours, introduced 2026-09-18 and fixed 2026-09-19.
+- **Evidence:** `src/consolidation.test.ts`, "does not leave a conclusion
+  standing when the audit trail dies mid-pass" — fails on `cce9cf9` with
+  `expected null not to be null` on the derived fact's `validTo`.
+- **Notes:** the interesting part is what the fix is *not*. Letting the
+  retraction bypass the latch would have undone the other fix, so the order was
+  inverted instead: a derived fact is written already retracted and is stood up
+  by a final update that happens only after every evidence edge is recorded.
+  There is then nothing to compensate — every way the pass can die leaves a
+  withdrawn conclusion rather than an unsupported one. The cost is one extra
+  write and one extra audit event per derived fact, and the stand-up is audited
+  with purpose `invalidate`, because the store classifies any change to a fact's
+  validity that way, in either direction. The general lesson for the paper:
+  **compensating actions do not work through the mechanism that is broken**, so
+  a system that recovers by writing must be able to fail without writing.
+
+### The MCP handshake did not fit the character budget it was written for
+- **Reported by:** ourselves, 2026-09-18, checking our own 0.4.1 claim.
+- **The failure:** `SERVER_INSTRUCTIONS` exists because some MCP clients truncate
+  the `instructions` string, and 0.4.1 claimed the essentials fit in the first 512
+  characters. The string was 637. A client that truncates was told to recall and
+  to remember, and never reached the rule that tells it to *invalidate* — so the
+  one behaviour that keeps a memory honest over time was the one most likely to
+  be cut.
+- **Us:** shared it, fixed in 0.4.2.
+- **Evidence:** `src/mcp/governance-server.ts`, `SERVER_INSTRUCTIONS`; measured
+  length **507**, and `src/mcp/governance-server.test.ts:109` asserts
+  `length <= 512` on every run. All six rules are still there.
+- **Corrected 2026-09-19.** This entry sat in section C saying "open" and "637
+  characters" after the rewrite had already shipped — a stale entry in the file
+  whose whole purpose is that its entries are checked. Counting the string took
+  one line of Node; nobody re-ran it after the fix. The entry was moved here
+  rather than deleted.
+- **Notes:** the interesting part for the paper is that this was a claim about a
+  fix for an invocation failure, and it was itself unmeasured — twice: once when
+  the budget was claimed and never counted, and once when the count was fixed and
+  the ledger was not. The test is what stops a third time; a prose claim about a
+  number is not evidence that anyone measured it.
+
 ### A guarantee that stopped at the type system
 - **Reported by:** two independent reviews of 0.4.1 — GPT-6-Astra (R5, R8) and
   Claude Fable 5.1 — 2026-09-18, both finding it separately.
@@ -183,6 +313,15 @@ reality rather than described.*
   different name throws rather than merging. An existing store is never moved
   and never stranded: a file from 0.4.1 records no scope, so the first project
   to open it claims it.
+- **Corrected 2026-09-19.** Two sentences above were not true of the code as
+  merged, and both are now. (1) "The first project to open it claims it" was a
+  read of the stamp followed by a write of it, with nothing holding the two
+  together, so two processes could both claim one file — see *A claim that was
+  a read and a write* below. (2) "An existing store is never stranded" had a
+  second exception nobody had found: not only already-mixed files, but a file
+  that had never collided with anything — see *A new filename that was somebody
+  else's old one* below. Both are fixed; the claims above hold now, and did not
+  when they were written.
 - **Notes:** a reviewer should push on the one case that cannot be repaired — a
   file two scopes were *already* sharing holds both scopes' facts interleaved,
   and no machine can split them. The claimant keeps the file, the other scope
@@ -204,6 +343,10 @@ reality rather than described.*
   `expected 'Sensitive' to be 'Private'`. Governed mutations over one store now
   run one at a time, queued on the inner store so every handle over it shares
   the queue; reads are not queued.
+- **Corrected 2026-09-19.** The fix above shipped with a hole of its own, and it
+  was worse than what it closed — see *A queue that also deferred the question
+  of who was asking* below. The entry stands; the fix it describes did not, for
+  a day.
 - **Notes:** **partial, and the limit is the interesting part.** This serialises
   one process. Two processes on one SQLite file still have only SQLite's write
   lock, which protects the write and not the decision before it — a real
@@ -223,6 +366,15 @@ reality rather than described.*
   fail on 0.4.1 (`expected [ Array(4) ] to deeply equal [ 'first', 'second' ]`).
   The failure is latched on the sink, so every handle sharing it refuses the
   next mutation before touching the store.
+- **Corrected 2026-09-19.** "The single write that breaks the sink" was the
+  claim; the code allowed twenty. `addNode` was deliberately left off the
+  mutation queue, and a latch can only refuse a call that has not started, so
+  every concurrent add cleared the check before the first failure was observed.
+  Measured on the merged build: twenty concurrent adds, twenty rejected callers,
+  **twenty** facts persisted, one audit append. `addNode` is queued now and the
+  same probe reports one persisted fact — the number both this entry and
+  `docs/policies/ENFORCEMENT.md` had been asserting. The sentence below was
+  written as a limit and was in fact an understatement; it is a bound now.
 - **Notes:** the entry is only worth having if it states what is *not* fixed. A
   mutation still commits before its event is written, so the single write that
   breaks the sink is unrecorded — documented since 0.4.0 in
@@ -399,22 +551,6 @@ reality rather than described.*
 
 ## C. Open — known, not yet fixed
 
-### The MCP handshake does not fit the character budget it was written for
-- **Reported by:** ourselves, 2026-09-18, checking our own 0.4.1 claim.
-- **The failure:** `SERVER_INSTRUCTIONS` exists because some MCP clients truncate
-  the `instructions` string, and 0.4.1 claimed the essentials fit in the first 512
-  characters. The string is 637 characters. A client that truncates is told to
-  recall and to remember, and never reaches the rule that tells it to *invalidate* —
-  so the one behaviour that keeps a memory honest over time is the one most likely
-  to be cut.
-- **Us:** shared it, open.
-- **Evidence:** `src/mcp/governance-server.ts:91-98`; measured length 637;
-  character 512 falls inside "When a fact". A 506-character rewrite that keeps all
-  six rules has been drafted and not yet applied.
-- **Notes:** the interesting part for the paper is that this was a claim about a
-  fix for an invocation failure, and it was itself unmeasured. Counting characters
-  is cheap; nobody had.
-
 ### Two of the seven conformance dimensions rest on a declared trait
 - **Reported by:** the 2026-09-18 reviews, pushing on "it grades its own homework".
 - **The failure:** `docs/SCORING.md` said "adapters map only what the export
@@ -461,7 +597,10 @@ was not finished, kept here so nobody has to re-derive it from the code.*
   (`src/governance/audit-poison.test.ts`).
 - **Evidence:** `docs/policies/ENFORCEMENT.md`, the audit row; the first test in
   `audit-poison.test.ts` asserts exactly two facts persist — the one that
-  succeeded and the one that broke the sink.
+  succeeded and the one that broke the sink. Since 2026-09-19 a second test puts
+  twenty concurrent writes through the same failure and asserts **one**
+  persists, because "one unrecorded write" is only a bound if nothing can be
+  in flight beside it (section B, the R3 entry's correction).
 - **Notes:** the fix is a transactional outbox, or an audit table written in the
   fact's own SQLite transaction. Until that exists, **"every commit is audited"
   is a claim this project does not make.** State the window in the paper rather
@@ -493,6 +632,13 @@ was not finished, kept here so nobody has to re-derive it from the code.*
   test in `src/project-memory-isolation.test.ts` asserts the behaviour rather
   than a repair — the first scope to open keeps the file, the second starts
   clean, nothing is deleted.
+- **Corrected 2026-09-19.** As written, this entry said the *only* stores that
+  lose access are the ones two scopes were already sharing. That was not true of
+  the code it described: a 0.4.1 store that had never collided with anything
+  could also be taken over, because the new filename scheme could spell a name
+  the old one had already used (section B, *A new filename that was somebody
+  else's old one*). That second case is now fixed and this entry covers only the
+  already-mixed one, which is what it always claimed to cover.
 - **Notes:** the general lesson for the paper is that **provenance has to record
   the scope at write time**, not derive it from where the fact happens to be
   stored. Facts written before 0.4.2 carry no scope, so the information needed

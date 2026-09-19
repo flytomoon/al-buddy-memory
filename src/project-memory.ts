@@ -60,14 +60,24 @@ function scopeDigest(project: string): string {
 }
 
 /**
- * The filename a scope gets from 0.4.2 on: a readable stub plus a digest of the
+ * The filename a scope gets from 0.4.2 on: a readable stub, then a digest of the
  * full name. Two scopes share a file only if they share a SHA-256 prefix, where
  * before they shared one whenever they sanitised alike — "org/repo" and
  * "org-repo" both became `org-repo.db`, and each recalled the other's private
  * facts (R1, release review 2026-09-18).
+ *
+ * The separator is a dot, and that is load-bearing. It was a dash, which meant a
+ * canonical name was a name the OLD scheme could also produce (its output was
+ * `<anything over [A-Za-z0-9_-]>.db`): a 0.4.1 project called literally
+ * `foo-2c26b46b68ffc68f` owned the file that `foo`'s canonical path pointed at,
+ * so `foo` claimed a stranger's database and read its private facts while the
+ * owner was sent to an empty store (GPT-6-Astra on the merged result,
+ * 2026-09-19). `slug` strips every dot, so a canonical stem always holds a
+ * character the old scheme could not leave behind — the two namespaces cannot
+ * meet, rather than being checked for meeting.
  */
 export function canonicalProjectDbPath(project: string, baseDir: string = DEFAULT_MEMORY_DIR): string {
-  return join(baseDir, `${slug(project)}-${scopeDigest(project)}.db`);
+  return join(baseDir, `${slug(project)}.${scopeDigest(project)}.db`);
 }
 
 /** The filename 0.4.1 and earlier used: the sanitised name alone, collisions and all. */
@@ -86,10 +96,19 @@ export function legacyProjectDbPath(project: string, baseDir: string = DEFAULT_M
  * whichever opens first, then stably from then on. That is the one case where
  * facts a scope used to see move out of its reach; they are not deleted, they
  * are in the other scope's file, and a mixed store cannot be split by machine.
+ *
+ * Order of preference, and every step of it is "is this file MINE?": a
+ * canonical file stamped with this scope; then this scope's own 0.4.1 file, if
+ * it is unstamped or stamped with this scope; then the canonical path. The
+ * first clause used to be "a canonical file, full stop", which handed this
+ * scope any database that happened to sit at that path (2026-09-19). The
+ * filename schemes can no longer overlap, so that is now belt as well as
+ * braces — and a canonical file stamped by somebody else still reaches
+ * `claimScope`, which refuses it rather than merging.
  */
 export function projectDbPath(project: string, baseDir: string = DEFAULT_MEMORY_DIR): string {
   const canonical = canonicalProjectDbPath(project, baseDir);
-  if (existsSync(canonical)) return canonical;
+  if (existsSync(canonical) && readRecordedScope(canonical) === project) return canonical;
   const legacy = legacyProjectDbPath(project, baseDir);
   if (legacy === canonical || !existsSync(legacy)) return canonical;
   const claimed = readRecordedScope(legacy);

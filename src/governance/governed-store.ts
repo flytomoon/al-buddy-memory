@@ -34,6 +34,28 @@ function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
 }
 
 /**
+ * WHO, decided when the call is made. WHEN, read when the work runs.
+ *
+ * `context` is documented as called per operation "so one governed store can
+ * serve many actors", and an application that serves many actors sets it from
+ * whoever is being served right now. Queueing the mutations (see `serialise`)
+ * moved the `context()` call inside the queued step, so a mutation asked for by
+ * one actor ran under whoever the context named by the time the queue reached
+ * it: a stranger's refused update committed — and audited — as the owner, and
+ * one promise hop was enough to do it. That is a worse failure than the race it
+ * was added to fix, and it was found in the merged result (GPT-6-Astra,
+ * 2026-09-19; `src/governance/governed-race.test.ts`).
+ *
+ * The clock deliberately stays late: an event must carry the instant the change
+ * actually landed, not the instant a caller joined the queue. A context that
+ * pins its own `now` is honoured as given.
+ */
+function authorise(opts: GovernOptions, purpose: Purpose): () => PolicyContext {
+  const c = opts.context(purpose);
+  return () => ({ actor: c.actor, audience: c.audience, purpose, now: c.now ?? new Date() });
+}
+
+/**
  * A sink that has failed once cannot be trusted to record what happens next, so
  * nothing more is changed through it. Keyed by sink, not by handle: every
  * governed store writing to the same trail stops together.
@@ -44,6 +66,11 @@ function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
  * the defect: every later write went through as well, each one rejecting, so a
  * retrying client compounded changes nothing could attest to (R3, release
  * review 2026-09-18).
+ *
+ * "That one write" is a bound, not a typical case, and it is the QUEUE that
+ * makes it one: a latch can only refuse a call that has not started, so every
+ * mutation goes through `serialise` — `addNode` included, which it was not
+ * until 2026-09-19.
  */
 const POISONED_AUDIT = new WeakMap<AuditSink, Error>();
 
@@ -204,22 +231,32 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   const governed: MemoryStore = {
     async addNode(input: NewMemoryNode): Promise<MemoryNode> {
       const node = snapshot(input);
-      // Not queued: a brand-new fact answers no earlier question, so nothing
-      // can have changed under it. The audit latch still applies.
-      assertAuditUsable(opts);
-      const ctx = ctxFor(opts, "write");
-      const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
-      assertAuditUsable(opts);
-      const saved = await inner.addNode(current);
-      await record(opts, ctx, "allowed", [saved.nodeId]);
-      return saved;
+      const authorised = authorise(opts, "write");
+      // Queued like every other mutation. A brand-new fact answers no earlier
+      // question, so this is not about the R2 race — it is the audit latch.
+      // The latch refuses calls that have not STARTED, so twenty concurrent
+      // adds all cleared the check before the first failure was observed:
+      // twenty rejected callers, twenty facts in the store, no events, against
+      // a bound of one written down in `docs/policies/ENFORCEMENT.md`
+      // (GPT-6-Astra on the merged result, 2026-09-19). The queue is what makes
+      // that bound true rather than typical.
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = authorised();
+        const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
+        assertAuditUsable(opts);
+        const saved = await inner.addNode(current);
+        await record(opts, ctx, "allowed", [saved.nodeId]);
+        return saved;
+      });
     },
 
     async updateNode(nodeId, input, anchorEvent): Promise<MemoryNode> {
       const patch = snapshot(input);
+      const authorised = authorise(opts, patch.validTo !== undefined ? "invalidate" : "write");
       return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const ctx = ctxFor(opts, patch.validTo !== undefined ? "invalidate" : "write");
+        const ctx = authorised();
         // A fact this actor cannot read is a fact this actor cannot change, and
         // its text must not come back in the response. This used to fetch the
         // node unfiltered, so `updateNode(secretId, {})` returned the secret and
@@ -240,9 +277,10 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
 
     async restoreNode(input: MemoryNode): Promise<void> {
       const node = snapshot(input);
+      const authorised = authorise(opts, "import");
       return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const ctx = ctxFor(opts, "import");
+        const ctx = authorised();
         const existing = await inner.getNode(node.nodeId);
         let incoming = node;
         await guarded(opts, ctx, [node.nodeId], async () => {
@@ -270,9 +308,10 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     },
 
     async deleteNode(nodeId: string): Promise<void> {
+      const authorised = authorise(opts, "erase");
       return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const ctx = ctxFor(opts, "erase");
+        const ctx = authorised();
         const { node } = await visibleOrNotFound(nodeId, ctx);
         await guarded(opts, ctx, [nodeId], () => erasePolicies({ node }, ctx));
         assertAuditUsable(opts);
@@ -282,9 +321,10 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     },
 
     async deleteEdge(edgeId: string): Promise<void> {
+      const authorised = authorise(opts, "erase");
       return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const ctx = ctxFor(opts, "erase");
+        const ctx = authorised();
         await guarded(opts, ctx, [], () => erasePolicies({ edgeId }, ctx));
         assertAuditUsable(opts);
         await inner.deleteEdge(edgeId);
@@ -294,9 +334,10 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
 
     async addEdge(input): Promise<MemoryEdge> {
       const edge = snapshot(input);
+      const authorised = authorise(opts, "write");
       return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const ctx = ctxFor(opts, "write");
+        const ctx = authorised();
         // Linking to a hidden fact would confirm that its id exists.
         await visibleOrNotFound(edge.sourceNodeId, ctx);
         await visibleOrNotFound(edge.targetNodeId, ctx);
@@ -309,9 +350,10 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
 
     async restoreEdge(input: MemoryEdge): Promise<void> {
       const edge = snapshot(input);
+      const authorised = authorise(opts, "import");
       return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const ctx = ctxFor(opts, "import");
+        const ctx = authorised();
         await visibleOrNotFound(edge.sourceNodeId, ctx);
         await visibleOrNotFound(edge.targetNodeId, ctx);
         assertAuditUsable(opts);
@@ -338,8 +380,9 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
     // missing id failed — an oracle for which hidden ids exist.
     async setEmbedding(input): Promise<MemoryEmbedding> {
       const embedding = snapshot(input);
+      const authorised = authorise(opts, "write");
       return serialise(inner, async () => {
-        await visibleOrNotFound(embedding.nodeId, ctxFor(opts, "write"));
+        await visibleOrNotFound(embedding.nodeId, authorised());
         return inner.setEmbedding(embedding);
       });
     },
@@ -347,8 +390,9 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
       return (await governed.getNode(nodeId)) ? inner.getEmbeddings(nodeId) : [];
     },
     async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {
+      const authorised = authorise(opts, "write");
       return serialise(inner, async () => {
-        await visibleOrNotFound(nodeId, ctxFor(opts, "write"));
+        await visibleOrNotFound(nodeId, authorised());
         return model === undefined ? inner.deleteEmbeddings(nodeId) : inner.deleteEmbeddings(nodeId, model);
       });
     },
