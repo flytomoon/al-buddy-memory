@@ -9,7 +9,7 @@ import Database from "better-sqlite3";
 
 import { queryTokens } from "./query-filter.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
+import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
   MemoryEdge,
   MemoryEmbedding,
@@ -734,6 +734,7 @@ export class SqliteMemoryStore implements MemoryStore {
     anchorEvent: Parameters<MemoryStore["updateNode"]>[2] = "modified",
   ): Promise<MemoryNode> {
     assertPatchMutable(input);
+    assertAnchorEvent(anchorEvent);
     const patch = canonicalPatch(input);
     // Read-modify-write under the write lock (IMMEDIATE): two processes that
     // both read the row and then each wrote their reconstruction used to lose
@@ -827,6 +828,7 @@ export class SqliteMemoryStore implements MemoryStore {
   // -------------------------------------------------------------------------
 
   async addEdge(edge: Omit<MemoryEdge, "edgeId" | "createdAt">): Promise<MemoryEdge> {
+    assertEdge(edge);
     const edgeId = randomUUID();
     const createdAt = new Date().toISOString();
 
