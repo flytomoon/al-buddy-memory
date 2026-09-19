@@ -85,9 +85,38 @@ export interface Origin {
   via?: string;
 }
 
+const ORIGIN_FIELDS = ["app", "appVersion", "agent", "channel", "model", "modelClaimed", "via"] as const;
+
+/** Only the fields the writer actually knew — or undefined when it knew none. */
+export function knownOrigin(origin: Origin | undefined): Origin | undefined {
+  const known = Object.fromEntries(Object.entries(origin ?? {}).filter(([, v]) => typeof v === "string" && v !== ""));
+  return Object.keys(known).length === 0 ? undefined : (known as Origin);
+}
+
 /** `metadata` with `origin` added — omitted entirely when nothing is known. */
 export function withOrigin(metadata: Record<string, unknown>, origin: Origin | undefined): Record<string, unknown> {
-  const known = Object.fromEntries(Object.entries(origin ?? {}).filter(([, v]) => typeof v === "string" && v !== ""));
-  return Object.keys(known).length === 0 ? metadata : { ...metadata, origin: known };
+  const known = knownOrigin(origin);
+  return known === undefined ? metadata : { ...metadata, origin: known };
+}
+
+/**
+ * Read an origin back out of metadata — `origin` (who wrote the fact) or
+ * `retiredBy` (who closed it). Returns null rather than `{}` so "nobody recorded
+ * it" and "an assistant we know nothing about" stay different answers.
+ *
+ * Only the declared fields come back: metadata is JSON a host or an import may
+ * have written, so an unknown key is not passed through to a caller that will
+ * show it as a receipt.
+ */
+export function readOrigin(metadata: Record<string, unknown>, key = "origin"): Origin | null {
+  const raw = metadata[key];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const field of ORIGIN_FIELDS) {
+    const value = record[field];
+    if (typeof value === "string" && value !== "") out[field] = value;
+  }
+  return Object.keys(out).length === 0 ? null : (out as Origin);
 }
 
