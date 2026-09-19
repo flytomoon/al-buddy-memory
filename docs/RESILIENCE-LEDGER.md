@@ -74,12 +74,18 @@ worse than no entry, because this file is meant to survive review.
 - **The failure:** an audit log that can be edited, truncated or reordered after
   the fact proves nothing about what the system actually did.
 - **Us:** withstands, as of 0.4.0.
-- **Evidence:** `ChainedAudit` writes each governance event with the hash of the
-  previous one (HMAC-SHA256); `verifyAuditChain` and
-  `al-buddy-memory verify-audit` name the first edited, removed, inserted or
-  reordered line. CHANGELOG 0.4.0.
+- **Evidence:** every governance event carries the hash of the previous one
+  (HMAC-SHA256); `al-buddy-memory verify-audit` names the first edited, removed,
+  inserted or reordered record. Two places to keep it: a JSONL file
+  (`ChainedAudit`, 0.4.0) or the database's own `audit_events` table
+  (`storeAudit`, 2026-09-19). CHANGELOG 0.4.0 and the unreleased audit-table entry.
 - **Notes:** a rewrite by whoever holds the key is still possible — the chain is
   tamper-*evident*, not tamper-proof, and the paper must say so in those words.
+  The audit table did **not** change this, and it must not be written as if it
+  had. What
+  changed is the *pairing* of a fact with its event and the number of chains,
+  not how much trust either form can carry. A cut-off tail is still invisible to
+  the trail itself; only an anchored head catches it.
 
 ---
 
@@ -87,6 +93,47 @@ worse than no entry, because this file is meant to survive review.
 
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
+
+### A commit that could outlive its own audit event
+- **Reported by:** ourselves at 0.4.0, and again by both 0.4.1 reviews as the
+  half of R3 that the 0.4.2 latch does not close. Named by the Fable 5.1 review
+  of 2026-09-19 as the one structural move worth making before release.
+- **The failure:** a governed mutation committed, and *then* its event was
+  written. A sink that failed at that instant left the fact in the database with
+  nothing attesting to it, while the caller was told the operation had failed.
+  The queue and the latch bounded it to one such write; nothing could remove it,
+  because a file beside the database cannot join the database's transaction.
+- **Us:** shared it, **fixed 2026-09-19 (unreleased) — for a store that keeps
+  its trail inside its own database.** `audit_events` is appended inside the mutation's own
+  `BEGIN IMMEDIATE`, so the fact and the event land together or neither does.
+  `ChainedAudit` and `JsonlAudit` are unchanged and keep the old bound; they are
+  still the answer for a store that cannot do this, and that path stays in
+  section C.
+- **Evidence:** `src/governance/audit-table.test.ts`, *leaves NO fact behind
+  when the event cannot be written* — an append is made to fail and the store
+  holds **zero** new facts afterwards, where `audit-poison.test.ts` asserts
+  exactly one on the JSONL path, and still does. Code:
+  `src/sqlite-memory-store.ts` `mutation()` (every mutating method runs through
+  it, so none can be added without carrying an event),
+  `src/governance/governed-store.ts` `commitAudited`,
+  `src/governance/audit-table.ts`. Also
+  `src/governance/audit-cross-process.test.ts`: two real processes, twenty
+  facts each, released from a barrier so they interleave — one chain, one total
+  order, no two records sharing a `prev`.
+- **Notes:** three things this is **not**. It is not more trust: the chain is
+  exactly as tamper-evident as before, a key holder can still rewrite it, and a
+  cut tail is still only caught by an anchored head (section A). It is not a
+  completeness proof: it proves that nothing which went through a governed
+  handle using this table committed without an event, not that every change to
+  the database did — a holder of the raw store still mutates with no event at
+  all, which is what "the raw store is not governed by anything" means, and the
+  period the table covers is not necessarily the whole history. And it is not a
+  cross-process authorisation guarantee — see section C, *Governed serialisation
+  is per process*, which this narrowed and did not close. The test that proves
+  the two-process property had to be built twice: the first version spawned the
+  children without a barrier, they never overlapped, and a deliberately
+  sabotaged build (chain head cached per process — the exact defect) passed it.
+  A concurrency test that has not been shown to fail on the defect is decoration.
 
 ### A queue that also deferred the question of who was asking
 - **Reported by:** GPT-6-Astra, re-reviewing the merged 0.4.2 work, 2026-09-19.
@@ -378,10 +425,14 @@ reality rather than described.*
 - **Notes:** the entry is only worth having if it states what is *not* fixed. A
   mutation still commits before its event is written, so the single write that
   breaks the sink is unrecorded — documented since 0.4.0 in
-  `docs/policies/ENFORCEMENT.md` and deliberately kept, because closing it needs
-  the event committed in the fact's own transaction (a transactional outbox),
-  which is not built. "Every commit is audited" is therefore a claim this
-  library does **not** make, and the paper must not make it either.
+  `docs/policies/ENFORCEMENT.md`.
+- **Extended 2026-09-19 (unreleased).** That window is now closed on one path and one
+  only: a store whose trail is its own `audit_events` table, where the event is
+  in the fact's transaction (this section, *A commit that could outlive its own
+  audit event*). On every sink that writes beside the database the window is
+  exactly as described above and stays open — section C. So "every commit is
+  audited" is a claim this library makes **only with that clause attached**, and
+  the paper must carry the clause every time, not the headline.
 
 ### Two assistants, one memory, and a chain with two writers
 - **Reported by:** the same two reviews, 2026-09-18. Filed as B1.
@@ -404,7 +455,16 @@ reality rather than described.*
   cost is stated: N logs is N heads to anchor, and the split itself is not
   evidence of anything, so a reviewer should ask what stops a writer from
   quietly dropping its own log. Nothing does; that is the same tail-truncation
-  limit the chain already has, multiplied. Alongside it, the SQLite constructor
+  limit the chain already has, multiplied.
+- **Superseded for new trails, 2026-09-19 (unreleased).** The split was the price of
+  letting two processes share a chain kept in a *file*. A chain kept in the
+  database does not pay it: the tail is read and extended under SQLite's write
+  lock, so one chain takes many writers (`src/governance/audit-cross-process.test.ts`,
+  two real processes, forty interleaved facts). That is the MCP server's default
+  now, and it removes the N-heads and quietly-dropped-log costs for trails
+  written from here on. It does **not** repair an existing directory of logs:
+  those keep every limit named above and are still checked on those terms, which
+  `verify-audit <db>` reports alongside the table. Alongside it, the SQLite constructor
   now retries `SQLITE_BUSY` — better-sqlite3's busy timeout does not cover the
   `journal_mode = WAL` switch, so two servers starting together could fail
   outright.
@@ -600,25 +660,32 @@ reality rather than described.*
 *These come out of the section-B fixes above. Each one is the part of a fix that
 was not finished, kept here so nobody has to re-derive it from the code.*
 
-### A commit is not in the same transaction as its audit event
+### The commit-before-event window, wherever the trail is not in the database
 - **Reported by:** ourselves, 0.4.0; raised again by both 0.4.1 reviews as the
-  half of R3 that the 0.4.2 latch does not close, 2026-09-18.
-- **The failure:** a governed mutation commits, and *then* its event is written.
-  If the sink fails at that moment, the fact is in the database and nothing
-  attests to it, while the caller is told the operation failed.
-- **Us:** shared it, **open**. What 0.4.2 fixed is everything after: the sink is
-  latched, so the next mutation is refused before it reaches the store
-  (`src/governance/audit-poison.test.ts`).
-- **Evidence:** `docs/policies/ENFORCEMENT.md`, the audit row; the first test in
-  `audit-poison.test.ts` asserts exactly two facts persist — the one that
-  succeeded and the one that broke the sink. Since 2026-09-19 a second test puts
-  twenty concurrent writes through the same failure and asserts **one**
-  persists, because "one unrecorded write" is only a bound if nothing can be
-  in flight beside it (section B, the R3 entry's correction).
-- **Notes:** the fix is a transactional outbox, or an audit table written in the
-  fact's own SQLite transaction. Until that exists, **"every commit is audited"
-  is a claim this project does not make.** State the window in the paper rather
-  than rounding it off.
+  half of R3 that the 0.4.2 latch does not close, 2026-09-18. Closed for the
+  database's own table by the audit table (section B, *A commit that could outlive its own
+  audit event*); this is the remainder, kept rather than deleted.
+- **The failure:** with any sink that writes beside the database — `JsonlAudit`,
+  `ChainedAudit`, anything a caller supplies — a governed mutation commits and
+  *then* its event is written. If the sink fails at that moment the fact is in
+  the database and nothing attests to it, while the caller is told the operation
+  failed.
+- **Us:** shared it, **open on that path, and expected to stay open.** A file
+  cannot join a database transaction, and a store that is not SQLite may have no
+  transaction to join. 0.4.2 fixed everything after the window (the sink is
+  latched, so the next mutation is refused before it reaches the store); the
+  audit table added a path on which the window does not exist. Neither removes it here.
+- **Evidence:** `src/governance/audit-poison.test.ts` — the first test asserts
+  exactly two facts persist on the JSONL path (the one that succeeded and the
+  one that broke the sink), and a second puts twenty concurrent writes through
+  the same failure and asserts **one** persists, because "one unrecorded write"
+  is only a bound if nothing can be in flight beside it. Against it,
+  `src/governance/audit-table.test.ts` asserts **zero** on the table path.
+- **Notes:** the consequence for the paper is a clause, not a headline. "Every
+  commit is audited" is true of a store keeping its trail in its own database
+  and is not true of the file sinks, and the sentence has to say which. A reader
+  who sees only the audit-table note will over-read it; that is why this entry is
+  still in section C.
 
 ### Governed serialisation is per process
 - **Reported by:** ourselves, closing R2, 2026-09-18.
@@ -630,10 +697,24 @@ was not finished, kept here so nobody has to re-derive it from the code.*
 - **Us:** shared it, **open**.
 - **Evidence:** `src/governance/governed-store.ts`, the `serialise` comment;
   `docs/GOVERNANCE.md`, "What one process guarantees, and what it does not".
+- **Narrowed, not closed, 2026-09-19 (unreleased).** Moving the audit trail into the
+  database changed what can be *seen*, not what is *enforced*. Two processes'
+  events are now one totally-ordered chain instead of two files that cannot be
+  ordered against each other, so an interleaving is legible after the fact
+  (`src/governance/audit-cross-process.test.ts`). The decision itself still
+  happens before the transaction opens: a policy that read a fact, awaited, and
+  then wrote can still be judging a row another process has already changed. The
+  new test deliberately proves only the chain property and claims nothing about
+  authorisation — do not let its name suggest otherwise.
 - **Notes:** the honest fix is the check and the write in one database
   transaction, which means pushing policy evaluation down to the store or
   holding a row-level revision and revalidating on conflict. Neither is built.
-  A reviewer who only reads the tests will think this is closed; it is not.
+  The second is now within reach — a mutation already runs inside one
+  `BEGIN IMMEDIATE` in `SqliteMemoryStore.mutation()`, so re-reading the row
+  there and refusing if it changed under the decision is a contained change. It
+  was left out of the audit-table change on purpose: it adds a new failure mode (a conflict a
+  caller must handle) to a release that already needed reviewing in a day. A
+  reviewer who only reads the tests will think this is closed; it is not.
 
 ### Two scopes that already shared a file cannot be un-mixed
 - **Reported by:** ourselves, closing R1, 2026-09-18.

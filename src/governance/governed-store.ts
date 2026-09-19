@@ -16,7 +16,7 @@
 import { compareRecency, effectiveConfidence } from "../decay.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
 import type { MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
-import { AUDIT_ID_SAMPLE, type AuditSink } from "./audit.js";
+import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
 
 export interface GovernOptions {
@@ -71,6 +71,15 @@ function authorise(opts: GovernOptions, purpose: Purpose): () => PolicyContext {
  * makes it one: a latch can only refuse a call that has not started, so every
  * mutation goes through `serialise` — `addNode` included, which it was not
  * until 2026-09-19.
+ *
+ * None of this applies to the store's own `audit_events` table, and that is the
+ * point of it: there the event is appended inside the mutation's transaction,
+ * so an append that fails rolls the fact back with it. There is no unrecorded
+ * write to protect against, so that path deliberately does NOT latch — a
+ * transient failure would otherwise brick a store that lost nothing. It is not
+ * a regression of the latch; it is the failure the latch bounds becoming
+ * unreachable. The latch stays for every sink that writes beside the database,
+ * which is every sink a store without the capability can use.
  */
 const POISONED_AUDIT = new WeakMap<AuditSink, Error>();
 
@@ -80,10 +89,55 @@ function assertAuditUsable(opts: GovernOptions): void {
   if (failed) throw failed;
 }
 
+function auditEvent(ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): AuditEvent {
+  return { at: ctx.now.toISOString(), actor: ctx.actor, audience: ctx.audience, purpose: ctx.purpose, outcome, nodeIds: ids.slice(0, AUDIT_ID_SAMPLE), count: ids.length, policy: extra.policy, reason: extra.reason };
+}
+
+/**
+ * The store's own `audit_events` table, when the caller asked for it AND it
+ * belongs to the store being governed. Both halves matter: a `StoreAudit` built
+ * over a DIFFERENT store is a sink like any other and must not be handed this
+ * store's mutations to commit.
+ */
+function auditTableFor(opts: GovernOptions, inner: MemoryStore): AuditCapable | null {
+  return opts.audit instanceof StoreAudit && (opts.audit.store as unknown) === (inner as unknown) ? opts.audit.store : null;
+}
+
+/**
+ * A mutation and the "allowed" event that attests to it.
+ *
+ * With the store's own table as the sink, both are ONE transaction: the event
+ * is appended inside the store's own `BEGIN IMMEDIATE`, so the fact and the
+ * event land together or neither does, and the window below does not exist.
+ *
+ * With any other sink the store commits and the event is written after it —
+ * the documented window (`docs/policies/ENFORCEMENT.md`), bounded to one write
+ * by the latch and the queue.
+ */
+async function commitAudited<T>(
+  opts: GovernOptions,
+  inner: MemoryStore,
+  ctx: PolicyContext,
+  mutate: () => Promise<T>,
+  describe: (result: T) => { ids: string[]; reason?: string },
+): Promise<T> {
+  const table = auditTableFor(opts, inner);
+  if (table !== null) {
+    return table.auditedMutation(mutate, (result) => {
+      const { ids, reason } = describe(result);
+      return auditEvent(ctx, "allowed", ids, reason === undefined ? {} : { reason });
+    });
+  }
+  const result = await mutate();
+  const { ids, reason } = describe(result);
+  await record(opts, ctx, "allowed", ids, reason === undefined ? {} : { reason });
+  return result;
+}
+
 async function record(opts: GovernOptions, ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): Promise<void> {
   if (!opts.audit) return;
   try {
-    await opts.audit.record({ at: ctx.now.toISOString(), actor: ctx.actor, audience: ctx.audience, purpose: ctx.purpose, outcome, nodeIds: ids.slice(0, AUDIT_ID_SAMPLE), count: ids.length, policy: extra.policy, reason: extra.reason });
+    await opts.audit.record(auditEvent(ctx, outcome, ids, extra));
   } catch (err) {
     if (!POISONED_AUDIT.has(opts.audit)) {
       POISONED_AUDIT.set(
@@ -245,9 +299,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         const ctx = authorised();
         const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
         assertAuditUsable(opts);
-        const saved = await inner.addNode(current);
-        await record(opts, ctx, "allowed", [saved.nodeId]);
-        return saved;
+        return commitAudited(opts, inner, ctx, () => inner.addNode(current), (saved) => ({ ids: [saved.nodeId] }));
       });
     },
 
@@ -266,8 +318,13 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
           for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
         });
         assertAuditUsable(opts);
-        const updated = anchorEvent === undefined ? await inner.updateNode(nodeId, patch) : await inner.updateNode(nodeId, patch, anchorEvent);
-        await record(opts, ctx, "allowed", [nodeId]);
+        const updated = await commitAudited(
+          opts,
+          inner,
+          ctx,
+          () => (anchorEvent === undefined ? inner.updateNode(nodeId, patch) : inner.updateNode(nodeId, patch, anchorEvent)),
+          () => ({ ids: [nodeId] }),
+        );
         // What they could already see, plus what they themselves wrote. Safe to
         // fall back on `seen` only because nothing else could commit between
         // the read and this line — see `serialise`.
@@ -302,8 +359,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
           if (existing) for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(incoming), ctx);
         });
         assertAuditUsable(opts);
-        await inner.restoreNode(incoming);
-        await record(opts, ctx, "allowed", [node.nodeId]);
+        await commitAudited(opts, inner, ctx, () => inner.restoreNode(incoming), () => ({ ids: [node.nodeId] }));
       });
     },
 
@@ -315,8 +371,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         const { node } = await visibleOrNotFound(nodeId, ctx);
         await guarded(opts, ctx, [nodeId], () => erasePolicies({ node }, ctx));
         assertAuditUsable(opts);
-        await inner.deleteNode(nodeId);
-        await record(opts, ctx, "allowed", [nodeId]);
+        await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids: [nodeId] }));
       });
     },
 
@@ -327,8 +382,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         const ctx = authorised();
         await guarded(opts, ctx, [], () => erasePolicies({ edgeId }, ctx));
         assertAuditUsable(opts);
-        await inner.deleteEdge(edgeId);
-        await record(opts, ctx, "allowed", [], { reason: `edge ${edgeId}` });
+        await commitAudited(opts, inner, ctx, () => inner.deleteEdge(edgeId), () => ({ ids: [], reason: `edge ${edgeId}` }));
       });
     },
 
@@ -342,9 +396,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         await visibleOrNotFound(edge.sourceNodeId, ctx);
         await visibleOrNotFound(edge.targetNodeId, ctx);
         assertAuditUsable(opts);
-        const saved = await inner.addEdge(edge);
-        await record(opts, ctx, "allowed", [edge.sourceNodeId, edge.targetNodeId], { reason: `edge ${saved.edgeId}` });
-        return saved;
+        return commitAudited(opts, inner, ctx, () => inner.addEdge(edge), (saved) => ({ ids: [edge.sourceNodeId, edge.targetNodeId], reason: `edge ${saved.edgeId}` }));
       });
     },
 
@@ -357,8 +409,7 @@ export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
         await visibleOrNotFound(edge.sourceNodeId, ctx);
         await visibleOrNotFound(edge.targetNodeId, ctx);
         assertAuditUsable(opts);
-        await inner.restoreEdge(edge);
-        await record(opts, ctx, "allowed", [edge.sourceNodeId, edge.targetNodeId], { reason: `edge ${edge.edgeId}` });
+        await commitAudited(opts, inner, ctx, () => inner.restoreEdge(edge), () => ({ ids: [edge.sourceNodeId, edge.targetNodeId], reason: `edge ${edge.edgeId}` }));
       });
     },
 

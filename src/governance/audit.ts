@@ -6,6 +6,7 @@
  */
 import { dirname, join } from "node:path";
 
+import { GENESIS, LINE_LABELS, chainDigest, linkFault } from "./chain.js";
 import type { Purpose } from "./policy.js";
 
 export interface AuditEvent {
@@ -26,6 +27,79 @@ export interface AuditSink {
 }
 
 export const AUDIT_ID_SAMPLE = 20;
+
+// ---------------------------------------------------------------------------
+// The trail inside the database — an optional store capability
+// ---------------------------------------------------------------------------
+
+/**
+ * An optional capability, not part of `MemoryStore` — the same shape as
+ * `SnapshotCapable` in `src/types/memory.ts`, and for the same reason: a
+ * third-party store must stay implementable without it. `SqliteMemoryStore`
+ * implements it; `InMemoryStore` does not, and governs perfectly well with a
+ * file sink.
+ *
+ * What it adds is the one thing a sink beside the database cannot do: commit a
+ * governed mutation's event in the SAME transaction as the fact, so there is no
+ * instant at which the fact exists and nothing attests to it.
+ */
+export interface AuditCapable {
+  /**
+   * Run `mutate` so that the event `describe` returns is appended in the same
+   * transaction as whatever `mutate` changed. Either both land or neither does.
+   *
+   * `describe` is called with the mutation's result, because the event names
+   * facts the store may only have identified during the write — `addNode`
+   * mints the id. It runs inside the transaction, so it must not await.
+   *
+   * `mutate` must be one call into this store, and must not overlap another
+   * audited mutation on it; `govern()` serialises every mutation over a store
+   * object, which is what makes that true.
+   */
+  auditedMutation<T>(mutate: () => Promise<T>, describe: (result: T) => AuditEvent): Promise<T>;
+  /** Append one event on its own, in its own transaction — a refusal or a read, which no fact accompanies. */
+  recordAuditEvent(event: AuditEvent): Promise<void>;
+  /** The hash of the newest event: the value to anchor somewhere this database's owner does not control. */
+  auditHead(): Promise<string>;
+}
+
+export function isAuditCapable(store: unknown): store is AuditCapable {
+  const s = store as Partial<AuditCapable> | null;
+  return (
+    typeof s === "object" &&
+    s !== null &&
+    typeof s.auditedMutation === "function" &&
+    typeof s.recordAuditEvent === "function" &&
+    typeof s.auditHead === "function"
+  );
+}
+
+/**
+ * The sink that IS the store: events go into the store's own `audit_events`
+ * table. Hand it to `govern()` and every governed mutation commits with its
+ * event; refusals and reads are appended on their own.
+ *
+ * Built through `storeAudit` so a store that cannot do this is refused at the
+ * call that asks for it, rather than at the first write.
+ */
+export class StoreAudit implements AuditSink {
+  constructor(readonly store: AuditCapable) {}
+  record(event: AuditEvent): Promise<void> {
+    return this.store.recordAuditEvent(event);
+  }
+  /** The value to anchor elsewhere — the only thing that catches a cut-off tail or a key holder's rewrite. */
+  head(): Promise<string> {
+    return this.store.auditHead();
+  }
+}
+
+/** The store's own audit table as a sink. Throws if this store does not keep one. */
+export function storeAudit(store: AuditCapable): StoreAudit {
+  if (!isAuditCapable(store)) {
+    throw new Error("this store does not keep an audit table; use ChainedAudit with a file, or a store that implements AuditCapable");
+  }
+  return new StoreAudit(store);
+}
 
 export class MemoryAudit implements AuditSink {
   readonly events: AuditEvent[] = [];
@@ -48,22 +122,10 @@ export class JsonlAudit implements AuditSink {
 // The chained log — tamper-evident, and honest about what that means
 // ---------------------------------------------------------------------------
 
-const GENESIS = "0".repeat(64);
-
-/** What a JSON line will hold, with keys sorted so the hash does not depend on key order. */
-function canonical(value: unknown): string {
-  return JSON.stringify(value, (_k, v: unknown) =>
-    v && typeof v === "object" && !Array.isArray(v)
-      ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, (v as Record<string, unknown>)[k]]))
-      : v,
-  );
-}
-
-async function digest(prev: string, event: unknown, key: string | undefined): Promise<string> {
-  const { createHash, createHmac } = await import("node:crypto");
-  const body = `${prev}\n${canonical(event)}`;
-  return (key === undefined ? createHash("sha256") : createHmac("sha256", key)).update(body).digest("hex");
-}
+// The canonical form, the digest and the per-record check live in `chain.ts`,
+// shared with the `audit_events` table: the two forms must hash a record
+// identically, or a store that moved from one to the other would look tampered
+// with and neither verifier could check the other's trail.
 
 /**
  * Append-only JSON lines where every line carries the hash of the line before
@@ -152,7 +214,7 @@ export class ChainedAudit implements AuditSink {
     // Appends are serialised in order, so concurrent calls still form one chain.
     const next = base.then(async (prev) => {
       const plain = JSON.parse(JSON.stringify(event)) as AuditEvent;
-      const hash = await digest(prev, plain, this.#key);
+      const hash = chainDigest(prev, plain, this.#key);
       try {
         await this.#append(this.path, JSON.stringify({ prev, hash, event: plain }) + "\n");
       } catch (err) {
@@ -197,7 +259,8 @@ export type AuditChainResult =
 
 export interface AuditLogsResult {
   ok: boolean;
-  logs: { file: string; result: AuditChainResult }[];
+  /** `form` says which trail each result came from: a file of JSON lines, or the database's own table. */
+  logs: { file: string; form: "jsonl" | "table"; result: AuditChainResult }[];
   /** Why there was nothing to check, or why the request could not be answered. */
   reason?: string;
 }
@@ -217,16 +280,46 @@ export async function verifyAuditLogs(path: string, opts: { key?: string; head?:
     return { ok: false, logs: [], reason: missing ? `no such file or directory: ${path}` : `cannot read ${path}: ${(err as Error).message}` };
   }
   if (!directory) {
+    const { isSqliteFile, verifyAuditTable } = await import("./audit-table.js");
+    if (await isSqliteFile(path)) {
+      // A database carries its own chain. It may ALSO have per-process JSONL
+      // logs beside it from before it did, and those cover a period the table
+      // cannot attest to — so both are reported, and switching to the table
+      // cannot quietly retire the files.
+      const logs: AuditLogsResult["logs"] = [{ file: path, form: "table", result: await verifyAuditTable(path, opts) }];
+      // `head` anchors ONE chain — the table's. The files are checked on their own terms.
+      const { head: _pinned, ...withoutHead } = opts;
+      // Both shapes a log beside a database has ever had: 0.4.2's directory of
+      // one file per process, and 0.4.1's single file. A store the founder has
+      // been running since before 0.4.2 has the second, and a verifier that
+      // silently ignored it would be the "delete a log and the rest verify
+      // clean" problem in a new costume.
+      for (const beside of [`${path}.audit`, `${path}.audit.jsonl`]) {
+        let kind: "dir" | "file" | null = null;
+        try {
+          kind = (await stat(beside)).isDirectory() ? "dir" : "file";
+        } catch {
+          kind = null;
+        }
+        if (kind === "file") logs.push({ file: beside, form: "jsonl", result: await verifyAuditChain(beside, withoutHead) });
+        else if (kind === "dir") {
+          for (const file of (await readdir(beside)).filter((f) => f.endsWith(".jsonl")).sort().map((f) => join(beside, f))) {
+            logs.push({ file, form: "jsonl", result: await verifyAuditChain(file, withoutHead) });
+          }
+        }
+      }
+      return { ok: logs.every((l) => l.result.ok), logs };
+    }
     const result = await verifyAuditChain(path, opts);
-    return { ok: result.ok, logs: [{ file: path, result }] };
+    return { ok: result.ok, logs: [{ file: path, form: "jsonl", result }] };
   }
 
   // An anchored head belongs to one chain. Saying which one is the caller's job.
   if (opts.head !== undefined) return { ok: false, logs: [], reason: `--head names one log file, not a directory of them: ${path}` };
   const files = (await readdir(path)).filter((f) => f.endsWith(".jsonl")).sort().map((f) => join(path, f));
   if (files.length === 0) return { ok: false, logs: [], reason: `no logs (*.jsonl) in ${path}` };
-  const logs = [];
-  for (const file of files) logs.push({ file, result: await verifyAuditChain(file, opts) });
+  const logs: AuditLogsResult["logs"] = [];
+  for (const file of files) logs.push({ file, form: "jsonl" as const, result: await verifyAuditChain(file, opts) });
   return { ok: logs.every((l) => l.result.ok), logs };
 }
 
@@ -263,22 +356,9 @@ async function verifyChainText(text: string, opts: { key?: string; head?: string
       return { ...at, reason: `line ${i + 1} is not a chained audit record` };
     }
     const rec = parsed as { prev?: unknown; hash?: unknown; event?: unknown };
-    if (typeof rec.prev !== "string" || typeof rec.hash !== "string" || rec.event === undefined) {
-      return { ...at, reason: `line ${i + 1} is not a chained audit record` };
-    }
-    // The hash covers prev and event; anything else on the line would be unprotected.
-    const extra = Object.keys(rec).filter((k) => k !== "prev" && k !== "hash" && k !== "event");
-    if (extra.length > 0) return { ...at, reason: `line ${i + 1} has fields outside the chain (${extra.join(", ")})` };
-    if (rec.prev !== prev) {
-      return { ...at, reason: `line ${i + 1} does not follow the line before it: a line was removed, inserted or reordered` };
-    }
-    if ((await digest(rec.prev, rec.event, opts.key)) !== rec.hash) {
-      return {
-        ...at,
-        reason: `line ${i + 1} was edited: its hash does not match its content${opts.key === undefined ? " (or the log was chained with a key, and none was given)" : " under this key (or the key is wrong)"}`,
-      };
-    }
-    prev = rec.hash;
+    const fault = linkFault(rec, prev, opts.key, i + 1, LINE_LABELS);
+    if (fault !== null) return { ...at, reason: fault };
+    prev = rec.hash as string;
   }
   if (opts.head !== undefined && prev !== opts.head) {
     return { ok: false, count, line: physical.length, reason: "the newest line does not match the anchored head: the log was cut short or has diverged" };
