@@ -165,24 +165,57 @@ of the default on-device model), on the same laptop:
 | Semantic recall, top 10 — first of a session | 765 ms | 3,200 ms |
 | Semantic recall, top 10 — thereafter | 36 ms median | 187 ms median |
 
-Read that as a ceiling, not a benchmark win. Three things a reviewer should know:
+Read that as a ceiling, not a benchmark win.
 
-- **Vectors are stored as JSON text**, so one 384-float vector costs about 8 KB instead
-  of the 1.5 KB the same floats occupy as binary. That is where the file size goes: the
-  same 100,000 facts are 69 MB without vectors and 864 MB with them. Storing the vector
-  as a BLOB, and handing the search to `sqlite-vec` instead of scanning in JavaScript,
-  is the obvious next move and is not done yet.
-- **The scan is linear in the number of facts**, and the first call of a session pays to
-  read and parse the whole vector table; later calls reuse a 60-second in-process cache
-  and still score every vector. Both columns scale as you would expect — 5× the facts,
-  ~4–5× the time.
+**And the brute-force scan is not what costs.** That is worth stating plainly, because it
+is the obvious suspect and it is wrong. Timing a cold call stage by stage at 100,000 facts,
+two runs on the same laptop (the second 2026-09-19):
+
+| Stage of one cold semantic recall, 100,000 facts | Measured |
+|---|---|
+| SQL read of the vector table | 978–1,182 ms |
+| `JSON.parse` of those rows | 1,418–1,744 ms |
+| Cosine scan of all 100,000 vectors | 85–127 ms |
+| The whole call, cold, end to end | 3,650–4,170 ms |
+| Per vector, stored as JSON text | 8,003 bytes |
+
+Reading the rows and parsing them is **95–96%** of those three stages; the scan everyone
+assumes is the bottleneck is about 4%. Three things follow:
+
+- **Vectors are stored as JSON text**, so one 384-float vector costs 8,003 bytes instead
+  of the ~1.5 KB the same floats occupy as binary. That is where the file size goes — the
+  same 100,000 facts are 69 MB without vectors and 864 MB with them — and, per the table,
+  it is also where the *time* goes, because those 8 KB rows have to be read and parsed.
+- **So BLOB storage is the move, and `sqlite-vec` is not — at this size.** Storing the
+  vector as a `Float32Array` BLOB removes the parse entirely and shrinks the read by
+  roughly 5×, which is where 95% of the cost sits. Handing the search to `sqlite-vec`
+  would attack the 85–127 ms scan, which is not the problem yet. Both those figures are a
+  **projection from the table above, not an achieved result**: neither is built, and no
+  number in this README comes from a BLOB implementation.
 - **The cache is disposable and model-tagged.** Vectors live in their own table keyed by
   `(nodeId, model)`; deleting them loses nothing but time, and a vector from a different
   model is skipped rather than compared. Upgrading the embedder is a re-index, never a
   migration. The facts-only sizes above are what the memory actually weighs.
 
-If you are wiring an embedder over tens of thousands of facts, size the machine for the
-table above, or keep to the keyword path until the BLOB-and-`sqlite-vec` work lands.
+The scan is still linear in the number of facts, and a session's first call pays for the
+whole vector table; later calls reuse a 60-second in-process cache and still score every
+vector. If you are wiring an embedder over tens of thousands of facts, size the machine for
+the table above, or keep to the keyword path until the BLOB work lands.
+
+### Backups, restores and synced folders
+
+A SQLite database in WAL mode is **three** files — `brain.db`, `brain.db-wal`, `brain.db-shm` —
+and two ordinary habits will quietly lose a person's memory:
+
+- **Restoring a backup:** stop the server first, then delete `brain.db-wal` and
+  `brain.db-shm` before you copy the backup into place. A `-wal` left beside a restored
+  file is replayed over it on the next open, so the restore appears to succeed, reports no
+  error, and leaves you with the data you were trying to replace. Verified, 2026-09-19.
+- **Synced folders:** never put the database in iCloud, Dropbox, OneDrive or Google Drive.
+  WAL mode assumes one machine coordinating its own locks; a sync client copying
+  the three files independently, or two machines writing through one folder, corrupts the
+  file rather than conflicting visibly. Back the folder up by all means — copy it out on a
+  schedule, or use `.backup`/`VACUUM INTO` — but do not let a sync client own the live file.
 
 ## The conformance score
 
@@ -230,8 +263,8 @@ think we declared a trait wrongly for yours, that is a one-line PR too.
 
 Most memory MCP servers hand the agent a fact.
 This one hands it a fact **it can weigh**: every `recall` result carries `provenance`,
-`validFrom`, `validTo`, `current`, `confidence`, and — for a superseded fact — the id of
-what replaced it. `invalidate` closes a fact's validity and keeps the record; the server
+`validFrom`, `validTo`, `current`, `confidence`, which assistant wrote it and which retired
+it, and — for a superseded fact — the id of what replaced it. `invalidate` closes a fact's validity and keeps the record; the server
 has no erase tool. It serves a governed store: the owner's `personalDefaults` with the AI
 client as the audience, so a secret an agent writes is classified Sensitive and kept out of
 any AI's recall, and every call is audited beside the database.
@@ -264,13 +297,38 @@ A `recall` result looks like this — every field an agent needs to decide how m
 
 ```json
 { "id": "…", "text": "Lives in Tokyo", "provenance": "UserInput", "validFrom": "2026-06-01T00:00:00Z",
-  "validTo": null, "current": true, "confidence": 1, "supersededBy": null, "derivedFrom": [] }
+  "validTo": null, "current": true, "confidence": 1, "supersededBy": null, "derivedFrom": [],
+  "recordedAt": "2026-06-01T00:00:00Z",
+  "origin": { "app": "claude-desktop", "appVersion": "1.2.3", "via": "mcp" }, "retiredBy": null }
 ```
 
-Tools: `remember`, `recall`, `invalidate`, `pin`, `unpin`, `pinned`. SQLite on disk, no
-service, no key. The tool bodies are a plain function over a `MemoryStore`
-(`governanceTools(...)`, exported from `al-buddy-memory/mcp`), so they run against any backend and test without a
-transport.
+`origin` is which assistant wrote the fact, taken from the MCP handshake rather than from
+the model, and `retiredBy` is which one closed it — so on memory genuinely shared between
+assistants, a retired fact is an event with an actor. Both are `null` when the host knew
+nothing.
+
+**`remember` answers "what might this replace?"** It returns the fact it stored plus
+`mayConflictWith`: up to three current facts that read like the new one, each with its id,
+text and `validFrom`.
+
+```json
+{ "id": "…", "text": "Lives in Berlin", "…": "…",
+  "mayConflictWith": [ { "id": "…", "text": "Lives in Tokyo", "validFrom": "2026-06-01T00:00:00Z" } ] }
+```
+
+Nothing is retired automatically — the client reads them and calls `invalidate` on the ones
+that stopped being true. That is the whole invalidate-never-overwrite loop, and until 0.4.2
+nothing in the surface ever prompted it. Treat the list as facts to *read*: they are the
+best lexical matches, not conflicts that were proven.
+
+The **first** `recall` of a connection also returns the pinned tier — the person's standing
+rules — as a second content block, so the tier that claims to be in every prompt gets there
+without spending any of the 512-character handshake.
+
+Tools: `remember`, `recall`, `invalidate`, `pin`, `unpin`, `pinned`. `remember` takes at
+most 4,000 characters and `pin` 500. SQLite on disk, no service, no key. The tool bodies are
+a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
+`al-buddy-memory/mcp`), so they run against any backend and test without a transport.
 
 ## Roadmap
 

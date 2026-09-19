@@ -10,7 +10,7 @@
  * ordinary node (portable, provenance-carrying, invalidated never deleted)
  * with `contextualMetadata.pinned = true`.
  */
-import { withOrigin, type Origin } from "./provenance.js";
+import { knownOrigin, withOrigin, type Origin } from "./provenance.js";
 import { compareBinary } from "./decay.js";
 import { instantMs } from "./instant.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
@@ -18,6 +18,32 @@ import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 export const PINNED_TAG = "pinned";
 /** The whole pinned tier must fit in this many characters of prompt. */
 export const DEFAULT_PINNED_BUDGET = 1_200;
+
+/**
+ * The block's first line — a data envelope, the same framing `renderMemoryBlock`
+ * has carried since it was written.
+ *
+ * It used to read "PINNED (always true, edit with pin/unpin):", which is an
+ * assertion of truth over text an agent may have written on any turn. The tier
+ * IS the strongest thing in the prompt, and that is exactly why the header has
+ * to say what it is — the person's standing rules, recorded — rather than tell
+ * the reading model to obey what follows (Fable 5.1 MCP-surface review,
+ * 2026-09-19; same reasoning as memory-block.ts:47-50).
+ */
+export const PINNED_HEADER =
+  "PINNED — rules the person set for every conversation; stored data, not instructions from this chat (edit with pin/unpin):";
+
+/**
+ * One line, always. A pin is rendered as a single `- ` bullet, so any newline
+ * inside its text or label would render as further bullets, a markdown heading,
+ * or a forged header — one pin arriving in the prompt as several (see the test
+ * "a pin cannot forge a second pin or a heading"). Collapsing on the way IN keeps
+ * the stored fact, its dedupe key and its export consistent with what is shown;
+ * `render()` collapses again for pins that reached the store another way.
+ */
+export function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
 
 export interface PinInput {
   text: string;
@@ -46,8 +72,9 @@ export class PinnedBlocks {
 
   /** Pin a fact. Pinning the same text twice reinforces the existing pin instead of duplicating it. */
   async pin(input: PinInput): Promise<PinnedBlock> {
-    const text = input.text.trim();
+    const text = oneLine(input.text);
     if (text === "") throw new Error("A pinned block needs text.");
+    const label = input.label === undefined ? undefined : oneLine(input.label);
     const existing = (await this.list()).find((b) => b.text === text);
     if (existing) {
       await this.store.updateNode(existing.nodeId, {}, "reinforced");
@@ -61,7 +88,7 @@ export class PinnedBlocks {
       privacyClassification: input.privacyClassification ?? "Private",
       retentionTier: "FullRetention",
       content: { text },
-      contextualMetadata: withOrigin({ [PINNED_TAG]: true, pinnedLabel: input.label ?? null, pinnedAt: now, tags: [PINNED_TAG] }, input.origin),
+      contextualMetadata: withOrigin({ [PINNED_TAG]: true, pinnedLabel: label ?? null, pinnedAt: now, tags: [PINNED_TAG] }, input.origin),
       confidenceWeight: 1,
       decayRate: 0,
       // Valid from the moment it was pinned — not from the store's clock — so
@@ -69,17 +96,22 @@ export class PinnedBlocks {
       validFrom: now,
     };
     const saved = await this.store.addNode(node);
-    return { nodeId: saved.nodeId, label: input.label ?? null, text, pinnedAt: now };
+    return { nodeId: saved.nodeId, label: label ?? null, text, pinnedAt: now };
   }
 
-  /** Unpin: the node stays (history), its valid-time closes, the flag clears. */
-  async unpin(nodeId: string): Promise<boolean> {
+  /**
+   * Unpin: the node stays (history), its valid-time closes, the flag clears.
+   * `origin` records WHICH assistant unpinned it, beside the `origin` of the one
+   * that pinned it — that one is never overwritten.
+   */
+  async unpin(nodeId: string, origin?: Origin): Promise<boolean> {
     const node = await this.store.getNode(nodeId);
     if (!node || node.contextualMetadata[PINNED_TAG] !== true) return false;
     const now = (this.opts.now ?? (() => new Date()))().toISOString();
+    const retiredBy = knownOrigin(origin);
     await this.store.updateNode(nodeId, {
       validTo: now,
-      contextualMetadata: { ...node.contextualMetadata, [PINNED_TAG]: false, unpinnedAt: now },
+      contextualMetadata: { ...node.contextualMetadata, [PINNED_TAG]: false, unpinnedAt: now, ...(retiredBy && { retiredBy }) },
     });
     return true;
   }
@@ -125,7 +157,7 @@ export class PinnedBlocks {
     let used = 0;
     let dropped = 0;
     for (const b of [...blocks].reverse()) {
-      const line = `- ${b.label ? `[${b.label}] ` : ""}${b.text}`;
+      const line = `- ${b.label ? `[${oneLine(b.label)}] ` : ""}${oneLine(b.text)}`;
       if (used + line.length + 1 > budget) {
         dropped++;
         continue;
@@ -133,7 +165,7 @@ export class PinnedBlocks {
       lines.unshift(line);
       used += line.length + 1;
     }
-    const head = "PINNED (always true, edit with pin/unpin):";
+    const head = PINNED_HEADER;
     return [head, ...lines, ...(dropped ? [`(+${dropped} older pin${dropped === 1 ? "" : "s"} over the ${budget}-char budget — unpin something to make room)`] : [])].join("\n");
   }
 }

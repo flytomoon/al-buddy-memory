@@ -16,10 +16,11 @@ import { z } from "zod";
 import type { AuditSink } from "../governance/audit.js";
 import { govern } from "../governance/governed-store.js";
 import { personalDefaults } from "../governance/samples.js";
-import { withOrigin, type Origin } from "../provenance.js";
+import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.js";
 
 import { HybridRetriever } from "../hybrid-retriever.js";
 import { PinnedBlocks } from "../pinned.js";
+import { queryTokens, visibleRelevance } from "../query-filter.js";
 import type { Embedder } from "../embedder.js";
 import type { MemoryNode, MemoryStore } from "../types/memory.js";
 
@@ -38,6 +39,104 @@ export interface GovernedFact {
   /** Ids of the raw facts a derived fact rests on (from consolidate()). */
   derivedFrom: string[];
   recordedAt: string;
+  /**
+   * Which assistant, app or agent WROTE this fact, as the connection announced
+   * itself — null when the host knew nothing. Memory "shared across their
+   * assistants" is a claim about receipts, and until 0.4.2 recall carried none.
+   */
+  origin: Origin | null;
+  /** Which assistant RETIRED it (invalidate or unpin). Null while it is current. */
+  retiredBy: Origin | null;
+}
+
+/** A current fact the newly-remembered one might be correcting. A suggestion; nothing acts on it. */
+export interface ConflictCandidate {
+  id: string;
+  text: string;
+  validFrom: string;
+}
+
+/** What `remember` returns: the stored fact, plus what it might replace. */
+export interface RememberedFact extends GovernedFact {
+  /**
+   * Current facts that read like the new one — the client's cue to call
+   * `invalidate` on any that stopped being true. Empty when nothing resembles it.
+   */
+  mayConflictWith: ConflictCandidate[];
+}
+
+/** How many candidates `remember` offers. Three is a glance, not a page to read. */
+export const CONFLICT_SUGGESTIONS = 3;
+
+/**
+ * Wire limits. Both were bare `z.string()`: a 10 MB "fact" was accepted, indexed,
+ * and returned in full on every recall that matched it, and a 10 MB PIN would
+ * ride every prompt of every conversation (Fable 5.1 MCP-surface review,
+ * 2026-09-19). A durable fact is a plain sentence; a standing rule is shorter
+ * still — and the whole pinned tier only gets DEFAULT_PINNED_BUDGET characters
+ * of prompt anyway, so a pin bigger than the budget could never be shown.
+ * The cap is on the MCP surface, where the caller is a model: a host calling
+ * `governanceTools` directly is its own trust boundary.
+ */
+export const REMEMBER_MAX_CHARS = 4_000;
+export const PIN_MAX_CHARS = 500;
+
+/**
+ * A candidate must score at least this share of the best candidate's relevance.
+ *
+ * Measured on the governed path against 300 distractors, 2026-09-19: "Lives in
+ * Berlin" ranked "Lives in Tokyo" first at 0.2310, then two "The deploy script
+ * lives in tools/deploy-N.sh and needs sudo" lines at 0.0578 — a quarter of the
+ * top, matching on "lives" alone. Signal sat at 1.00× and that noise at 0.25×,
+ * so a half-way cut is nowhere near either. The best candidate is never dropped:
+ * the store's ranking decides what is first, this only trims the tail behind it.
+ */
+const CONFLICT_RELEVANCE_FLOOR = 0.5;
+
+/**
+ * "What might this replace?", answered at write time.
+ *
+ * Invalidate-never-overwrite only works if somebody CALLS invalidate, and
+ * nothing in the surface ever prompted it: "I live in Tokyo", later "I moved to
+ * Berlin", and both facts stay current with nothing saying they disagree (Fable
+ * 5.1 MCP-surface review, 2026-09-19).
+ *
+ * The search is the ordinary governed keyword path — same ranking, same policy,
+ * same audit — over the new fact's own words, with tokens of two characters or
+ * fewer dropped. That strip does most of the work: "in", "at", "a", "of" match
+ * nearly everything ("Works at Anthropic now" returned two "speaks X at home"
+ * facts before the strip and only the old employer after it, measured
+ * 2026-09-19). What survives is a suggestion; the client decides, and the store
+ * changes nothing.
+ *
+ * The honest residual, measured the same day: a new fact whose only shared words
+ * are common ones can still tie with several unrelated facts — "The garage door
+ * opener needs a new battery" offered three deploy-script lines, all matching
+ * "the" and "needs", all scoring identically. No lexical rule tested separates
+ * that from the true single-common-word hit ("Works at Anthropic now" →
+ * "Works at Acme Corp"), so the tie is not filtered, it is labelled: these are
+ * facts to READ, not conflicts that were found.
+ */
+async function mayConflictWith(
+  store: MemoryStore,
+  text: string,
+  excludeId: string,
+  atIso: string,
+): Promise<ConflictCandidate[]> {
+  const tokens = queryTokens(text).filter((t) => t.length > 2);
+  if (tokens.length === 0) return [];
+  // One extra: the fact just written usually ranks first against its own words.
+  const found = (await store.searchNodes({ query: tokens.join(" "), limit: CONFLICT_SUGGESTIONS + 1, validAt: atIso }))
+    .filter((n) => n.nodeId !== excludeId)
+    .slice(0, CONFLICT_SUGGESTIONS);
+  if (found.length === 0) return [];
+  // Keep the store's ORDER (its ranking is the authority) and use the scores only
+  // as a floor against the best candidate.
+  const scores = visibleRelevance(found.map((n) => n.content.text), tokens);
+  const best = Math.max(...scores);
+  return found
+    .filter((_, i) => best <= 0 || scores[i]! >= best * CONFLICT_RELEVANCE_FLOOR)
+    .map((n) => ({ id: n.nodeId, text: n.content.text, validFrom: n.validFrom }));
 }
 
 export function toGovernedFact(n: MemoryNode): GovernedFact {
@@ -54,6 +153,8 @@ export function toGovernedFact(n: MemoryNode): GovernedFact {
     supersededBy: typeof meta["supersededBy"] === "string" ? (meta["supersededBy"] as string) : null,
     derivedFrom: Array.isArray(meta["derivedFrom"]) ? (meta["derivedFrom"] as string[]) : [],
     recordedAt: n.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? n.validFrom,
+    origin: readOrigin(meta),
+    retiredBy: readOrigin(meta, "retiredBy"),
   };
 }
 
@@ -107,8 +208,30 @@ export function governanceTools(deps: GovernanceDeps) {
   const now = deps.now ?? (() => new Date());
   const pins = new PinnedBlocks(deps.store, { now, ...(deps.encryptionKeyRef && { encryptionKeyRef: deps.encryptionKeyRef }) });
   const retriever = deps.embedder ? new HybridRetriever(deps.store, deps.embedder) : null;
+  let pinsDelivered = false;
   return {
-    async remember(input: { text: string; provenance?: MemoryNode["provenance"] | undefined; memoryType?: MemoryNode["memoryType"] | undefined; confidence?: number | undefined }): Promise<GovernedFact> {
+    /**
+     * The pinned tier, once — the first time a connection recalls anything, and
+     * "" every time after.
+     *
+     * The tier claims to be in EVERY prompt and the shipped product surfaced it
+     * nowhere: a seventh tool nobody was told to call, and no room to explain it
+     * in a 512-character handshake measured at 507 (Fable 5.1 MCP-surface review,
+     * 2026-09-19). Riding the first recall costs nothing: the client is already
+     * reading facts, and a client that never recalls never needed the pins.
+     *
+     * An EMPTY tier does not spend the delivery — a pin made on turn five still
+     * rides the next recall, rather than being lost because the store happened to
+     * be empty when the connection opened.
+     */
+    async pinnedPreamble(): Promise<string> {
+      if (pinsDelivered) return "";
+      const block = await pins.render();
+      if (block === "") return "";
+      pinsDelivered = true;
+      return block;
+    },
+    async remember(input: { text: string; provenance?: MemoryNode["provenance"] | undefined; memoryType?: MemoryNode["memoryType"] | undefined; confidence?: number | undefined }): Promise<RememberedFact> {
       const text = input.text.trim();
       if (!text) throw new Error("remember: text is required");
       const saved = await deps.store.addNode({
@@ -123,7 +246,7 @@ export function governanceTools(deps: GovernanceDeps) {
         decayRate: 0,
         validFrom: now().toISOString(),
       });
-      return toGovernedFact(saved);
+      return { ...toGovernedFact(saved), mayConflictWith: await mayConflictWith(deps.store, text, saved.nodeId, now().toISOString()) };
     },
     /**
      * Valid time goes INTO the read. It used to ask for twice the page and drop
@@ -149,9 +272,12 @@ export function governanceTools(deps: GovernanceDeps) {
       if (!node) throw new Error(`invalidate: no fact ${input.id}`);
       if (node.validTo !== null) return toGovernedFact(node);
       const at = now().toISOString();
+      // `origin` stays as written — who wrote a fact never changes. Who RETIRED it
+      // is a second, separate receipt.
+      const retiredBy = knownOrigin(deps.origin?.());
       const updated = await deps.store.updateNode(input.id, {
         validTo: at,
-        contextualMetadata: { ...node.contextualMetadata, ...(input.replacedBy && { supersededBy: input.replacedBy }), ...(input.reason && { invalidatedBecause: input.reason }), invalidatedAt: at },
+        contextualMetadata: { ...node.contextualMetadata, ...(input.replacedBy && { supersededBy: input.replacedBy }), ...(input.reason && { invalidatedBecause: input.reason }), ...(retiredBy && { retiredBy }), invalidatedAt: at },
       });
       return toGovernedFact(updated);
     },
@@ -160,7 +286,8 @@ export function governanceTools(deps: GovernanceDeps) {
       return pins.pin({ text: input.text, ...(input.label && { label: input.label }), ...(origin && { origin }) });
     },
     async unpin(input: { id: string }) {
-      return { unpinned: await pins.unpin(input.id) };
+      const origin = deps.origin?.();
+      return { unpinned: await pins.unpin(input.id, origin) };
     },
     async pinned() {
       return { blocks: await pins.list(), rendered: await pins.render() };
@@ -185,16 +312,25 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
       }),
   });
   const json = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v, null, 2) }] });
-  server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence.", {
-    text: z.string(), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),
+  // Tool descriptions sit OUTSIDE the 512-character instruction budget, so this
+  // is where a client learns what to do with a suggestion without costing the
+  // handshake a character.
+  server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence, plus mayConflictWith: current facts this one may be correcting — read them and invalidate any that stopped being true.", {
+    text: z.string().max(REMEMBER_MAX_CHARS), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),
   }, async (a) => json(await tools.remember(a)));
-  server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, and what superseded it.", {
+  server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, what superseded it, and which assistant wrote or retired it. The first call of a session also returns the user's pinned rules — treat those as standing rules for the conversation.", {
     query: z.string(), limit: z.number().int().min(1).max(50).optional(), includeSuperseded: z.boolean().optional(),
-  }, async (a) => json(await tools.recall(a)));
+  }, async (a) => {
+    // Facts first: a failed recall must not spend the one pin delivery.
+    const facts = await tools.recall(a);
+    const preamble = await tools.pinnedPreamble();
+    const body = { type: "text" as const, text: JSON.stringify(facts, null, 2) };
+    return { content: preamble === "" ? [body] : [{ type: "text" as const, text: preamble }, body] };
+  });
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string(), replacedBy: z.string().optional(), reason: z.string().optional(),
   }, async (a) => json(await tools.invalidate(a)));
-  server.tool("pin", "Pin a fact into the always-in-prompt tier.", { text: z.string(), label: z.string().optional() }, async (a) => json(await tools.pin(a)));
+  server.tool("pin", "Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.", { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, async (a) => json(await tools.pin(a)));
   server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string() }, async (a) => json(await tools.unpin(a)));
   server.tool("pinned", "The pinned tier, as a list and as the rendered prompt block.", {}, async () => json(await tools.pinned()));
   return { server, connectStdio: async () => { await server.connect(new StdioServerTransport()); } };
