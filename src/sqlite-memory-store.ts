@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import Database from "better-sqlite3";
 
 import { queryTokens } from "./query-filter.js";
+import { retryWhileBusy } from "./sqlite-busy.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
@@ -275,7 +276,46 @@ const MIGRATION_V5 = (db: Database.Database): void => {
     if (validFrom !== r.valid_from || validTo !== r.valid_to || createdAt !== r.created_at) update.run(validFrom, validTo, createdAt, r.node_id);
   }
 };
-const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5];
+/**
+ * v6 — a place for the database to say what it is. One key matters today:
+ * `scope`, the project name this file belongs to. Filenames are lossy (two
+ * scopes could sanitise to one name before 0.4.2 — R1, release review
+ * 2026-09-18); the scope written inside the file is not, so a store opened
+ * under the wrong name is refused instead of silently shared.
+ */
+const MIGRATION_V6 = [
+  `CREATE TABLE IF NOT EXISTS memory_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+];
+
+const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6];
+
+export interface SqliteMemoryStoreOptions {
+  /**
+   * The scope (project) this file holds. Recorded the first time it is opened;
+   * from then on, opening the same file under a different scope throws rather
+   * than mixing two projects' facts. Leave it out and nothing is recorded or
+   * checked — a plain store has no scope to disagree about.
+   */
+  scope?: string;
+}
+
+/** The scope recorded inside a database file, or `null` if none is — without migrating it. */
+export function readRecordedScope(dbPath: string): string | null {
+  let db: Database.Database | undefined;
+  try {
+    db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    const row = db.prepare(`SELECT value FROM memory_meta WHERE key = 'scope'`).get() as { value?: string } | undefined;
+    return typeof row?.value === "string" ? row.value : null;
+  } catch {
+    // No file, no meta table (written before v6), or unreadable: nothing recorded.
+    return null;
+  } finally {
+    db?.close();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // SqliteMemoryStore
@@ -313,7 +353,7 @@ const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 export class SqliteMemoryStore implements MemoryStore {
   private readonly db: Database.Database;
 
-  constructor(dbPath: string = DEFAULT_DB_PATH) {
+  constructor(dbPath: string = DEFAULT_DB_PATH, options: SqliteMemoryStoreOptions = {}) {
     if (dbPath !== ":memory:") {
       // 0700 data dir + 0600 db file: lifelong memory is plaintext on disk, so
       // at minimum keep it owner-only against other local accounts. (ALB-SEC-015.)
@@ -324,7 +364,17 @@ export class SqliteMemoryStore implements MemoryStore {
     // never block the writer, and a row insert no longer waits for an fsync
     // (durable at process crash; the last transactions can be lost only at
     // power loss). Measured: inserts went from ~1.7k/s to the README "Limits" figure.
-    this.db.pragma("journal_mode = WAL");
+    //
+    // Retried while busy: better-sqlite3's timeout covers statements, not the
+    // exclusive lock the journal-mode switch needs, so two processes opening one
+    // database together used to fail outright (B1, release review 2026-09-18).
+    //
+    // A short wait per try, not the 5 s statement default: the retry loop does
+    // the waiting, and stacking the two would put a minute between a locked
+    // database and the error that explains it. Worst case here is a few seconds,
+    // then the real SQLITE_BUSY.
+    this.db.pragma("busy_timeout = 250");
+    retryWhileBusy(() => this.db.pragma("journal_mode = WAL"));
     this.db.pragma("synchronous = NORMAL");
     if (dbPath !== ":memory:") {
       try {
@@ -333,9 +383,36 @@ export class SqliteMemoryStore implements MemoryStore {
         /* best-effort — a pre-existing looser file is repaired if permitted */
       }
     }
-    this.db.pragma("journal_mode = WAL");
+    retryWhileBusy(() => this.db.pragma("journal_mode = WAL"));
     this.db.pragma("foreign_keys = ON");
-    this.migrate();
+    retryWhileBusy(() => this.migrate());
+    // Opening is over; ordinary statements get the ordinary wait.
+    this.db.pragma("busy_timeout = 5000");
+    if (options.scope !== undefined) this.claimScope(options.scope);
+  }
+
+  /**
+   * Record which project this file holds, or refuse it to a different one.
+   * A file written before 0.4.2 records nothing, so the first scope to open it
+   * claims it — that is what keeps an existing store working. After that the
+   * name inside the file decides, not the name of the file.
+   */
+  private claimScope(scope: string): void {
+    const recorded = this.db.prepare(`SELECT value FROM memory_meta WHERE key = 'scope'`).get() as { value?: string } | undefined;
+    if (recorded?.value === undefined) {
+      this.db.prepare(`INSERT OR REPLACE INTO memory_meta (key, value) VALUES ('scope', ?)`).run(scope);
+      return;
+    }
+    if (recorded.value !== scope) {
+      this.db.close();
+      throw new Error(`this database holds the scope ${JSON.stringify(recorded.value)}, not ${JSON.stringify(scope)}; refusing to open it — two projects must not share one memory file`);
+    }
+  }
+
+  /** The scope recorded inside this file, if one is. */
+  get scope(): string | null {
+    const row = this.db.prepare(`SELECT value FROM memory_meta WHERE key = 'scope'`).get() as { value?: string } | undefined;
+    return row?.value ?? null;
   }
 
   // -------------------------------------------------------------------------

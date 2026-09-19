@@ -102,9 +102,12 @@ describe("the server tells clients how to use it, and records which app wrote ea
     await client.connect(clientSide);
 
     const instructions = client.getInstructions() ?? "";
-    expect(instructions.slice(0, 512)).toMatch(/recall/);
-    expect(instructions.slice(0, 512)).toMatch(/remember/);
-    expect(instructions.slice(0, 512)).toMatch(/secrets/); // the guidance that matters most survives truncation
+    // The claim is that the whole thing survives a client that reads 512
+    // characters — so assert the whole thing, not a sample of it. Listing three
+    // of the six rules is how a 637-character string passed a green suite while
+    // `invalidate` and `pin` fell outside the window (measured 2026-09-18).
+    expect(instructions.length).toBeLessThanOrEqual(512);
+    for (const rule of [/recall/, /remember/, /secrets/, /invalidate/, /\bpin\b/]) expect(instructions).toMatch(rule);
 
     await client.callTool({ name: "remember", arguments: { text: "prefers Pacific time in reports" } });
     await client.callTool({ name: "pin", arguments: { text: "never a yes-person", label: "tone" } });
