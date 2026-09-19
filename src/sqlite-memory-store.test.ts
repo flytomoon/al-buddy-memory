@@ -103,7 +103,7 @@ describe("SqliteMemoryStore — a store written before 0.4.0", () => {
       reopened.close();
     }
     const check = new Database(dbPath);
-    expect(check.pragma("user_version", { simple: true })).toBe(5); // every migration ran
+    expect(check.pragma("user_version", { simple: true })).toBe(6); // every migration ran
     check.close();
   });
 });

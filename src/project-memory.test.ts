@@ -5,12 +5,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ProjectMemory, projectDbPath } from "./project-memory.js";
 
 describe("projectDbPath", () => {
+  // The filename is a readable stub plus a digest of the whole scope. Until
+  // 0.4.2 it was the stub alone, so two scopes that sanitised alike shared one
+  // database (R1, release review 2026-09-18 — see project-memory-isolation.test.ts).
   it("puts each project in its own file under the base dir", () => {
-    expect(projectDbPath("al-buddy", "/base")).toBe("/base/al-buddy.db");
+    expect(projectDbPath("al-buddy", "/base")).toMatch(/^\/base\/al-buddy-[0-9a-f]{16}\.db$/);
   });
 
   it("sanitizes unsafe characters in the project name", () => {
-    expect(projectDbPath("../evil/project", "/base")).toBe("/base/---evil-project.db");
+    const path = projectDbPath("../evil/project", "/base");
+    expect(path).toMatch(/^\/base\/evil-project-[0-9a-f]{16}\.db$/);
+    expect(path).not.toContain("..");
+  });
+
+  it("is stable for the same name and different for a name that used to collide", () => {
+    expect(projectDbPath("org/repo", "/base")).toBe(projectDbPath("org/repo", "/base"));
+    expect(projectDbPath("org/repo", "/base")).not.toBe(projectDbPath("org-repo", "/base"));
   });
 });
 

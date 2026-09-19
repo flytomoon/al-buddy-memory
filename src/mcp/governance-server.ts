@@ -85,13 +85,18 @@ export interface GovernanceDeps {
 /**
  * What every connecting client is told about using this server. Claude Desktop
  * connected five times and never called a tool: a client that is not told when to
- * recall and what to remember does neither (founder, 2026-09-15). The first 512
- * characters stand alone, because some clients read only that much.
+ * recall and what to remember does neither (founder, 2026-09-15).
+ *
+ * All of it fits in 512 characters — measured at 507 — because some clients read
+ * only that much. It was 637 until 2026-09-18, which put `invalidate` and `pin`
+ * outside the window the claim exists to satisfy; the test asserts the LENGTH
+ * now, not a sample of the words, because sampling three of the six rules is
+ * what let that ship. Anything added here has to come out of something else.
  */
 export const SERVER_INSTRUCTIONS = [
   "This is the user's long-term memory, shared across their assistants.",
-  "At the start of a conversation, and when the user mentions a person, project, preference or past decision, call recall with a short keyword query and use what it returns; each fact says who asserted it and since when.",
-  "When the user states something durable (a preference, decision, commitment, or fact about their life, people or work), call remember with one plain sentence.",
+  "At the start of a conversation, and when a person, project, preference or decision comes up, call recall with a few keywords; each fact says who asserted it and when.",
+  "When the user states something durable, call remember with one plain sentence.",
   "Never remember secrets, small talk or one-off requests.",
   "When a fact stops being true, call invalidate with its id; nothing is deleted.",
   "Use pin only for rules that belong in every conversation.",
@@ -120,13 +125,23 @@ export function governanceTools(deps: GovernanceDeps) {
       });
       return toGovernedFact(saved);
     },
+    /**
+     * Valid time goes INTO the read. It used to ask for twice the page and drop
+     * the superseded facts afterwards, so a subject the person had corrected
+     * often enough came back empty: sixteen retired facts outranked the one
+     * still true, filled the candidate list, and left nothing (Astra R7,
+     * reproduced in both stores, 2026-09-18). Oversampling cannot make a full
+     * page of current facts; a filter the store applies can.
+     */
     async recall(input: { query: string; limit?: number | undefined; includeSuperseded?: boolean | undefined }): Promise<GovernedFact[]> {
       const limit = Math.max(1, Math.min(50, input.limit ?? 8));
+      const currentOnly = input.includeSuperseded !== true ? { validAt: now().toISOString() } : {};
       let nodes: MemoryNode[];
-      if (retriever) nodes = await retriever.recall(input.query, { limit: limit * 2 });
-      else nodes = await deps.store.searchNodes({ query: input.query, limit: limit * 2 });
-      const facts = nodes.map(toGovernedFact).filter((f) => input.includeSuperseded || f.current);
-      return facts.slice(0, limit);
+      // With an embedder the retriever already reads at an instant, and asking
+      // it for history is a known limitation rather than a new one (CHANGELOG).
+      if (retriever) nodes = await retriever.recall(input.query, { limit, ...currentOnly });
+      else nodes = await deps.store.searchNodes({ query: input.query, limit, ...currentOnly });
+      return nodes.map(toGovernedFact);
     },
     /** Close a fact's validity. Never deletes; optionally names the replacement. */
     async invalidate(input: { id: string; replacedBy?: string | undefined; reason?: string | undefined }): Promise<GovernedFact> {
