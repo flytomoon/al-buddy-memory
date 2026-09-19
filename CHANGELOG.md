@@ -8,6 +8,62 @@ under **Behaviour change**, because a version number alone is not a warning.
 On npm today: 0.3.0, 0.3.1 and 0.3.3. Numbers marked "never published" were
 staged and superseded before anyone could install them.
 
+## Unreleased — the audit trail moves into the database
+
+Which version this lands under is decided at release, not here: the 0.4.2 work
+is still on branches and this may ship with it or after it. Dated 2026-09-19.
+
+### Added
+
+- **The audit trail can live inside the database it describes.** `storeAudit(store)`
+  writes hash-chained governance events into an `audit_events` table (schema v7),
+  appended **inside the mutation's own transaction**. The fact and the event land
+  together or neither does, so no commit can outlive its event — the window
+  `docs/policies/ENFORCEMENT.md` has documented since 0.4.0, and the only way to
+  close it was always to write both at once. It also means one chain rather than
+  one file per process: the tail is read and extended under SQLite's write lock,
+  so two assistants share a chain instead of forking it, and there is no
+  directory of logs whose completeness nothing attests to. Two real processes
+  prove it in `src/governance/audit-cross-process.test.ts`.
+
+  This is an **optional store capability** (`AuditCapable`), in the same pattern
+  as `SnapshotCapable`: `MemoryStore` is unchanged, a third-party store stays
+  implementable, and `ChainedAudit`/`JsonlAudit` are untouched and still the
+  answer for a store that cannot do this.
+
+  What it does **not** change: the chain is tamper-*evident*, not tamper-proof.
+  Whoever holds the key can still rewrite it, a cut-off tail is still invisible
+  to the trail itself, and a restored backup still carries a self-consistent
+  chain of its own — anchor `head()` somewhere you do not control, exactly as
+  before. And it is not a cross-process authorisation guarantee: the policy
+  decision still happens before the transaction opens.
+- **`al-buddy-memory verify-audit` takes a database.** Point it at `brain.db` and
+  it checks the `audit_events` chain, plus any per-process JSONL logs still at
+  `brain.db.audit/`, and says which is which. Files and directories of files work
+  exactly as before.
+- `SqliteMemoryStore` gained an `auditKey` option (HMAC for the table's chain)
+  and exports `SCHEMA_VERSION`.
+
+### Behaviour change
+
+- **The MCP server writes its audit trail into the database by default.** It used
+  to write `<db>.audit/<start>-<pid>.jsonl`. Existing logs are left exactly where
+  they are — not adopted, not extended, and still checked by `verify-audit <db>`.
+  Set `AL_BUDDY_MEMORY_AUDIT` to a path to keep writing a JSONL file instead (one
+  server process per file).
+- **On the `audit_events` path a failed audit append no longer latches the store.**
+  It does not need to: the append is in the fact's transaction, so a failure rolls
+  the fact back and nothing is left unrecorded. Latching would brick a store that
+  lost nothing. The latch is unchanged for every sink that writes beside the
+  database, which is where the failure it bounds can still happen.
+
+### Fixed
+
+- Every mutating method of `SqliteMemoryStore` now runs in one `BEGIN IMMEDIATE`
+  transaction (`mutation()`). `addEdge`, `deleteEdge`, `setEmbedding` and
+  `deleteEmbeddings` were bare statements before; they are now atomic with the
+  audit event and take the write lock up front, like the rest.
+
 ## 0.4.1 — 2026-09-15
 
 ### Added

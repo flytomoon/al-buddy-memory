@@ -7,6 +7,8 @@ import { homedir } from "node:os";
 
 import Database from "better-sqlite3";
 
+import { AUDIT_EVENTS_SCHEMA, AuditEventTable } from "./governance/audit-table.js";
+import type { AuditCapable, AuditEvent } from "./governance/audit.js";
 import { queryTokens } from "./query-filter.js";
 import { retryWhileBusy } from "./sqlite-busy.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
@@ -292,7 +294,22 @@ const MIGRATION_V6 = [
   )`,
 ];
 
-const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6];
+/**
+ * v7 — `audit_events`, the governance trail inside the database it describes,
+ * so a mutation's event can be committed in the mutation's own transaction.
+ *
+ * An existing database gets an empty table and nothing else. JSONL logs beside
+ * it are NOT adopted: their chain was computed under whatever key that writer
+ * held, and copying records in would mint a new chain that claims to attest to
+ * a period it never witnessed. The two cover different periods and
+ * `al-buddy-memory verify-audit <db>` reports both.
+ */
+const MIGRATION_V7 = AUDIT_EVENTS_SCHEMA;
+
+const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7];
+
+/** The `user_version` a store is brought up to on open. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
 
 export interface SqliteMemoryStoreOptions {
   /**
@@ -302,6 +319,16 @@ export interface SqliteMemoryStoreOptions {
    * checked — a plain store has no scope to disagree about.
    */
   scope?: string;
+  /**
+   * HMAC key for the `audit_events` chain. Without one the chain catches
+   * accidental damage and careless edits but not a deliberate rewrite, because
+   * anyone who can write the file can recompute it. With one, keep it somewhere
+   * other than beside the database — the same advice as for a file log.
+   *
+   * Changing it makes the existing chain unverifiable and the store will refuse
+   * to extend it, which is the correct refusal and not a recoverable state.
+   */
+  auditKey?: string;
 }
 
 /** The scope recorded inside a database file, or `null` if none is — without migrating it. */
@@ -352,8 +379,16 @@ const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
 const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 
-export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
+export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCapable {
   private readonly db: Database.Database;
+  /** The `audit_events` chain on this connection. Built after migration, so the table exists. */
+  private readonly auditTable: AuditEventTable;
+  /**
+   * The event the mutation now running must commit with, if any. Set by
+   * `auditedMutation` for the duration of one store call and consumed inside
+   * that call's transaction — see `mutation()`.
+   */
+  private pendingAudit: { describe: (result: unknown) => AuditEvent; written: boolean } | null = null;
 
   constructor(dbPath: string = DEFAULT_DB_PATH, options: SqliteMemoryStoreOptions = {}) {
     if (dbPath !== ":memory:") {
@@ -388,9 +423,69 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
     retryWhileBusy(() => this.db.pragma("journal_mode = WAL"));
     this.db.pragma("foreign_keys = ON");
     retryWhileBusy(() => this.migrate());
+    this.auditTable = new AuditEventTable(this.db, options.auditKey);
     // Opening is over; ordinary statements get the ordinary wait.
     this.db.pragma("busy_timeout = 5000");
     if (options.scope !== undefined) this.claimScope(options.scope);
+  }
+
+  // -------------------------------------------------------------------------
+  // The audit trail, in the same transaction as the fact (AuditCapable)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Every mutating method's transaction, in one place, so that every one of
+   * them can carry an audit event and none can be forgotten.
+   *
+   * `IMMEDIATE`, always: the chain's tail is read inside this transaction and
+   * extended in it, and a deferred transaction that upgrades to a write can
+   * have read a stale tail (in WAL, it fails with a snapshot conflict instead —
+   * either way it is not a chain). Holding the write lock from the first
+   * statement is what makes two processes' appends a total order rather than a
+   * fork.
+   */
+  private mutation<T>(body: () => T): T {
+    const run = this.db.transaction((): T => {
+      const out = body();
+      const pending = this.pendingAudit;
+      if (pending !== null && !pending.written) {
+        // Last, so the event describes a change that has actually been made.
+        // If this throws, the whole transaction rolls back: no fact, no event.
+        this.auditTable.append(pending.describe(out));
+        pending.written = true;
+      }
+      return out;
+    });
+    return run.immediate();
+  }
+
+  async auditedMutation<T>(mutate: () => Promise<T>, describe: (result: T) => AuditEvent): Promise<T> {
+    if (this.pendingAudit !== null) {
+      throw new Error("al-buddy-memory: an audited mutation is already in flight on this store; they must not overlap");
+    }
+    const pending = { describe: describe as (result: unknown) => AuditEvent, written: false };
+    this.pendingAudit = pending;
+    try {
+      const result = await mutate();
+      // Belt and braces. Every mutating method goes through `mutation()`, so
+      // this cannot fire; if a new one ever skips it, the caller is told rather
+      // than being left with a committed fact nothing attests to.
+      if (!pending.written) {
+        throw new Error("al-buddy-memory: that store call committed without carrying its audit event; it does not run through mutation()");
+      }
+      return result;
+    } finally {
+      this.pendingAudit = null;
+    }
+  }
+
+  async recordAuditEvent(event: AuditEvent): Promise<void> {
+    // A refusal or a read has no fact to be atomic with: its own transaction.
+    this.db.transaction(() => this.auditTable.append(event)).immediate();
+  }
+
+  async auditHead(): Promise<string> {
+    return this.auditTable.head();
   }
 
   /**
@@ -468,8 +563,9 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
 
     // FTS row and node row land together or not at all: a crash between the
     // two used to leave an orphan FTS row — a ghost search hit with no node
-    // behind it (review 2026-09-01, §3).
-    const insertPair = this.db.transaction((): void => {
+    // behind it (review 2026-09-01, §3). Since the audit table the same transaction also
+    // carries the governance event, when one was asked for.
+    return this.mutation((): MemoryNode => {
     // Insert into FTS5 first to get the rowid for back-reference
     const ftsResult = this.db
       .prepare(`INSERT INTO memory_fts (content_text) VALUES (?)`)
@@ -518,10 +614,8 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
         ftsRowid,
         createdAt: now,
       });
+      return { ...node, nodeId, temporalAnchors, validFrom, validTo };
     });
-    insertPair();
-
-    return { ...node, nodeId, temporalAnchors, validFrom, validTo };
   }
 
   async getNode(nodeId: string): Promise<MemoryNode | undefined> {
@@ -538,7 +632,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
     // to delete and reinsert the row, and the foreign-key cascade silently took
     // every edge and embedding with it (review 2026-09-14). Content cannot
     // differ (assertRestorable), so the full-text row is left as it is.
-    const restore = this.db.transaction((): void => {
+    this.mutation((): void => {
       const row = this.db.prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`).get(node.nodeId) as NodeRow | undefined;
       assertRestorable(node, row ? rowToNode(row) : undefined);
       // The same anchor the ordering reads, by the same function, so the column
@@ -605,7 +699,6 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
           ftsRowid: ftsResult.lastInsertRowid,
         });
     });
-    restore();
   }
 
   /** Verbatim edge insert for round-trip import (idempotent by edgeId). */
@@ -613,7 +706,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
     const edge = canonicalEdge(input);
     // One transaction, and an existing link is never replaced: identical is a
     // no-op, different is refused (edgeRestoreIsNoop).
-    this.db.transaction(() => {
+    this.mutation(() => {
     const row = this.db.prepare(`SELECT * FROM memory_edges WHERE edge_id = ?`).get(edge.edgeId) as EdgeRow | undefined;
     if (edgeRestoreIsNoop(edge, row ? rowToEdge(row) : undefined)) return;
     this.db
@@ -632,7 +725,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
         strength: edge.strength,
         provenance: edge.provenance,
       });
-    })();
+    });
   }
 
   async listNodes(): Promise<MemoryNode[]> {
@@ -844,7 +937,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
     // Read-modify-write under the write lock (IMMEDIATE): two processes that
     // both read the row and then each wrote their reconstruction used to lose
     // one change and its anchor.
-    const apply = this.db.transaction((): MemoryNode => {
+    return this.mutation((): MemoryNode => {
       const existingRow = this.db
         .prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`)
         .get(nodeId) as NodeRow | undefined;
@@ -910,13 +1003,12 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
 
       return updated;
     });
-    return apply.immediate();
   }
 
   async deleteNode(nodeId: string): Promise<void> {
     // One transaction: a crash between the two deletes used to leave a readable
     // fact that keyword search could never find again.
-    this.db.transaction(() => {
+    this.mutation(() => {
       const row = this.db
         .prepare(`SELECT fts_rowid FROM memory_nodes WHERE node_id = ?`)
         .get(nodeId) as Pick<NodeRow, "fts_rowid"> | undefined;
@@ -925,7 +1017,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
       }
       // ON DELETE CASCADE clears memory_edges and memory_embeddings.
       this.db.prepare(`DELETE FROM memory_nodes WHERE node_id = ?`).run(nodeId);
-    })();
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -937,24 +1029,25 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
     const edgeId = randomUUID();
     const createdAt = new Date().toISOString();
 
-    this.db
-      .prepare(
-        `INSERT INTO memory_edges
-          (edge_id, source_node_id, target_node_id, created_at, relationship_type, strength, provenance)
-         VALUES
-          (@edgeId, @sourceNodeId, @targetNodeId, @createdAt, @relationshipType, @strength, @provenance)`,
-      )
-      .run({
-        edgeId,
-        sourceNodeId: edge.sourceNodeId,
-        targetNodeId: edge.targetNodeId,
-        createdAt,
-        relationshipType: edge.relationshipType,
-        strength: edge.strength,
-        provenance: edge.provenance,
-      });
-
-    return { ...edge, edgeId, createdAt };
+    return this.mutation((): MemoryEdge => {
+      this.db
+        .prepare(
+          `INSERT INTO memory_edges
+            (edge_id, source_node_id, target_node_id, created_at, relationship_type, strength, provenance)
+           VALUES
+            (@edgeId, @sourceNodeId, @targetNodeId, @createdAt, @relationshipType, @strength, @provenance)`,
+        )
+        .run({
+          edgeId,
+          sourceNodeId: edge.sourceNodeId,
+          targetNodeId: edge.targetNodeId,
+          createdAt,
+          relationshipType: edge.relationshipType,
+          strength: edge.strength,
+          provenance: edge.provenance,
+        });
+      return { ...edge, edgeId, createdAt };
+    });
   }
 
   async getEdges(nodeId: string): Promise<MemoryEdge[]> {
@@ -965,7 +1058,9 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
   }
 
   async deleteEdge(edgeId: string): Promise<void> {
-    this.db.prepare(`DELETE FROM memory_edges WHERE edge_id = ?`).run(edgeId);
+    this.mutation(() => {
+      this.db.prepare(`DELETE FROM memory_edges WHERE edge_id = ?`).run(edgeId);
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -976,30 +1071,31 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
     const createdAt = new Date().toISOString();
     // Upsert on (node_id, model): re-embedding a node with the same model
     // replaces the vector; a different model coexists as its own row.
-    this.db
-      .prepare(
-        `INSERT INTO memory_embeddings
-          (node_id, model, model_version, dimensions, metric, vector, created_at)
-         VALUES
-          (@nodeId, @model, @modelVersion, @dimensions, @metric, @vector, @createdAt)
-         ON CONFLICT(node_id, model) DO UPDATE SET
-          model_version = excluded.model_version,
-          dimensions    = excluded.dimensions,
-          metric        = excluded.metric,
-          vector        = excluded.vector,
-          created_at    = excluded.created_at`,
-      )
-      .run({
-        nodeId: embedding.nodeId,
-        model: embedding.model,
-        modelVersion: embedding.modelVersion,
-        dimensions: embedding.dimensions,
-        metric: embedding.metric,
-        vector: JSON.stringify(embedding.vector),
-        createdAt,
-      });
-
-    return { ...embedding, createdAt };
+    return this.mutation((): MemoryEmbedding => {
+      this.db
+        .prepare(
+          `INSERT INTO memory_embeddings
+            (node_id, model, model_version, dimensions, metric, vector, created_at)
+           VALUES
+            (@nodeId, @model, @modelVersion, @dimensions, @metric, @vector, @createdAt)
+           ON CONFLICT(node_id, model) DO UPDATE SET
+            model_version = excluded.model_version,
+            dimensions    = excluded.dimensions,
+            metric        = excluded.metric,
+            vector        = excluded.vector,
+            created_at    = excluded.created_at`,
+        )
+        .run({
+          nodeId: embedding.nodeId,
+          model: embedding.model,
+          modelVersion: embedding.modelVersion,
+          dimensions: embedding.dimensions,
+          metric: embedding.metric,
+          vector: JSON.stringify(embedding.vector),
+          createdAt,
+        });
+      return { ...embedding, createdAt };
+    });
   }
 
   async getEmbeddings(nodeId: string): Promise<MemoryEmbedding[]> {
@@ -1017,13 +1113,15 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
   }
 
   async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {
-    if (model !== undefined) {
-      this.db
-        .prepare(`DELETE FROM memory_embeddings WHERE node_id = ? AND model = ?`)
-        .run(nodeId, model);
-      return;
-    }
-    this.db.prepare(`DELETE FROM memory_embeddings WHERE node_id = ?`).run(nodeId);
+    this.mutation(() => {
+      if (model !== undefined) {
+        this.db
+          .prepare(`DELETE FROM memory_embeddings WHERE node_id = ? AND model = ?`)
+          .run(nodeId, model);
+        return;
+      }
+      this.db.prepare(`DELETE FROM memory_embeddings WHERE node_id = ?`).run(nodeId);
+    });
   }
 
   // -------------------------------------------------------------------------
