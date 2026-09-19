@@ -23,6 +23,10 @@ await pins.pin({ label: "you", text: "Your name is Al. Al has no gender: say Al,
 
 Render them into the prompt with `await pins.render()`; recall covers everything else.
 
+Seeding goes on the raw store on purpose: this is you, before any policy exists, writing the
+spine by hand. Everything the *assistant* writes afterwards should go through the governed
+handle in step 2 — including the derived facts in step 3.
+
 ## 2. Choose the rules the store enforces
 
 Policies run in front of every write, read and export ([docs/GOVERNANCE.md](GOVERNANCE.md)). Start with one:
@@ -46,10 +50,17 @@ Raw turns are the truth; standing beliefs are derived from them. Run `consolidat
 over the day's raw memory with any model you like: it writes new facts marked as inferred,
 with a confidence and an edge back to the raw sources, and never rewrites the raw text.
 
+Hand it the **governed** handle from step 2, not the raw store. A derived fact is written
+like any other, so on the raw store it skips the policy and the audit log that the rest of
+your memory runs behind — and a derived fact restates what the raw turn said. Measured on
+this code: given a raw turn containing a password, a proposal repeating it is written
+`Private` with nothing audited through the raw store, and `Sensitive` with eight audit
+events through `governed`.
+
 ```ts
 import { consolidate } from "al-buddy-memory";
 
-await consolidate(store, { since: yesterday, model: "your-model", propose: async (excerpts) => yourModel(excerpts) });
+await consolidate(governed, { since: yesterday, model: "your-model", propose: async (excerpts) => yourModel(excerpts) });
 ```
 
 Show the person what was learned about them once a week, in a sentence they can correct.

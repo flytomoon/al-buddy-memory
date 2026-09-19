@@ -8,6 +8,57 @@ under **Behaviour change**, because a version number alone is not a warning.
 On npm today: 0.3.0, 0.3.1 and 0.3.3. Numbers marked "never published" were
 staged and superseded before anyone could install them.
 
+## Unreleased
+
+Six fixes to the **MCP surface** — the only surface most people will ever touch.
+No schema change, no architecture change. Full write-ups, with the measurements,
+are in [docs/RESILIENCE-LEDGER.md](docs/RESILIENCE-LEDGER.md).
+
+### Behaviour change
+
+- **`recall` now returns two content blocks on the first call of a connection.**
+  The first is the pinned tier — the person's standing rules — and the second is
+  the JSON array of facts, unchanged. Every later call returns the array alone, as
+  before. A client reading `content[0]` as the facts will need `content[content.length - 1]`
+  on the first call. The tier exists to be in every prompt and the server surfaced
+  it nowhere; the handshake `instructions` had no room to explain a seventh tool.
+- **`remember` returns a new field, `mayConflictWith`.** Up to three *current*
+  facts that read like the one just stored, each `{id, text, validFrom}`, so the
+  client can call `invalidate` on the ones that stopped being true. Nothing is
+  retired automatically. Invalidate-never-overwrite depended on a call nothing ever
+  asked for: "I live in Tokyo" then "I moved to Berlin" left both facts current.
+- **`recall` and `remember` results carry `origin` and `retiredBy`** — which
+  assistant wrote a fact, and which closed it. Both `null` when the host knew
+  nothing. `origin` was stored from 0.4.1 and never surfaced; `invalidate` and
+  `unpin` recorded nothing about who called them at all.
+- **`pin` text is collapsed to one line before it is stored.** A pin containing
+  newlines rendered as several pins, with forged labels and markdown headings, and
+  the block header asserted all of it was "always true". The header now frames the
+  tier as stored data rather than instructions, matching `renderMemoryBlock`.
+- **`remember.text` is capped at 4,000 characters and `pin.text` at 500** on the
+  MCP surface. Both were unbounded: a 10 MB "fact" was indexed and returned in full
+  on every matching recall. A host calling `governanceTools` directly is unaffected.
+
+### Fixed
+
+- **docs/STARTER.md consolidated through the raw store**, one step after building a
+  governed handle — so every nightly-derived fact skipped policy and audit.
+  Measured: a derived fact restating a password is written `Private` with 0 audit
+  events through the raw store, `Sensitive` with 8 through the governed handle.
+- **The README blamed the brute-force scan for the semantic path's cost.** It is
+  not the cost. At 100,000 facts the scan is 85–127 ms; the SQL read (978–1,182 ms)
+  and `JSON.parse` (1,418–1,744 ms) of 8,003-byte text rows are 95–96% of the work.
+  So BLOB storage is the move and `sqlite-vec` buys little at this size — both
+  stated as projections, since neither is built.
+- **README: "Backups, restores and synced folders."** Restoring a backup without
+  first stopping the server and deleting `-wal`/`-shm` replays the WAL over the
+  restore and silently does nothing (reproduced). Never put the database in iCloud,
+  Dropbox, OneDrive or Google Drive.
+
+### Added
+
+- `PINNED_HEADER`, `knownOrigin` and `readOrigin` are exported from the package root.
+
 ## 0.4.1 — 2026-09-15
 
 ### Added
