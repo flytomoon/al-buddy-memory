@@ -9,14 +9,16 @@ import Database from "better-sqlite3";
 
 import { queryTokens } from "./query-filter.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
+import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
+  GraphSnapshot,
   MemoryEdge,
   MemoryEmbedding,
   MemoryNode,
   MemoryQueryOptions,
   MemoryStore,
   NewMemoryNode,
+  SnapshotCapable,
   TemporalAnchor,
 } from "./types/memory.js";
 
@@ -310,7 +312,7 @@ const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
 const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 
-export class SqliteMemoryStore implements MemoryStore {
+export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
   private readonly db: Database.Database;
 
   constructor(dbPath: string = DEFAULT_DB_PATH) {
@@ -548,6 +550,18 @@ export class SqliteMemoryStore implements MemoryStore {
     return rows.map(rowToNode);
   }
 
+  /**
+   * The whole graph as one state — every node and every edge read inside one
+   * transaction, so an export cannot pair the nodes of one instant with the
+   * edges of another, even while another process writes (Astra R6, 2026-09-18).
+   */
+  async snapshot(): Promise<GraphSnapshot> {
+    return this.db.transaction((): GraphSnapshot => ({
+      nodes: (this.db.prepare(`SELECT * FROM memory_nodes ORDER BY created_at ASC, node_id ASC`).all() as NodeRow[]).map(rowToNode),
+      edges: (this.db.prepare(`SELECT * FROM memory_edges ORDER BY edge_id ASC`).all() as EdgeRow[]).map(rowToEdge),
+    }))();
+  }
+
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
     // --- Full-text search via FTS5 (keep the BM25 rank — it IS the relevance) ---
     // The match is a JOIN, not an IN-list of rowids: a common term over a
@@ -734,6 +748,7 @@ export class SqliteMemoryStore implements MemoryStore {
     anchorEvent: Parameters<MemoryStore["updateNode"]>[2] = "modified",
   ): Promise<MemoryNode> {
     assertPatchMutable(input);
+    assertAnchorEvent(anchorEvent);
     const patch = canonicalPatch(input);
     // Read-modify-write under the write lock (IMMEDIATE): two processes that
     // both read the row and then each wrote their reconstruction used to lose
@@ -827,6 +842,7 @@ export class SqliteMemoryStore implements MemoryStore {
   // -------------------------------------------------------------------------
 
   async addEdge(edge: Omit<MemoryEdge, "edgeId" | "createdAt">): Promise<MemoryEdge> {
+    assertEdge(edge);
     const edgeId = randomUUID();
     const createdAt = new Date().toISOString();
 

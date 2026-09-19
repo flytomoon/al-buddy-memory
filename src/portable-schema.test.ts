@@ -75,4 +75,37 @@ describe("the published portable-format schema", () => {
     expect(valid).toBe(true);
     expect(artifact.projects[0]!.edges.map((e) => e.relationshipType).sort()).toEqual([...RELATIONSHIP_TYPES].sort());
   });
+
+  /**
+   * The other half of the promise: a store cannot be TALKED INTO an export its
+   * own schema rejects. Both stores used to accept `provenance:"Hacker"`,
+   * `privacyClassification:"sensitive"`, `retentionTier:"Forever"` and an edge
+   * strength of 7 from a JavaScript caller, and the export of that store then
+   * failed this file's schema under ajv with three enum errors (Astra R8 +
+   * Fable, 2026-09-18).
+   */
+  it("cannot be talked into exporting an artifact the schema rejects", async () => {
+    const store = new SqliteMemoryStore(":memory:");
+    const good = await store.addNode(makeNode({ content: { text: "a real fact" } }));
+    const other = await store.addNode(makeNode({ content: { text: "another" } }));
+    const refusals = [
+      () => store.addNode(makeNode({ provenance: "Hacker" as never })),
+      () => store.addNode(makeNode({ memoryType: "Whatever" as never })),
+      () => store.addNode(makeNode({ privacyClassification: "sensitive" as never })),
+      () => store.addNode(makeNode({ retentionTier: "Forever" as never })),
+      () => store.updateNode(good.nodeId, { privacyClassification: "sensitive" as never }),
+      () => store.updateNode(good.nodeId, { validTo: undefined }),
+      () => store.addEdge({ sourceNodeId: good.nodeId, targetNodeId: other.nodeId, relationshipType: "Friend" as never, strength: 0.5, provenance: "UserAsserted" }),
+      () => store.addEdge({ sourceNodeId: good.nodeId, targetNodeId: other.nodeId, relationshipType: "Cause", strength: 7, provenance: "UserAsserted" }),
+      () => store.addEdge({ sourceNodeId: good.nodeId, targetNodeId: other.nodeId, relationshipType: "Cause", strength: 0.5, provenance: "Nobody" as never }),
+    ];
+    for (const attempt of refusals) await attempt().catch(() => undefined);
+
+    const artifact = await exportPortable(new Map([["p", store]]));
+    store.close();
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    addFormats(ajv);
+    ajv.validate(schema, JSON.parse(JSON.stringify(artifact)));
+    expect(ajv.errors ?? []).toEqual([]);
+  });
 });

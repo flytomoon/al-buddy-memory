@@ -11,6 +11,19 @@
 export interface Embedder {
   /** Model tag stored with every vector (e.g. "xenova/all-MiniLM-L6-v2"). */
   readonly model: string;
+  /**
+   * The identity of the VECTOR SPACE, not a changelog entry.
+   *
+   * `(model, modelVersion, dimensions)` is what the library treats as "these
+   * vectors are comparable": the retriever compares nothing tagged otherwise,
+   * and `indexMissingEmbeddings` re-embeds it. So change this string whenever
+   * anything that moves the vectors changes — new weights under the same name,
+   * a different dtype or quantisation, different pooling or normalisation. A
+   * provider that ships new weights under an unchanged name and version is the
+   * one case this library cannot detect: the vectors stay silently stale until
+   * someone says so here. (Raw text is the source of truth either way — the
+   * repair is a re-index, never a data loss.)
+   */
   readonly modelVersion: string;
   readonly dimensions: number;
   embed(texts: string[]): Promise<number[][]>;
@@ -32,12 +45,12 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 
 /** Deterministic test embedder — vector comes from an injected function. */
 export class FakeEmbedder implements Embedder {
-  readonly modelVersion = "test";
-
   constructor(
     readonly model: string,
     readonly dimensions: number,
     private readonly vectorize: (text: string) => number[],
+    /** Same name, new space: pass a different version to model an upgrade. */
+    readonly modelVersion: string = "test",
   ) {}
 
   async embed(texts: string[]): Promise<number[][]> {

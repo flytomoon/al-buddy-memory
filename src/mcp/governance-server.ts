@@ -120,13 +120,23 @@ export function governanceTools(deps: GovernanceDeps) {
       });
       return toGovernedFact(saved);
     },
+    /**
+     * Valid time goes INTO the read. It used to ask for twice the page and drop
+     * the superseded facts afterwards, so a subject the person had corrected
+     * often enough came back empty: sixteen retired facts outranked the one
+     * still true, filled the candidate list, and left nothing (Astra R7,
+     * reproduced in both stores, 2026-09-18). Oversampling cannot make a full
+     * page of current facts; a filter the store applies can.
+     */
     async recall(input: { query: string; limit?: number | undefined; includeSuperseded?: boolean | undefined }): Promise<GovernedFact[]> {
       const limit = Math.max(1, Math.min(50, input.limit ?? 8));
+      const currentOnly = input.includeSuperseded !== true ? { validAt: now().toISOString() } : {};
       let nodes: MemoryNode[];
-      if (retriever) nodes = await retriever.recall(input.query, { limit: limit * 2 });
-      else nodes = await deps.store.searchNodes({ query: input.query, limit: limit * 2 });
-      const facts = nodes.map(toGovernedFact).filter((f) => input.includeSuperseded || f.current);
-      return facts.slice(0, limit);
+      // With an embedder the retriever already reads at an instant, and asking
+      // it for history is a known limitation rather than a new one (CHANGELOG).
+      if (retriever) nodes = await retriever.recall(input.query, { limit, ...currentOnly });
+      else nodes = await deps.store.searchNodes({ query: input.query, limit, ...currentOnly });
+      return nodes.map(toGovernedFact);
     },
     /** Close a fact's validity. Never deletes; optionally names the replacement. */
     async invalidate(input: { id: string; replacedBy?: string | undefined; reason?: string | undefined }): Promise<GovernedFact> {
