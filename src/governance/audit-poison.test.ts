@@ -65,6 +65,31 @@ describe("a broken audit trail stops the store changing", () => {
     expect(stored.map((n) => n.content.text).sort()).toEqual(["first", "second"]);
   });
 
+  /**
+   * GPT-6-Astra, re-reviewing the merged result on 2026-09-19: the latch stops
+   * calls that have not STARTED, and `addNode` was the one mutator left off the
+   * queue ("a brand-new fact answers no earlier question"), so twenty concurrent
+   * writes all passed the check before the first failure was observed. Twenty
+   * rejected calls, twenty persisted facts, no audit events — while
+   * `docs/policies/ENFORCEMENT.md` and the ledger both said **one**.
+   *
+   * The documented window is one write: the one that breaks the sink. This test
+   * is what makes that a bound rather than a hope.
+   */
+  it("still bounds the unrecorded window to one write when twenty land at once", async () => {
+    const inner = new InMemoryStore();
+    const audit = new FailsOnNthWrite(1);
+    const store = govern(inner, { policies: [], context: () => ({ actor: "owner" }), audit });
+
+    const results = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => store.addNode(node(`concurrent ${i}`))));
+
+    // THE DEFECT at cce9cf9: all twenty landed, and nineteen of them were told
+    // they had succeeded while the trail recorded nothing after the first tear.
+    expect(await inner.listNodes()).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(20);
+    expect(audit.events).toHaveLength(1); // the half-written event for the write that broke it
+  });
+
   it("stops updates, erasures, links and imports too", async () => {
     const inner = new InMemoryStore();
     const fact = await inner.addNode(node("standing"));

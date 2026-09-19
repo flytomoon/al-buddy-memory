@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -116,6 +116,58 @@ describe("project scopes are not filename collisions", () => {
     // …and the rightful scope still opens it.
     const reopened = new SqliteMemoryStore(path, { scope: "org/repo" });
     reopened.close();
+  });
+
+  /**
+   * The regression the R1 fix introduced, found by GPT-6-Astra re-reviewing the
+   * merged result on 2026-09-19. `projectDbPath` returned the canonical path the
+   * moment a file existed there, without asking whose it was — and the canonical
+   * name `<slug>-<16 hex>` is a name the OLD scheme could also produce, because
+   * the old scheme was `<anything in [A-Za-z0-9_-]>.db`. So a 0.4.1 project
+   * literally called `foo-2c26b46b68ffc68f` had its database claimed and stamped
+   * by the unrelated new scope `foo`, which then recalled its private facts —
+   * and the original owner, finding its own file stamped by someone else, was
+   * sent to an empty store. No collision in the old scheme was needed.
+   */
+  it("does not take over a legacy file belonging to a project named like its own new filename", async () => {
+    const scope = "foo";
+    // The 0.4.1 project whose file lands exactly where `foo`'s canonical file goes.
+    const shadowed = basename(canonicalProjectDbPath(scope, baseDir), ".db");
+    const theirFile = legacyProjectDbPath(shadowed, baseDir);
+    const theirs = new SqliteMemoryStore(theirFile); // no scope recorded: written by 0.4.1
+    await theirs.addNode({
+      provenance: "UserInput", encryptionKeyRef: "local", memoryType: "Lesson",
+      privacyClassification: "Private", retentionTier: "FullRetention",
+      content: { text: "a private fact of the other project" },
+      contextualMetadata: {}, confidenceWeight: 1, decayRate: 0,
+    });
+    theirs.close();
+
+    const mine = new ProjectMemory(scope, { baseDir });
+    try {
+      expect(await mine.recall("private fact")).toHaveLength(0);
+    } finally {
+      mine.close();
+    }
+
+    // …and the project that wrote it still finds it where it left it.
+    const owner = new ProjectMemory(shadowed, { baseDir });
+    try {
+      expect(owner.dbPath).toBe(theirFile);
+      expect(await owner.recall("private fact")).toHaveLength(1);
+    } finally {
+      owner.close();
+    }
+  });
+
+  it("cannot name a file that the previous scheme could also name", () => {
+    // The old scheme's output was `<sanitised>.db`, and sanitising can produce any
+    // string over [A-Za-z0-9_-]. So no canonical filename may be spellable that
+    // way — otherwise some project's old file is some other project's new one.
+    for (const name of ["foo", "x", "org/repo", "Al Buddy", "a.b", "🙂", "-rf"]) {
+      const canonical = canonicalProjectDbPath(name, baseDir);
+      expect(legacyProjectDbPath(basename(canonical, ".db"), baseDir)).not.toBe(canonical);
+    }
   });
 
   it("resolves an unrecorded legacy file only for the scope that claims it first", () => {

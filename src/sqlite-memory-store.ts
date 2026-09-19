@@ -398,16 +398,30 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable {
    * A file written before 0.4.2 records nothing, so the first scope to open it
    * claims it — that is what keeps an existing store working. After that the
    * name inside the file decides, not the name of the file.
+   *
+   * One transaction, taken IMMEDIATE so the write lock is held BEFORE the stamp
+   * is read. Read-then-write is not a claim: two processes that both looked at
+   * an unstamped 0.4.1 file before either wrote both found it free, and
+   * `INSERT OR REPLACE` let the second overwrite the first's name — so the two
+   * scopes went on sharing one database and each recalled the other's private
+   * facts, which is R1 again through the fix for R1 (GPT-6-Astra on the merged
+   * result, 2026-09-19; `src/scope-claim-race.test.ts` runs two real
+   * processes). The insert is conditional and the value is read back inside the
+   * same transaction, so the claim the caller is told about is the one that is
+   * in the file.
    */
   private claimScope(scope: string): void {
-    const recorded = this.db.prepare(`SELECT value FROM memory_meta WHERE key = 'scope'`).get() as { value?: string } | undefined;
-    if (recorded?.value === undefined) {
-      this.db.prepare(`INSERT OR REPLACE INTO memory_meta (key, value) VALUES ('scope', ?)`).run(scope);
-      return;
-    }
-    if (recorded.value !== scope) {
+    const claim = this.db.transaction((): string => {
+      this.db.prepare(`INSERT INTO memory_meta (key, value) VALUES ('scope', ?) ON CONFLICT(key) DO NOTHING`).run(scope);
+      const row = this.db.prepare(`SELECT value FROM memory_meta WHERE key = 'scope'`).get() as { value?: string } | undefined;
+      return row?.value ?? scope;
+    });
+    // The lock itself can be busy — two stores opening together is the ordinary
+    // case (B1), and better-sqlite3's statement timeout does not cover it.
+    const recorded = retryWhileBusy(() => claim.immediate());
+    if (recorded !== scope) {
       this.db.close();
-      throw new Error(`this database holds the scope ${JSON.stringify(recorded.value)}, not ${JSON.stringify(scope)}; refusing to open it — two projects must not share one memory file`);
+      throw new Error(`this database holds the scope ${JSON.stringify(recorded)}, not ${JSON.stringify(scope)}; refusing to open it — two projects must not share one memory file`);
     }
   }
 
