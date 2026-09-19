@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
-import { SqliteMemoryStore } from "./sqlite-memory-store.js";
+import { SqliteMemoryStore, SCHEMA_VERSION } from "./sqlite-memory-store.js";
 import { makeNode, runMemoryStoreConformance } from "./memory-store-conformance.spec.js";
 
 // Conformance: run the shared suite against an isolated in-memory database.
@@ -103,7 +103,9 @@ describe("SqliteMemoryStore — a store written before 0.4.0", () => {
       reopened.close();
     }
     const check = new Database(dbPath);
-    expect(check.pragma("user_version", { simple: true })).toBe(6); // every migration ran
+    // Every migration ran. Asserted against the count rather than a literal, so
+    // adding one does not read as a regression here (v7, audit_events, 2026-09-19).
+    expect(check.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
     check.close();
   });
 });
