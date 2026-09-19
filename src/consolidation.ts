@@ -210,10 +210,6 @@ function isDerived(n: MemoryNode): boolean {
 }
 
 /**
- * Every consolidation pass with the facts it wrote and their evidence, newest pass
- * first — retracted facts included, so the history stays readable.
- */
-/**
  * Review and undo read EVERY tier and classification the caller may see, not
  * the active-context defaults. `searchNodes({})` hides Archived,
  * PendingDeletion and Sealed facts, so archiving a derived fact made it
@@ -225,6 +221,10 @@ function isDerived(n: MemoryNode): boolean {
  */
 const EVERY_TIER = { retentionTier: [...RETENTION_TIERS], privacyClassification: [...PRIVACY_CLASSIFICATIONS] };
 
+/**
+ * Every consolidation pass with the facts it wrote and their evidence, newest pass
+ * first — retracted facts included, so the history stays readable.
+ */
 export async function listConsolidations(store: MemoryStore): Promise<ConsolidationRun[]> {
   const derived = (await store.searchNodes(EVERY_TIER)).filter(isDerived);
   const runs = new Map<string, ConsolidationRun>();
