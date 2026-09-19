@@ -227,6 +227,13 @@ and two ordinary habits will quietly lose a person's memory:
   `brain.db-shm` before you copy the backup into place. A `-wal` left beside a restored
   file is replayed over it on the next open, so the restore appears to succeed, reports no
   error, and leaves you with the data you were trying to replace. Verified, 2026-09-19.
+- **Which backup command:** `sqlite3 brain.db ".backup out.db"` and
+  `VACUUM INTO 'out.db'` are the safe ones — both take a consistent snapshot of a live
+  database, verified while another process was writing. `sqlite3 .dump` works too, but it
+  does not carry `user_version`; before 0.4.2 a restored dump could not be opened at all
+  (`duplicate column name: valid_from`), and now it migrates cleanly. Never back up by
+  `cp`-ing a live database: a copy taken mid-write can be unreadable, and a readable one
+  can still fail `PRAGMA integrity_check`.
 - **Synced folders:** never put the database in iCloud, Dropbox, OneDrive or Google Drive.
   WAL mode assumes one machine coordinating its own locks; a sync client copying
   the three files independently, or two machines writing through one folder, corrupts the
