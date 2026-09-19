@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]
 // al-buddy-memory conformance --demo        score a small governed store, for comparison
-// al-buddy-memory verify-audit <audit.jsonl | <db>.audit dir> [--head <hash>]
-//   check a hash-chained audit log, or every log in a directory of them (the MCP
-//   server writes one per process). The HMAC key, if the logs have one, comes from
-//   AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which lands in shell history).
-//   --head anchors ONE chain, so it names a file, not a directory.
+// al-buddy-memory verify-audit <memory.db | audit.jsonl | <db>.audit dir> [--head <hash>]
+//   check a hash-chained audit trail. Point it at a DATABASE and it checks the
+//   `audit_events` table inside it — one chain, however many processes wrote it —
+//   plus any per-process JSONL logs still sitting at <db>.audit/. Point it at a
+//   file or a directory of files and it checks those. The HMAC key, if the trail
+//   has one, comes from AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which
+//   lands in shell history). --head anchors ONE chain, so it names a database or a
+//   file, not a directory of files.
 import { readFileSync } from "node:fs";
 import { InMemoryStore, exportPortable, verifyAuditLogs } from "../dist/index.js";
 import { toConformanceInput, scoreConformance, formatReport, fromPortable } from "../dist/conformance/index.js";
@@ -17,24 +20,26 @@ const has = (name) => args.includes(name);
 
 if (cmd === "verify-audit") {
   if (!args[1]) {
-    console.error("usage: al-buddy-memory verify-audit <audit.jsonl | <db>.audit> [--head <hash>]");
+    console.error("usage: al-buddy-memory verify-audit <memory.db | audit.jsonl | <db>.audit> [--head <hash>]");
     process.exit(2);
   }
   const key = process.env.AL_BUDDY_MEMORY_AUDIT_KEY;
   const checked = await verifyAuditLogs(args[1], { ...(key ? { key } : {}), ...(flag("--head") ? { head: flag("--head") } : {}) });
-  // One line per writer's chain: each stands on its own, and the set is intact
-  // only when every one of them is.
-  for (const { file, result } of checked.logs) {
-    const label = checked.logs.length > 1 ? `${file}: ` : "";
+  // One line per chain. A database has exactly one, however many processes
+  // wrote it; a directory of JSONL logs has one per writer, each standing on its
+  // own, and the set is intact only when every one of them is.
+  for (const { file, form, result } of checked.logs) {
+    const label = checked.logs.length > 1 ? `${file}${form === "table" ? " (audit_events)" : ""}: ` : "";
+    const unit = form === "table" ? "event" : "line";
     if (result.ok) console.log(`${label}intact: ${result.count} events, head ${result.head}`);
-    else console.error(`${label}${result.line > 0 ? `BROKEN at line ${result.line} of ${result.count}` : "NOT VERIFIED"}: ${result.reason}`);
+    else console.error(`${label}${result.line > 0 ? `BROKEN at ${unit} ${result.line} of ${result.count}` : "NOT VERIFIED"}: ${result.reason}`);
   }
   if (checked.reason) console.error(`NOT VERIFIED: ${checked.reason}`);
   process.exit(checked.ok ? 0 : 1);
 }
 
 if (cmd !== "conformance") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <audit.jsonl> [--head <hash>]");
+  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]");
   process.exit(2);
 }
 

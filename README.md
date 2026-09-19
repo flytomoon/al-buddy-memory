@@ -86,14 +86,25 @@ in front of every write, update, read and export, and an append-only audit trail
 read what and why.
 
 ```ts
-import { SqliteMemoryStore, govern, personalDefaults, JsonlAudit } from "al-buddy-memory";
+import { SqliteMemoryStore, govern, personalDefaults, storeAudit } from "al-buddy-memory";
 
-const store = govern(new SqliteMemoryStore("brain.db"), {
+const inner = new SqliteMemoryStore("brain.db");
+const store = govern(inner, {
   policies: [personalDefaults({ owner: "chris" })],
   context: () => ({ actor: currentActor() }),
-  audit: new JsonlAudit("audit.jsonl"),
+  // The trail goes in the database, hash-chained, in the same transaction as
+  // the fact it describes. `new ChainedAudit("audit.jsonl")` puts it in a file
+  // instead — for a store that is not SQLite, or when you want it outside the
+  // file it describes. See docs/GOVERNANCE.md for what each one proves.
+  audit: storeAudit(inner),
 });
 ```
+
+Check the trail with `al-buddy-memory verify-audit brain.db`. It names the first event that
+was edited, removed, inserted or reordered. What it establishes, and the two things it does
+not, are written out in [docs/GOVERNANCE.md](docs/GOVERNANCE.md#what-verification-establishes) —
+short version: the chain is tamper-*evident*, it cannot prove its own tail, and only a head
+you anchor somewhere else catches a rewrite or a restored backup.
 
 Three policies ship to copy: personal defaults (secrets auto-classified Sensitive; Sensitive
 facts never reach, leave with, or get erased by anyone but the owner in person; only the owner
@@ -133,6 +144,8 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 | Get by id | 0.1 ms |
 | Invalidate a fact | 0.5 ms |
 | File size | 69 MB |
+| Audit event into `audit_events`, in the fact's own transaction | +0.04 ms per governed write, +0.5 ms per governed read (a read is audited too, so it takes the write lock briefly) |
+| Checking the chain — `verify-audit <db>` | 20,000 events in 77 ms; a fresh store's first governed write pays that check once (67 ms at 20,000 events) |
 
 Ranges are three runs of the same script on 0.4.0. Paging is exact: a page of ten is the
 first ten of the full ordered read. When facts have genuinely decayed, the store may have to
@@ -268,7 +281,8 @@ This one hands it a fact **it can weigh**: every `recall` result carries `proven
 it, and — for a superseded fact — the id of what replaced it. `invalidate` closes a fact's validity and keeps the record; the server
 has no erase tool. It serves a governed store: the owner's `personalDefaults` with the AI
 client as the audience, so a secret an agent writes is classified Sensitive and kept out of
-any AI's recall, and every call is audited beside the database.
+any AI's recall, and every call is audited — into the database itself, in the same
+transaction as the fact.
 
 ```json
 { "mcpServers": { "memory": { "command": "npx",
@@ -290,9 +304,14 @@ to track the latest release instead of the one you tested.
 The memory lands in `~/.al-buddy-memory/brain.db`; set `AL_BUDDY_MEMORY_DB` to put it
 somewhere else. Give it an **absolute path** — a JSON config is not a shell, and a `~`
 in it is expanded by this server but not by everything else that may read the value.
-Beside the database, `brain.db.audit/` collects one hash-chained log per server process
-(two assistants means two processes, and one chain has one writer); check them all with
-`al-buddy-memory verify-audit ~/.al-buddy-memory/brain.db.audit`.
+The audit trail goes inside that database, in `audit_events`, appended in the same
+transaction as the fact it describes — one hash chain however many assistants are running.
+Check it with `al-buddy-memory verify-audit ~/.al-buddy-memory/brain.db`. A server from
+before the table left one log per process in `brain.db.audit/`, and one before that a
+single `brain.db.audit.jsonl`; those are neither adopted nor
+extended (they attest to a period the table cannot, and vice versa) and the same command
+reports them alongside the table. `AL_BUDDY_MEMORY_AUDIT` still names a JSONL file to use
+instead — one process per file if you do.
 
 A `recall` result looks like this — every field an agent needs to decide how much to trust the fact:
 
@@ -337,6 +356,7 @@ a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 - [x] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records (v0.2.0)
 - [x] The governance MCP server: a memory server that returns provenance and validity with every fact (v0.2.0)
 - [x] Governance hooks with an audit trail and three sample policies; provenance immutable at runtime; measured limits at 100k facts (v0.3.0)
+- [x] The audit event committed in the same transaction as the fact it describes, as one chain many processes share (2026-09-19, unreleased)
 - [x] A comparison table and a live paste-your-export demo (albuddy.com)
 - [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
