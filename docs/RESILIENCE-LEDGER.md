@@ -113,8 +113,14 @@ reality rather than described.*
   when the event cannot be written* — an append is made to fail and the store
   holds **zero** new facts afterwards, where `audit-poison.test.ts` asserts
   exactly one on the JSONL path, and still does. Code:
-  `src/sqlite-memory-store.ts` `mutation()` (every mutating method runs through
-  it, so none can be added without carrying an event),
+  `src/sqlite-memory-store.ts` `mutation()` — all nine mutators of `MemoryStore`
+  run through it, verified by enumeration rather than by reading the happy path
+  (Fable 5.1, 2026-09-19: nine `this.mutation(` call sites, one per mutator,
+  every other `.run(` in `migrate()`, `claimScope()` or the v5 backfill). The
+  `written` check in `auditedMutation` is a **detector, not a preventer** — it
+  runs after the mutation returned, so a tenth mutator that forgot would have
+  committed already; it fails loudly on that method's first call instead of
+  silently. The guarantee rests on the enumeration,
   `src/governance/governed-store.ts` `commitAudited`,
   `src/governance/audit-table.ts`. Also
   `src/governance/audit-cross-process.test.ts`: two real processes, twenty
@@ -134,6 +140,43 @@ reality rather than described.*
   children without a barrier, they never overlapped, and a deliberately
   sabotaged build (chain head cached per process — the exact defect) passed it.
   A concurrency test that has not been shown to fail on the defect is decoration.
+
+### The latch we exempted, that still fired on every read
+
+- **Reported by:** Fable 5.1, reviewing the audit-chain merge on the day it
+  landed, 2026-09-19. Reproduced before it was believed, twice, once with a real
+  `SQLITE_FULL` rather than a monkeypatch.
+- **The failure:** moving the trail into the database made the audit latch
+  unnecessary on that path — a failed append rolls the fact back, so no
+  unrecorded write can exist to bound. The change exempted mutations from
+  latching and said so in four places: the CHANGELOG, `docs/GOVERNANCE.md`,
+  `docs/policies/ENFORCEMENT.md`, and the comment above the latch itself.
+  **Reads and refusals were not mutations.** Their events went through
+  `record()`, which latches any sink it is given, this table included. So a
+  disk-full during a governed *search* — a call that changes nothing — refused
+  every subsequent write until the process restarted, on a store that had lost
+  nothing, while the documentation said that could not happen. Reachable by any
+  I/O error or full disk on a read's append, and new to this path, because
+  reads now take the write lock to append.
+- **Us:** ours, one day old, introduced by the fix for the entry above and found
+  before release. Fixed 2026-09-19 (unreleased).
+- **Evidence:** two cases in `src/governance/audit-table.test.ts`, *does not
+  latch when the failed event belongs to a read* / *…to a refusal*, both failing
+  first with the latch's own message. The existing recovery test only failed a
+  *mutation's* append, which is why it could not see this. The fix resolves
+  "is this sink the governed store's own table?" once in `govern()`, where the
+  store and the sink are both in scope, and carries it as `selfCommitting` —
+  the helpers that audit cannot recompute it, and a `StoreAudit` built over a
+  *different* store must still latch, so the question cannot be answered from
+  the sink's type alone.
+- **Notes:** the general shape is worth more than the bug. A guarantee was
+  weakened for one code path and documented as weakened for the whole surface,
+  because the person writing it had the mutation case in mind and the surface
+  had three other cases. **A reviewer should ask, of any exemption, "what else
+  reaches this line?"** — and the documentation is where to look first, because
+  it is written in the voice of the intent rather than the code. The four
+  sentences were not wrong about what should happen; they were wrong about what
+  did.
 
 ### A pinned rule could forge three more, and a heading above them
 - **Reported by:** Fable 5.1, reviewing the MCP surface before launch, 2026-09-19.

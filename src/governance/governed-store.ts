@@ -80,6 +80,17 @@ function authorise(opts: GovernOptions, purpose: Purpose): () => PolicyContext {
  * a regression of the latch; it is the failure the latch bounds becoming
  * unreachable. The latch stays for every sink that writes beside the database,
  * which is every sink a store without the capability can use.
+ *
+ * "That path" means EVERY event on it, not only a mutation's. This paragraph
+ * was written as though mutations were the only kind, and for a day they were
+ * the only kind exempted: a read's or a refusal's event still went through
+ * `record` below, which latched whatever sink it was handed. So a disk-full
+ * during a governed SEARCH bricked a store that had lost nothing, while four
+ * places in the docs said that could not happen (Fable 5.1, reviewing the
+ * merge, 2026-09-19, reproduced with a real SQLITE_FULL). A read changes
+ * nothing and a refusal refuses, so neither can leave an unrecorded write
+ * either — the exemption is a property of the sink, and `selfCommitting`
+ * carries it.
  */
 const POISONED_AUDIT = new WeakMap<AuditSink, Error>();
 
@@ -104,6 +115,20 @@ function auditTableFor(opts: GovernOptions, inner: MemoryStore): AuditCapable | 
 }
 
 /**
+ * The caller's options plus the one fact every helper below needs and none of
+ * them can work out: whether this handle's sink is the governed store's OWN
+ * table. That takes `inner`, which only `govern` has, so it is resolved once
+ * where both are in scope and carried.
+ *
+ * It decides whether a failed event may latch the store — see `record`.
+ */
+type ActiveOptions = GovernOptions & { readonly selfCommitting: boolean };
+
+function activate(inner: MemoryStore, opts: GovernOptions): ActiveOptions {
+  return { ...opts, selfCommitting: auditTableFor(opts, inner) !== null };
+}
+
+/**
  * A mutation and the "allowed" event that attests to it.
  *
  * With the store's own table as the sink, both are ONE transaction: the event
@@ -115,7 +140,7 @@ function auditTableFor(opts: GovernOptions, inner: MemoryStore): AuditCapable | 
  * by the latch and the queue.
  */
 async function commitAudited<T>(
-  opts: GovernOptions,
+  opts: ActiveOptions,
   inner: MemoryStore,
   ctx: PolicyContext,
   mutate: () => Promise<T>,
@@ -134,12 +159,19 @@ async function commitAudited<T>(
   return result;
 }
 
-async function record(opts: GovernOptions, ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): Promise<void> {
+async function record(opts: ActiveOptions, ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): Promise<void> {
   if (!opts.audit) return;
   try {
     await opts.audit.record(auditEvent(ctx, outcome, ids, extra));
   } catch (err) {
-    if (!POISONED_AUDIT.has(opts.audit)) {
+    // Reads and refusals come through here too, and on the store's own table
+    // neither can leave an unrecorded write: a read changes nothing, a refusal
+    // refuses, and a mutation's event is inside the mutation's transaction. The
+    // latch exists to bound unrecorded writes, so with none possible it would
+    // only brick a store that lost nothing — which is what a disk-full during a
+    // governed SEARCH used to do (Fable 5.1, reviewing the merge, 2026-09-19).
+    // The error still propagates; it is the caller's problem, not the store's.
+    if (opts.audit && !opts.selfCommitting && !POISONED_AUDIT.has(opts.audit)) {
       POISONED_AUDIT.set(
         opts.audit,
         new Error(`the audit sink failed (${err instanceof Error ? err.message : String(err)}); this store is not changing anything more until the log is checked with \`al-buddy-memory verify-audit\` and the process restarts`),
@@ -180,7 +212,7 @@ function serialise<T>(inner: object, step: () => Promise<T>): Promise<T> {
 }
 
 /** One fact as this actor would see it on a read: the node (possibly redacted), or null. No audit. */
-async function view(opts: GovernOptions, node: MemoryNode, ctx: PolicyContext): Promise<MemoryNode | null> {
+async function view(opts: ActiveOptions, node: MemoryNode, ctx: PolicyContext): Promise<MemoryNode | null> {
   let current: MemoryNode | null = node;
   for (const p of opts.policies) {
     if (current === null) break;
@@ -193,7 +225,7 @@ async function view(opts: GovernOptions, node: MemoryNode, ctx: PolicyContext): 
   return current;
 }
 
-async function filterRead(opts: GovernOptions, nodes: MemoryNode[], ctx: PolicyContext): Promise<MemoryNode[]> {
+async function filterRead(opts: ActiveOptions, nodes: MemoryNode[], ctx: PolicyContext): Promise<MemoryNode[]> {
   const out: MemoryNode[] = [];
   const hidden: string[] = [];
   for (const node of nodes) {
@@ -207,7 +239,7 @@ async function filterRead(opts: GovernOptions, nodes: MemoryNode[], ctx: PolicyC
 }
 
 /** Run a policy step; a refusal is audited, then rethrown. */
-async function guarded<T>(opts: GovernOptions, ctx: PolicyContext, ids: string[], step: () => Promise<T>): Promise<T> {
+async function guarded<T>(opts: ActiveOptions, ctx: PolicyContext, ids: string[], step: () => Promise<T>): Promise<T> {
   try {
     return await step();
   } catch (err) {
@@ -246,7 +278,10 @@ const snapshot = <T>(value: T): T => (value === undefined ? value : (JSON.parse(
 const snapshotOptions = <T extends object>(options: T): T =>
   Object.fromEntries(Object.entries(options).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v])) as T;
 
-export function govern(inner: MemoryStore, opts: GovernOptions): MemoryStore {
+export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore {
+  // Resolved once, here, because it is the only place `inner` and the sink are
+  // both in scope; everything below reads it off `opts`.
+  const opts = activate(inner, options);
   const readCtx = () => ctxFor(opts, opts.readAs ?? "recall");
 
   /**
