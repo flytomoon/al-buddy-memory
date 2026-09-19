@@ -1,14 +1,16 @@
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
+import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import { queryTokens, visibleRelevance } from "./query-filter.js";
 import type {
+  GraphSnapshot,
   MemoryEdge,
   MemoryEmbedding,
   MemoryNode,
   MemoryQueryOptions,
   MemoryStore,
   NewMemoryNode,
+  SnapshotCapable,
 } from "./types/memory.js";
 
 /**
@@ -26,7 +28,7 @@ import type {
  */
 const copy = <T>(value: T): T => structuredClone(value);
 
-export class InMemoryStore implements MemoryStore {
+export class InMemoryStore implements MemoryStore, SnapshotCapable {
   private readonly nodes = new Map<string, MemoryNode>();
   private readonly edges = new Map<string, MemoryEdge>();
   // Embeddings keyed by `${nodeId}::${model}` — one vector per (node, model).
@@ -49,6 +51,18 @@ export class InMemoryStore implements MemoryStore {
 
   async listNodes(): Promise<MemoryNode[]> {
     return [...this.nodes.values()].sort((a, b) => compareRecency(b, a)).map(copy);
+  }
+
+  /**
+   * The whole graph as one state — nodes and edges together, with no `await`
+   * between them, so a write cannot land in the middle of an export and produce
+   * a graph that never existed (Astra R6, 2026-09-18).
+   */
+  async snapshot(): Promise<GraphSnapshot> {
+    return {
+      nodes: [...this.nodes.values()].sort((a, b) => compareRecency(b, a)).map(copy),
+      edges: [...this.edges.values()].map(copy),
+    };
   }
 
   async getNode(nodeId: string): Promise<MemoryNode | undefined> {
@@ -146,6 +160,7 @@ export class InMemoryStore implements MemoryStore {
     const existing = this.nodes.get(nodeId);
     if (!existing) throw new Error(`Memory node not found: ${nodeId}`);
     assertPatchMutable(patch);
+    assertAnchorEvent(anchorEvent);
     const updated: MemoryNode = {
       ...copy(existing),
       ...copy(canonicalPatch(patch)),
@@ -192,6 +207,7 @@ export class InMemoryStore implements MemoryStore {
   }
 
   async addEdge(edge: Omit<MemoryEdge, "edgeId" | "createdAt">): Promise<MemoryEdge> {
+    assertEdge(edge);
     this.assertEndpoints(edge);
     const full: MemoryEdge = {
       ...edge,

@@ -184,3 +184,77 @@ describe("consolidate — a pass reads in a defined order, collisions included",
     }
   });
 });
+
+/**
+ * Three ways a pass could quietly fail to be a pass, all reported on 2026-09-18
+ * (Astra R11 + R16) and all reproduced here first.
+ */
+describe("consolidate — the whole pass, and only what the pass wrote", () => {
+  it("reads today's facts even when the store holds thousands of older, more confident ones", async () => {
+    const store = new InMemoryStore();
+    const scratch = new InMemoryStore();
+    const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    // 5,100 older facts at full confidence — the read was capped at 5,000 and
+    // ordered by confidence, so nothing recent ever reached the `since` filter.
+    for (let i = 0; i < 5_100; i++) {
+      const n = await scratch.addNode(makeNode({ content: { text: `an old fact ${i}` } }));
+      await store.restoreNode({ ...n, validFrom: old, temporalAnchors: [{ timestamp: old, event: "created" }] });
+    }
+    const today = new Date(Date.now() - 60_000).toISOString();
+    for (let i = 0; i < 10; i++) {
+      await store.addNode(makeNode({ content: { text: `something he said today ${i}` }, confidenceWeight: 0.6 }));
+    }
+
+    const report = await consolidate(store, {
+      since: today,
+      model: "m",
+      dryRun: true,
+      propose: async (raw) => {
+        expect(raw.every((r) => r.text.includes("today"))).toBe(true);
+        return [];
+      },
+    });
+    expect(report.read).toBe(10);
+  });
+
+  it("reviews and undoes a whole pass, including a fact that has since been archived", async () => {
+    const store = new InMemoryStore();
+    const [a] = await seed(store, ["he cycles to work"]);
+    const at = "2026-09-17T02:00:00.000Z";
+    await consolidate(store, {
+      since: "2000-01-01T00:00:00Z",
+      model: "m",
+      now: () => new Date(at),
+      propose: async () => [{ text: "he commutes by bike", sourceNodeIds: [a!] }],
+    });
+    const derivedId = (await listConsolidations(store))[0]!.facts[0]!.nodeId;
+    // Cold storage is still the person's memory: the pass wrote it, so the
+    // pass has to be able to take it back.
+    await store.updateNode(derivedId, { retentionTier: "Archived" }, "archived");
+
+    const runs = await listConsolidations(store);
+    expect(runs[0]?.facts.map((f) => f.nodeId)).toEqual([derivedId]);
+    const report = await undoConsolidation(store, at, { reason: "wrong inference", by: "Chris" });
+    expect(report.retracted).toEqual([derivedId]);
+    expect((await store.getNode(derivedId))?.validTo).not.toBeNull();
+  });
+
+  it("does not leave a conclusion standing whose evidence it could not record", async () => {
+    const store = new InMemoryStore();
+    const [a, b] = await seed(store, ["raw one", "raw two"]);
+    const report = await consolidate(store, {
+      since: "2000-01-01T00:00:00Z",
+      model: "m",
+      propose: async () => {
+        // The source goes while the model is thinking — the review's repro.
+        await store.deleteNode(a!);
+        return [{ text: "a conclusion resting on a fact that is gone", sourceNodeIds: [a!, b!] }];
+      },
+    });
+    expect(report.written).toBe(0);
+    expect(report.refused.map((r) => r.why).join(" ")).toMatch(/evidence/i);
+    const standing = (await store.searchNodes({})).filter((n) => n.content.text.startsWith("a conclusion"));
+    // Never deleted — but never left standing on evidence nobody can check.
+    expect(standing.every((n) => n.validTo !== null)).toBe(true);
+  });
+});

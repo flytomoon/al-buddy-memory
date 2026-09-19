@@ -143,12 +143,17 @@ export class HybridRetriever {
     if (!queryVector) return [];
     const embeddings = await this.embeddingsFor(this.embedder.model);
 
-    // A vector of another length is from another model version: its cosine
-    // against this query is meaningless (a shorter one used to score NaN, and
-    // NaN made the sort non-transitive, so the winner depended on insertion
-    // order). Skip it; backfill replaces it.
+    // A vector from another version of this model is from another SPACE: its
+    // cosine against this query means nothing, even when the dimensions match.
+    // The length check alone let a provider that shipped new weights under the
+    // same name go on answering out of the old space, silently (Astra R9); the
+    // length check stays because a shorter vector scores NaN, and NaN made the
+    // sort non-transitive, so the winner depended on insertion order. Skip
+    // both; backfill replaces them.
+    const version = this.embedder.modelVersion;
+    const dimensions = this.embedder.dimensions;
     const scored = embeddings
-      .filter((e) => e.vector.length === queryVector.length)
+      .filter((e) => e.modelVersion === version && e.dimensions === dimensions && e.vector.length === queryVector.length)
       .map((e) => ({ nodeId: e.nodeId, similarity: cosineSimilarity(queryVector, e.vector) }))
       .filter((e) => Number.isFinite(e.similarity))
       .sort((a, b) => b.similarity - a.similarity || compareBinary(a.nodeId, b.nodeId));
@@ -183,16 +188,26 @@ export class HybridRetriever {
 }
 
 /**
- * Backfill: embed every node that has no vector for this embedder's model.
- * Best-effort and resumable — safe to run at startup, returns how many were
- * indexed. Retired nodes are embedded too (the browser searches history).
+ * Backfill: embed every node whose vector is missing OR was made by a different
+ * version of this model. Best-effort and resumable — safe to run at startup,
+ * returns how many were indexed. Retired nodes are embedded too (the browser
+ * searches history).
+ *
+ * "Missing" used to mean "no row for this model NAME", so an upgrade that kept
+ * the name reported nothing to do and left every vector in the old space
+ * (Astra R9, 2026-09-18). A row for the same (nodeId, model) is replaced by
+ * setEmbedding, so the stale one does not survive the pass.
  */
 export async function indexMissingEmbeddings(
   store: MemoryStore,
   embedder: Embedder,
   batchSize = 32,
 ): Promise<number> {
-  const existing = new Set((await store.listEmbeddings(embedder.model)).map((e) => e.nodeId));
+  const existing = new Set(
+    (await store.listEmbeddings(embedder.model))
+      .filter((e) => e.modelVersion === embedder.modelVersion && e.dimensions === embedder.dimensions)
+      .map((e) => e.nodeId),
+  );
   const all = await store.searchNodes({});
   const sealed = await store.searchNodes({
     privacyClassification: ["Sealed"],
