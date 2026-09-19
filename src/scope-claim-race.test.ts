@@ -140,7 +140,10 @@ describe("claiming a scope is one step, across processes", () => {
 
     // Release once both are inside the claim — or, when only one can be, once
     // waiting any longer proves nothing.
-    const until = Date.now() + 800;
+    // A shared CI runner spawns two Node processes far slower than a laptop; at
+    // 800ms neither reached the barrier and the assertions below read as "no one
+    // opened" rather than "the environment was too slow" (CI, 2026-09-19).
+    const until = Date.now() + 8_000;
     while (Date.now() < until && !(existsSync(join(dir, "ready-1")) && existsSync(join(dir, "ready-2")))) await sleep(10);
     writeFileSync(join(dir, "go"), "");
 
@@ -148,9 +151,19 @@ describe("claiming a scope is one step, across processes", () => {
     const opened = results.filter((r) => r.opened);
     const refused = results.filter((r) => !r.opened);
 
+    // The security property, asserted unconditionally: two scopes must never both
+    // hold one file, however the timing fell out.
+    expect(opened.length, `both claimed the same store: ${JSON.stringify(results)}`).toBeLessThanOrEqual(1);
     // THE DEFECT at cce9cf9: both opened, and each then read the other's facts.
-    expect(opened).toHaveLength(1);
-    expect(refused[0]?.error).toMatch(/holds the scope/);
+    // If neither opened, the children failed to start — say so, rather than
+    // letting an empty array read as a claim about the fix.
+    expect(opened, `neither child opened the store; their errors: ${JSON.stringify(results.map((r) => r.error))}`).toHaveLength(1);
+    // Refused either way, but for one of two reasons: the scope check (clear), or
+    // SQLite's write lock taken by BEGIN IMMEDIATE before the check is reached
+    // (correct, but "database is locked" does not tell a person another project
+    // owns the file). Which one you get is a timing coin-flip. Logged as
+    // follow-up in the ledger rather than asserted away.
+    expect(refused[0]?.error).toMatch(/holds the scope|database is locked/);
     expect(opened[0]?.facts).toEqual([`a private fact from ${opened[0]!.id}`]);
     expect(readRecordedScope(dbPath)).toBe(opened[0]?.scope);
   }, 30_000);
