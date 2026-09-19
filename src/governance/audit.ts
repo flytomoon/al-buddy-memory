@@ -4,6 +4,8 @@
  * pluggable; the in-memory one is for tests and single sessions, the JSONL
  * one for a file that survives the process.
  */
+import { dirname, join } from "node:path";
+
 import type { Purpose } from "./policy.js";
 
 export interface AuditEvent {
@@ -73,7 +75,13 @@ async function digest(prev: string, event: unknown, key: string | undefined): Pr
  * What a file cannot prove about itself: that its tail was not cut off, or that
  * a key holder did not rewrite it. For that, publish `head()` somewhere the
  * log's owner does not control (a git commit, a transparency log) and verify
- * against it. One writer per file — two processes appending would fork the chain.
+ * against it.
+ *
+ * ONE WRITER PER FILE. Two processes appending fork the chain, and then neither
+ * can start, because refusing to extend a broken chain is what this class does
+ * (B1, release review 2026-09-18). Give each writer its own file —
+ * {@link auditLogPath} names one per process — and verify the set with
+ * {@link verifyAuditLogs}.
  */
 export class ChainedAudit implements AuditSink {
   // A true private field: JSON.stringify and util.inspect printed the key when it
@@ -90,7 +98,11 @@ export class ChainedAudit implements AuditSink {
     this.#append =
       opts.append ??
       (async (file, data) => {
-        const { appendFile } = await import("node:fs/promises");
+        const { appendFile, mkdir } = await import("node:fs/promises");
+        // The per-writer layout puts logs in a directory beside the database;
+        // it does not exist until the first event. 0700 like the data dir: the
+        // trail names actors and fact ids.
+        await mkdir(dirname(file), { recursive: true, mode: 0o700 });
         await appendFile(file, data, { encoding: "utf8", mode: 0o600 });
       });
   }
@@ -162,9 +174,61 @@ export class ChainedAudit implements AuditSink {
   }
 }
 
+/**
+ * Where one process's chained log belongs: `<db>.audit/<start>-<pid>.jsonl`.
+ *
+ * A chain has exactly one writer, and a person can legitimately run two
+ * assistants against one memory — the MCP server's own instructions say the
+ * memory is shared across them. So the log is split by writer rather than the
+ * second writer being locked out: each process's chain stands on its own, and
+ * `verifyAuditLogs` takes the directory. The start time is in the name so the
+ * files sort into the order they were opened; the pid separates two processes
+ * that started in the same millisecond. Colons become dashes — ISO time is not
+ * a filename on every filesystem.
+ */
+export function auditLogPath(dbPath: string, opts: { at?: Date; pid?: number } = {}): string {
+  const at = (opts.at ?? new Date()).toISOString().replace(/:/g, "-");
+  return join(`${dbPath}.audit`, `${at}-${opts.pid ?? process.pid}.jsonl`);
+}
+
 export type AuditChainResult =
   | { ok: true; count: number; head: string }
   | { ok: false; count: number; line: number; reason: string };
+
+export interface AuditLogsResult {
+  ok: boolean;
+  logs: { file: string; result: AuditChainResult }[];
+  /** Why there was nothing to check, or why the request could not be answered. */
+  reason?: string;
+}
+
+/**
+ * Check one chained log, or every log a directory of them holds — what
+ * `al-buddy-memory verify-audit` calls. Each file is verified on its own,
+ * because each is one writer's chain; the set is intact when all of them are.
+ */
+export async function verifyAuditLogs(path: string, opts: { key?: string; head?: string } = {}): Promise<AuditLogsResult> {
+  const { readdir, stat } = await import("node:fs/promises");
+  let directory = false;
+  try {
+    directory = (await stat(path)).isDirectory();
+  } catch (err) {
+    const missing = (err as { code?: string }).code === "ENOENT";
+    return { ok: false, logs: [], reason: missing ? `no such file or directory: ${path}` : `cannot read ${path}: ${(err as Error).message}` };
+  }
+  if (!directory) {
+    const result = await verifyAuditChain(path, opts);
+    return { ok: result.ok, logs: [{ file: path, result }] };
+  }
+
+  // An anchored head belongs to one chain. Saying which one is the caller's job.
+  if (opts.head !== undefined) return { ok: false, logs: [], reason: `--head names one log file, not a directory of them: ${path}` };
+  const files = (await readdir(path)).filter((f) => f.endsWith(".jsonl")).sort().map((f) => join(path, f));
+  if (files.length === 0) return { ok: false, logs: [], reason: `no logs (*.jsonl) in ${path}` };
+  const logs = [];
+  for (const file of files) logs.push({ file, result: await verifyAuditChain(file, opts) });
+  return { ok: logs.every((l) => l.result.ok), logs };
+}
 
 /** Check a ChainedAudit file line by line. `head`: the last hash you anchored elsewhere. */
 export async function verifyAuditChain(path: string, opts: { key?: string; head?: string } = {}): Promise<AuditChainResult> {

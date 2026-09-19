@@ -50,6 +50,44 @@ rewrite: anyone who can write the file can recompute the whole chain. A line who
 is incomplete (a crash mid-append) stops the log from being extended until that line is
 removed; the MCP server refuses to start rather than write unaudited.
 
+**What "fails closed" does and does not mean.** After a sink fails, the governed store
+stops changing anything: the next write, update, erasure, link or import is refused before
+it reaches the store, for every handle sharing that sink, until the process restarts. What
+it cannot undo is the write already committed — a mutation commits and *then* its event is
+written, so the one write that broke the sink is itself unrecorded and its caller is told it
+failed. That window is the honest limit and it is in
+[docs/policies/ENFORCEMENT.md](policies/ENFORCEMENT.md); closing it needs the event
+committed in the same transaction as the fact, which is not built. Until 0.4.2 everything
+*after* that window went through as well, so a retrying MCP client compounded changes
+nothing could attest to (R3, release review 2026-09-18).
+
+**One writer per log, not one writer per memory.** A chain has exactly one writer, but a
+person legitimately runs two assistants against one memory. So the MCP server gives each
+process its own log — `<db>.audit/<start>-<pid>.jsonl` — and
+`al-buddy-memory verify-audit <db>.audit` checks every chain in the directory; the set is
+intact when each of them is. Two processes appending to one file fork the chain at the first
+interleaved pair, and then no server can start, because refusing to extend a broken chain is
+what this class does (B1, release review 2026-09-18). A lock file was considered and
+rejected: making the second assistant fail to start is worse than two verifiable logs. A log
+written by 0.4.1 or earlier sits at `<db>.audit.jsonl` and is not extended; check it on its
+own with `al-buddy-memory verify-audit <db>.audit.jsonl`. Setting `AL_BUDDY_MEMORY_AUDIT`
+pins one file, and then it is on you to run one server against it.
+
+### What one process guarantees, and what it does not
+
+Authorisation and the mutation it authorises run as one step: while a governed mutation is
+between its policy checks and its commit, no other governed handle over the same store can
+commit. Without that, an agent's allowed update landed after the owner had made a fact
+Sensitive and left it Private and readable (R2, release review 2026-09-18) — the policies
+are async by design, and every await was a window.
+
+The queue is per store object, in **one process**. Two processes on one SQLite file are
+still protected only by SQLite's own write lock, which covers the write and not the
+decision that preceded it; a cross-process guarantee needs the check and the write in one
+database transaction, and that is not built. One consequence to know about: a policy hook
+must not call a mutating method on a governed store over the same inner store — it would be
+waiting for the queue it is already holding.
+
 Hidden facts cannot change what a governed read returns or in what order. A governed keyword
 search reads every match, keeps the visible ones and ranks them by word rarity counted over
 those visible matches alone, then confidence, then recency — not by the store's BM25, whose

@@ -187,9 +187,21 @@ client as the audience, so a secret an agent writes is classified Sensitive and 
 any AI's recall, and every call is audited beside the database.
 
 ```json
-{ "mcpServers": { "memory": { "command": "npx", "args": ["al-buddy-memory-mcp"],
-    "env": { "AL_BUDDY_MEMORY_DB": "~/.al-buddy-memory/brain.db" } } } }
+{ "mcpServers": { "memory": { "command": "npx",
+    "args": ["-y", "--package=al-buddy-memory@0.4.1", "al-buddy-memory-mcp"] } } }
 ```
+
+`al-buddy-memory-mcp` is an executable *inside* the `al-buddy-memory` package, not a
+package of its own, so `--package=` is what tells npx where to find it — `npx
+al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.4.1`
+to track the latest release instead of the one you tested.
+
+The memory lands in `~/.al-buddy-memory/brain.db`; set `AL_BUDDY_MEMORY_DB` to put it
+somewhere else. Give it an **absolute path** — a JSON config is not a shell, and a `~`
+in it is expanded by this server but not by everything else that may read the value.
+Beside the database, `brain.db.audit/` collects one hash-chained log per server process
+(two assistants means two processes, and one chain has one writer); check them all with
+`al-buddy-memory verify-audit ~/.al-buddy-memory/brain.db.audit`.
 
 A `recall` result looks like this — every field an agent needs to decide how much to trust the fact:
 
