@@ -551,6 +551,20 @@ reality rather than described.*
 
 ## C. Open — known, not yet fixed
 
+### A refusal that is right but unreadable
+- **Reported by:** our own CI, 2026-09-19, after the atomic scope-claim fix.
+- **The failure:** when two processes race for one store, the loser is correctly
+  refused — but if SQLite's write lock (`BEGIN IMMEDIATE`) bites before the scope
+  comparison is reached, the message is `database is locked` rather than a sentence
+  naming the project that owns the file. Which one a person sees is a timing
+  coin-flip.
+- **Us:** shared it, **open**. The isolation guarantee holds; only the explanation
+  is poor.
+- **Evidence:** `src/scope-claim-race.test.ts` accepts either message and says why.
+- **Notes:** the fix is to translate a lock refusal on the claim path into the scope
+  message, which needs care not to mask a genuine lock contention elsewhere. Not
+  rushed in three days before a release for a wording problem.
+
 ### Two of the seven conformance dimensions rest on a declared trait
 - **Reported by:** the 2026-09-18 reviews, pushing on "it grades its own homework".
 - **The failure:** `docs/SCORING.md` said "adapters map only what the export
