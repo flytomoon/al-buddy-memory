@@ -12,6 +12,7 @@
  */
 import { compareBinary, compareRecency, learnedAt } from "./decay.js";
 import { instantMs } from "./instant.js";
+import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
 export interface RawExcerpt {
@@ -77,7 +78,16 @@ function alreadyConsolidated(n: MemoryNode): boolean {
 
 export async function consolidate(store: MemoryStore, opts: ConsolidateOptions): Promise<ConsolidationReport> {
   const now = (opts.now ?? (() => new Date()))().toISOString();
-  const all = await store.searchNodes({ limit: 5_000 });
+  // No limit. The read used to take the 5,000 highest-confidence facts and
+  // THEN filter them by `since`, so a store holding more than that many older,
+  // more confident facts handed the pass nothing recent at all — 5,100 old
+  // facts at confidence 1 and ten recorded today: read 0. A pass that cannot
+  // see today is not a pass (Astra R11/R16, 2026-09-18). The cost is a full
+  // read per pass, which for a nightly background job over a personal store is
+  // the right trade; `maxRaw` still bounds what the model is shown. Pushing
+  // `since` into the query would make it O(new facts) and is the next step if
+  // a pass ever gets expensive.
+  const all = await store.searchNodes({});
   const raw = all
     .filter((n) => n.provenance !== "AIInferred") // derived facts are never re-derived
     .filter((n) => createdAt(n) >= opts.since)
@@ -123,16 +133,39 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
       confidenceWeight: Math.max(0, Math.min(1, p.confidence ?? 0.7)),
       decayRate: 0,
     };
-    const saved = await store.addNode(node);
-    for (const src of sources) {
-      await store.addEdge({ sourceNodeId: saved.nodeId, targetNodeId: src, relationshipType: "Reinforcement", strength: node.confidenceWeight, provenance: "AIInferred" });
+    // The fact and its evidence are separate writes and this interface has no
+    // transaction to put them in, so the failure is handled instead of ignored:
+    // a source deleted while the model was thinking used to leave the
+    // conclusion committed with no evidence edge and the pass thrown out
+    // mid-flight (Astra R11, reproduced in both stores). A conclusion nobody
+    // can check does not stand — and, this being the invalidate-never-delete
+    // library, it is retracted rather than deleted, with the reason on it.
+    let saved: MemoryNode | undefined;
+    try {
+      saved = await store.addNode(node);
+      for (const src of sources) {
+        await store.addEdge({ sourceNodeId: saved.nodeId, targetNodeId: src, relationshipType: "Reinforcement", strength: node.confidenceWeight, provenance: "AIInferred" });
+      }
+    } catch (err) {
+      const why = `evidence could not be recorded: ${err instanceof Error ? err.message : String(err)}`;
+      if (saved) {
+        const retraction: Retraction = { at: now, by: "consolidate", reason: why };
+        await store.updateNode(saved.nodeId, { validTo: now, contextualMetadata: { ...node.contextualMetadata, retraction } });
+      }
+      report.refused.push({ text, why });
+      continue;
     }
     report.written++;
     report.derivedNodeIds.push(saved.nodeId);
   }
   if (!opts.dryRun) {
-    // Mark the raw as read by this pass — an anchor, never a rewrite.
-    for (const n of raw) await store.updateNode(n.nodeId, { contextualMetadata: { ...n.contextualMetadata, [CONSOLIDATED_MARK]: opts.model } }, "summarized");
+    // Mark the raw as read by this pass — an anchor, never a rewrite. A fact
+    // that has gone since the read is skipped rather than thrown over: it was
+    // never consolidated, so nothing is owed to it.
+    for (const n of raw) {
+      if (!(await store.getNode(n.nodeId))) continue;
+      await store.updateNode(n.nodeId, { contextualMetadata: { ...n.contextualMetadata, [CONSOLIDATED_MARK]: opts.model } }, "summarized");
+    }
   }
   return report;
 }
@@ -180,8 +213,20 @@ function isDerived(n: MemoryNode): boolean {
  * Every consolidation pass with the facts it wrote and their evidence, newest pass
  * first — retracted facts included, so the history stays readable.
  */
+/**
+ * Review and undo read EVERY tier and classification the caller may see, not
+ * the active-context defaults. `searchNodes({})` hides Archived,
+ * PendingDeletion and Sealed facts, so archiving a derived fact made it
+ * invisible to the review and untouchable by the undo: the undo reported
+ * nothing retracted, left validTo null, and restoring the tier brought the
+ * withdrawn conclusion back (Astra R11, 2026-09-18). Through a governed handle
+ * the policies still decide what this actor sees — naming the tiers widens the
+ * read, never the authority.
+ */
+const EVERY_TIER = { retentionTier: [...RETENTION_TIERS], privacyClassification: [...PRIVACY_CLASSIFICATIONS] };
+
 export async function listConsolidations(store: MemoryStore): Promise<ConsolidationRun[]> {
-  const derived = (await store.searchNodes({})).filter(isDerived);
+  const derived = (await store.searchNodes(EVERY_TIER)).filter(isDerived);
   const runs = new Map<string, ConsolidationRun>();
   for (const n of derived) {
     const at = n.contextualMetadata["consolidatedAt"] as string;
@@ -223,7 +268,7 @@ export async function undoConsolidation(
   if (reason === "") throw new Error("undoConsolidation needs a reason: an undo without one leaves the record unable to say why");
   const now = (opts.now ?? (() => new Date()))().toISOString();
   const report: UndoConsolidationReport = { retracted: [], alreadyRetracted: [] };
-  const facts = (await store.searchNodes({})).filter((n) => isDerived(n) && n.contextualMetadata["consolidatedAt"] === consolidatedAt);
+  const facts = (await store.searchNodes(EVERY_TIER)).filter((n) => isDerived(n) && n.contextualMetadata["consolidatedAt"] === consolidatedAt);
   for (const n of facts) {
     if (n.validTo !== null && n.validTo <= now) {
       report.alreadyRetracted.push(n.nodeId);
