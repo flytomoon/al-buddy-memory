@@ -164,9 +164,10 @@ describe("importPortable — validation + safety", () => {
       await importPortable(artifact, () => target);
       const second = await exportPortable(new Map([["p", source]]));
       const nodes = second.projects[0]!.nodes;
-      nodes[1] = { ...nodes[1]!, content: { text: "a tidier version of what was said" } };
+      const london = nodes.findIndex((n) => n.content.text === "lives in London");
+      nodes[london] = { ...nodes[london]!, content: { text: "a tidier version of what was said" } };
       await expect(importPortable(second, () => target)).rejects.toThrow(/immutable/);
-      expect((await target.getNode(nodes[1]!.nodeId))?.content.text).toBe("lives in London");
+      expect((await target.getNode(nodes[london]!.nodeId))?.content.text).toBe("lives in London");
       // And the first node was not re-written on the way past, either.
       expect((await target.listNodes()).length).toBe(2);
     });

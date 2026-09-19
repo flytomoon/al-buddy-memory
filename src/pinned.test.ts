@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "./in-memory-store.js";
+import { makeNode } from "./memory-store-conformance.spec.js";
 import { PinnedBlocks } from "./pinned.js";
+import { SqliteMemoryStore } from "./sqlite-memory-store.js";
+import type { MemoryStore } from "./types/memory.js";
 
 const clock = (iso: string) => () => new Date(iso);
 
@@ -56,4 +59,41 @@ describe("PinnedBlocks — the tier that is in every prompt", () => {
     expect(block).not.toContain("rule 0");
     expect(block).toMatch(/\+\d older pins? over the 160-char budget/);
   });
+
+  /**
+   * The tier is "the facts that belong in EVERY prompt", and it read the 500
+   * highest-ranked Lessons and then filtered them down to the pins — so once
+   * 500 newer Lessons existed, list() returned nothing, render() returned an
+   * empty string, and pinning the same rule again made a duplicate instead of
+   * finding it. Every pin already carries tags:["pinned"] and both stores
+   * filter tags before the limit; it just never asked (Astra R12, 2026-09-18).
+   */
+  for (const [label, make] of [
+    ["InMemoryStore", () => new InMemoryStore()],
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+  ] as const) {
+    it(`${label}: a pin survives 600 newer Lessons`, async () => {
+      const store: MemoryStore = make();
+      const pins = new PinnedBlocks(store);
+      const rule = "Al has no gender — say Al or they.";
+      await pins.pin({ text: rule, label: "identity" });
+
+      // Learned AFTER the pin (the ranking's last word is recency) and valid
+      // now, so all 600 outrank it and the 500-row read never reaches it.
+      const scratch = new InMemoryStore();
+      const learnedLater = new Date(Date.now() + 86_400_000).toISOString();
+      const validEarlier = new Date(Date.now() - 86_400_000).toISOString();
+      for (let i = 0; i < 600; i++) {
+        const n = await scratch.addNode(makeNode({ memoryType: "Lesson", content: { text: `an ordinary lesson ${i}` } }));
+        await store.restoreNode({ ...n, validFrom: validEarlier, validTo: null, temporalAnchors: [{ timestamp: learnedLater, event: "created" }] });
+      }
+
+      expect((await pins.list()).map((b) => b.text)).toEqual([rule]);
+      expect(await pins.render()).toContain(rule);
+      // And the duplicate that followed from not finding it.
+      await pins.pin({ text: rule });
+      expect((await pins.list()).length).toBe(1);
+      (store as { close?: () => void }).close?.();
+    });
+  }
 });
