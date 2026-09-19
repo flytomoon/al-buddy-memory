@@ -25,7 +25,7 @@ The schema is LLM-agnostic. Memory nodes carry no model-specific metadata. The s
 
 The schema defines both `MemoryNode` and `MemoryEdge` types from day one, establishing the full contract. However, the **Phase 1 MVP** only requires implementations to persist edges — bidirectional graph traversal is a **Phase 2** capability.
 
-**Why:** Standing up the full node schema now prevents a costly breaking migration when ALB-7 ships. Traversal can be layered on without changing the storage contract.
+**Why:** Standing up the full node schema now prevents a costly breaking migration when traversal ships. Traversal can be layered on without changing the storage contract.
 
 ### 2. All the required governance fields are required in Phase 1
 
@@ -57,24 +57,26 @@ The temporal history of a memory node (when it was recalled, reinforced, archive
 
 The interface does not reference Amazon Neptune, Neo4j, SQLite, or any other storage technology. Implementations may swap underlying stores without any API-layer changes.
 
-**Why:** The system must survive technology shifts over decades (GOV-TECH-001 §3). The storage technology is an implementation detail; the schema is the contract.
+**Why:** The system must survive technology shifts over decades — see §3 of the [technical governance policy](./policies/technical-governance-and-schema-evolution.md). The storage technology is an implementation detail; the schema is the contract.
 
 ### 7. Legacy `MemoryEntry` is preserved with `@deprecated`
 
-The original flat `MemoryEntry` type is retained to avoid breaking any code written against the pre-1.0 schema. It will be removed when ALB-7 ships.
+The original flat `MemoryEntry` type is retained to avoid breaking any code written against the pre-1.0 schema. It will be removed in a future major version.
 
 **Why:** Allows existing code to continue compiling during the transition. The `@deprecated` annotation signals to developers (and LSPs) to migrate.
 
-### 8. Memory is bi-temporal — invalidate, don't delete (1.1.0)
+### 8. Valid time, and an event log beside it — invalidate, don't delete (1.1.0)
 
-Nodes carry two independent time axes:
+Nodes carry two time-bearing fields, and it matters that only one of them is queryable:
 
-- **Transaction time** — `temporalAnchors` (append-only): when _the system_ recorded events (created, recalled, modified…).
-- **Valid time** — `validFrom` / `validTo`: when the fact is _true in the world_, independent of when we learned it.
+- **Valid time** — `validFrom` / `validTo`: when the fact is _true in the world_, independent of when we learned it. A `validAt` query reads the store as of any past instant.
+- **An append-only event log** — `temporalAnchors`: when _the store_ touched a fact (created, recalled, modified…).
 
-When a fact stops being true (the user moves cities, changes jobs), we set `validTo` rather than deleting the node. A `validAt` query then reconstructs what was true at any past instant.
+When a fact stops being true (the user moves cities, changes jobs), we set `validTo` rather than deleting the node. A `validAt` query then answers **what was true at X**.
 
-**Why:** A lifelong companion's knowledge of a person is a moving target. Deleting superseded facts destroys the history that makes the companion understand _change_ — and change is most of a life. This is the bi-temporal model that temporal knowledge-graph research converged on. `validFrom` defaults to creation time and `validTo` to `null` (open), so existing call sites need no change.
+**What this is not.** It does not yet answer **what did we believe at X**. A full bi-temporal store keeps a transaction axis you can query the same way, so you can reconstruct the store's own past state — including a fact it held wrongly and has since corrected. Here, an update records *that* a change happened, not the value it replaced, so the belief axis is an audit trail rather than a second queryable dimension. The README says the same thing in the comparison table, and the two should not drift apart: this section is the contract, and the contract is one-and-a-bit temporal, not two.
+
+**Why:** A lifelong companion's knowledge of a person is a moving target. Deleting superseded facts destroys the history that makes the companion understand _change_ — and change is most of a life. Valid time is the half of the bi-temporal model that buys that, and is the half implemented. `validFrom` defaults to creation time and `validTo` to `null` (open), so existing call sites need no change.
 
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
@@ -95,7 +97,8 @@ Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId
 | `PrivacyClassification` field                                 | ✅ Required; informational                                                |
 | `RetentionTier` field                                         | ✅ Required; informational                                                |
 | `encryptionKeyRef` field                                      | ✅ Required; key management TBD                                           |
-| Bi-temporal `validFrom`/`validTo` + `validAt` query           | ✅ Stored, queryable (1.1.0)                                              |
+| Valid time (`validFrom`/`validTo`) + `validAt` query          | ✅ Stored, queryable (1.1.0)                                              |
+| Queryable transaction time ("what did we believe at X")       | Deferred — see §8; `temporalAnchors` is an event log, not a second axis   |
 | Model-tagged embedding store (`setEmbedding`/`getEmbeddings`) | ✅ Interface + store (1.1.0); vectors populated when an embedder is wired |
 | Inline `MemoryNode.embedding` field                           | ⚠️ Deprecated (1.1.0) — use the embedding store                           |
 | `MemoryStore` interface                                       | ✅ Full interface defined                                                 |
@@ -107,7 +110,7 @@ Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId
 
 | Capability                              | Notes                                                          |
 | --------------------------------------- | -------------------------------------------------------------- |
-| Bidirectional graph traversal           | Requires Neptune/Neo4j graph query layer                       |
+| Bidirectional graph traversal           | Needs an edge-query API over the existing store — recursive SQL is enough; a graph database is one option, never a requirement (see §6) |
 | Active privacy-tier enforcement         | `Sealed` → excluded from AI context window                     |
 | `Sensitive` → opt-in summarization gate | Requires user-facing confirmation UI                           |
 | Automated decay → `Archived` transition | the governance fields §3.5: notify at day 160, confirm before transition |
@@ -144,7 +147,7 @@ Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId
 
 ## Schema Evolution
 
-All schema changes are governed by GOV-TECH-001 (Technical Governance & Schema Evolution Policy). New fields require:
+All schema changes are governed by the [Technical Governance & Schema Evolution Policy](./policies/technical-governance-and-schema-evolution.md). New fields require:
 
 1. A versioned migration tool
 2. Human review gate before activation

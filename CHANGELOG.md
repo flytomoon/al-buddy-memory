@@ -16,9 +16,18 @@ staged and superseded before anyone could install them.
   connection: recall at the start of a conversation and when a known person,
   project or preference comes up; remember durable facts in one plain sentence;
   never remember secrets, small talk or one-off requests; invalidate what stops
-  being true. The essentials fit in the first 512 characters, which some clients
-  truncate to. (Claude Desktop connected to the 0.4.0 server five times and never
+  being true. (Claude Desktop connected to the 0.4.0 server five times and never
   called a tool — a client that isn't told when to use memory doesn't.)
+
+  **Corrected 2026-09-18** — this entry originally read "the essentials fit in the
+  first 512 characters, which some clients truncate to." Measured, the string is
+  **637 characters**, and character 512 lands mid-sentence at "When a fact". What
+  is inside the budget is the recall rule and the remember rule — the two that
+  decide whether the memory is used at all. What falls outside it is the
+  invalidate rule and the pin rule, so a client that truncates at 512 gets a
+  memory it will read from and write to, but not retire from. The claim is left
+  here rather than removed, per `docs/RESILIENCE-LEDGER.md`; shortening the string
+  to fit is open, and tracked in that file's section C.
 - **Every fact written through the MCP server records which app wrote it:**
   `contextualMetadata.origin = { app, appVersion, via: "mcp" }`, taken from the
   connection handshake rather than from anything the model says. `remember` and
