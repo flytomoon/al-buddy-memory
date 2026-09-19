@@ -127,8 +127,11 @@ reality rather than described.*
   facts each, released from a barrier so they interleave — one chain, one total
   order, no two records sharing a `prev`.
 - **Notes:** three things this is **not**. It is not more trust: the chain is
-  exactly as tamper-evident as before, a key holder can still rewrite it, and a
-  cut tail is still only caught by an anchored head (section A). It is not a
+  exactly as tamper-evident as before and a key holder can still rewrite it.
+  (**Corrected 2026-09-19:** this entry originally went on to say "and a cut
+  tail is still only caught by an anchored head". That was true when written and
+  is now too weak for the table form — see *The tail a table can prove and a
+  file cannot*, below. A cut tail in a log FILE is still invisible.) It is not a
   completeness proof: it proves that nothing which went through a governed
   handle using this table committed without an event, not that every change to
   the database did — a holder of the raw store still mutates with no event at
@@ -171,6 +174,75 @@ reality rather than described.*
   Still open, and deliberately: a chain this process verified once and another
   process corrupted afterwards will keep being extended. Verification at read
   time names the break.
+
+### "Read that clause exactly as written" listed two exceptions, and there were three
+
+- **Reported by:** the second reviewer of the audit-chain merge, 2026-09-19,
+  working adversarially and independently of the first.
+- **The failure:** `docs/GOVERNANCE.md` states the guarantee — *no mutation made
+  through a governed handle writing to this table committed without an event* —
+  then says "Read that clause exactly as written" and enumerates the exceptions:
+  the raw store, and a handle with a different sink. **`setEmbedding` and
+  `deleteEmbeddings` are a third**, and were not listed. They commit through a
+  governed handle with **zero** events. It is deliberate and documented two
+  sections earlier ("the embedding cache is not audited"), so the behaviour is
+  not the defect; the defect is stating it as an exhaustive list in the one
+  paragraph that invites a reader to parse it literally. `CHANGELOG.md` had the
+  same fault from the other side, naming all four newly-transactional methods as
+  "now atomic with the audit event" when two of them have no event to be atomic
+  with.
+- **Us:** ours, in the docs, written the day before; fixed 2026-09-19.
+- **Evidence:** the reviewer enumerated all ten mutating methods and measured the
+  event delta of each — eight write exactly one, `setEmbedding` and
+  `deleteEmbeddings` write none, and the rows do land. Both sentences now name
+  the third exception. `src/sqlite-memory-store.ts` also notes that the
+  belt-and-braces `written` check cannot cover the two, since they never enter
+  `auditedMutation`.
+- **Notes:** the lesson is narrow and repeatable. **An enumeration is a stronger
+  claim than a description, and invites exactly the reading that finds the
+  missing item.** "Read this exactly as written" raises the standard the sentence
+  is held to; it had better be complete.
+
+### The tail a table can prove, and a file cannot
+
+- **Reported by:** the second reviewer, 2026-09-19, which ran fourteen damage
+  modes against `verify-audit` and found five that reported success — then
+  noticed the evidence to catch four of them was already in the file, unread.
+- **The failure:** "a chain cannot prove its own tail" is true, and this project
+  has said so honestly everywhere since the trail existed: delete the newest
+  records and what remains verifies. It was carried over to the table form
+  without asking whether it was still true there. It is not. `AUTOINCREMENT`
+  keeps a high-water mark in `sqlite_sequence` that a `DELETE` does not roll
+  back — the table's schema comment even says the mark exists so a deleted `seq`
+  is never reissued — and nothing read it. So deleting the newest records,
+  emptying the trail, and emptying it and carrying on all reported *intact*.
+  The last is the sharp one: a store whose entire trail was wiped and then kept
+  in use verified clean, its first surviving record claiming to be the genesis
+  of a chain whose sequence number said otherwise.
+- **Us:** ours, present since the table was written; **strengthened** 2026-09-19
+  (unreleased). This is the rare entry where the code was better than the claim
+  rather than worse.
+- **Evidence:** `tailFault` in `src/governance/audit-table.ts`, four tests in
+  `src/governance/audit-table.test.ts`. Better than detection: `assertSound`
+  runs the verifier before the first append, so a store whose trail was deleted
+  now **refuses to extend it** rather than beginning a second chain — the wipe
+  cannot be carried on from. Measured before implementing, because the whole
+  check rests on the mark outliving the delete: it survives `DELETE FROM t`,
+  a `WHERE`-qualified delete, cutting the newest rows, `VACUUM`, `VACUUM INTO`
+  and `.backup()` — so ordinary maintenance does not trip it. A store that never
+  wrote an event has no mark and is not accused of anything; that case has its
+  own test, because a check that cries wolf on a fresh store would be worse than
+  no check.
+- **Notes:** state it precisely or it becomes the next false claim. This catches
+  **accident and careless deletion**, which is most of what happens to a file in
+  practice. It is not tamper-proofing: whoever can delete the records can reset
+  the counter in the same breath, and against a deliberate edit the anchored head
+  remains the only answer. The claim that moved is narrow — *a cut tail is
+  invisible* was true of both forms and is now true only of the log file — and
+  the sentences that said otherwise are corrected in place, in `README.md`,
+  `docs/GOVERNANCE.md`, `docs/policies/ENFORCEMENT.md`, `CHANGELOG.md` and this
+  file. A reviewer should ask what else was inherited from the file form without
+  being re-asked of the table.
 
 ### The latch we exempted, that still fired on every read
 

@@ -439,10 +439,19 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
    *
    * `IMMEDIATE`, always: the chain's tail is read inside this transaction and
    * extended in it, and a deferred transaction that upgrades to a write can
-   * have read a stale tail (in WAL, it fails with a snapshot conflict instead —
-   * either way it is not a chain). Holding the write lock from the first
-   * statement is what makes two processes' appends a total order rather than a
-   * fork.
+   * have read a stale tail. Holding the write lock from the first statement is
+   * what makes two processes' appends a total order rather than a fork.
+   *
+   * Measured rather than assumed, 2026-09-19: switched to `.deferred()`, the
+   * whole suite still passes — the only mutation it races is `addNode`, whose
+   * first statement is already a write — and a two-process `updateNode` race
+   * does NOT fork the chain either. What it does is lose writes: 15-20% of them
+   * fail with "database is locked" and never land. So the earlier claim here
+   * that a deferred transaction is "not a chain" was stronger than the
+   * evidence; the real cost is dropped writes, and it is still the wrong
+   * transaction to use. Nothing in the suite would catch a change back to
+   * `.deferred()` — see `src/sqlite-memory-store.test.ts`, *every writer's
+   * update lands under contention*, which now would.
    */
   private mutation<T>(body: () => T): T {
     const run = this.db.transaction((): T => {
@@ -480,6 +489,8 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       // nine mutators of `MemoryStore` go through `mutation()`, so nothing
       // reaches here. This exists so that if a tenth is ever added and forgets,
       // it fails on its first call in the first test rather than silently.
+      // It cannot protect `setEmbedding` or `deleteEmbeddings`, which are not
+      // audited on any path and never enter this method at all.
       if (!pending.written) {
         throw new Error("al-buddy-memory: that store call committed without carrying its audit event; it does not run through mutation()");
       }

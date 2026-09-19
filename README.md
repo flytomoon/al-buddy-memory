@@ -103,8 +103,9 @@ const store = govern(inner, {
 Check the trail with `al-buddy-memory verify-audit brain.db`. It names the first event that
 was edited, removed, inserted or reordered. What it establishes, and the two things it does
 not, are written out in [docs/GOVERNANCE.md](docs/GOVERNANCE.md#what-verification-establishes) —
-short version: the chain is tamper-*evident*, it cannot prove its own tail, and only a head
-you anchor somewhere else catches a rewrite or a restored backup.
+short version: the chain is tamper-*evident*; a tail cut off a **log file** is invisible to it,
+a tail cut off the **table** is caught as long as nobody resets the table's own counter, and
+only a head you anchor somewhere else catches a rewrite or a restored backup.
 
 Three policies ship to copy: personal defaults (secrets auto-classified Sensitive; Sensitive
 facts never reach, leave with, or get erased by anyone but the owner in person; only the owner
@@ -145,7 +146,8 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 | Invalidate a fact | 0.5 ms |
 | File size | 69 MB |
 | Audit event into `audit_events`, in the fact's own transaction | +0.04 ms per governed write, +0.5 ms per governed read (a read is audited too, so it takes the write lock briefly) |
-| Checking the chain — `verify-audit <db>` | 20,000 events in 77 ms; a fresh store's first governed write pays that check once (67 ms at 20,000 events) |
+| Checking the chain — `verify-audit <db>` | linear, ~3 µs/event: 83 ms at 20,000 events, 325 ms at 100,000, 1.5 s at 500,000. Each process pays it once, before its first governed write and **outside** the write transaction, so it delays that process and blocks no other. Constant memory (the walk streams) |
+| How fast the trail grows | one event per governed write, one or two per governed read — a `remember` is +2, a `recall` +1. Nothing prunes it. At 500,000 events the trail is ~128 MB, which can exceed the facts it describes; if you drive a store that hard, keep an eye on it |
 
 Ranges are three runs of the same script on 0.4.0. Paging is exact: a page of ten is the
 first ten of the full ordered read. When facts have genuinely decayed, the store may have to

@@ -255,6 +255,73 @@ describe("verify-audit reads the table", () => {
     store = undefined;
   }
 
+  /**
+   * These four cases all verified CLEAN before 2026-09-19 — "intact: 3 events",
+   * "intact: 0 events" — because a hash chain cannot prove its own tail. A
+   * table can do better than a file: AUTOINCREMENT leaves a high-water mark
+   * that DELETE does not roll back. Found by the second reviewer of the merge,
+   * which noticed the evidence was already in the file and nothing read it.
+   *
+   * It catches accident and careless deletion, not a determined edit: whoever
+   * can delete the rows can reset the counter too. The anchored head is still
+   * the only answer to that, and still says so everywhere.
+   */
+  it("catches records cut from the end, which the chain alone cannot", async () => {
+    await threeEvents();
+    const db = new Database(dbPath);
+    db.prepare(`DELETE FROM audit_events WHERE seq = (SELECT MAX(seq) FROM audit_events)`).run();
+    db.close();
+
+    const checked = await verifyAuditLogs(dbPath);
+    expect(checked.ok).toBe(false);
+    expect(checked.logs[0]!.result.ok).toBe(false);
+    expect(checked.logs[0]!.result.reason).toMatch(/removed from the end/);
+  });
+
+  it("catches a trail that was emptied", async () => {
+    await threeEvents();
+    const db = new Database(dbPath);
+    db.prepare(`DELETE FROM audit_events`).run();
+    db.close();
+
+    const checked = await verifyAuditLogs(dbPath);
+    expect(checked.ok).toBe(false);
+    expect(checked.logs[0]!.result.reason).toMatch(/the trail was deleted/);
+  });
+
+  it("refuses to extend a wiped trail, so it cannot quietly be kept in use", async () => {
+    // Stronger than detecting it afterwards, and it falls out of the same
+    // check: `assertSound` runs the verifier before the first append, so a
+    // store whose trail was deleted stops rather than starting a second chain
+    // that claims to be the first. Without the high-water check this write
+    // succeeded and the result verified clean, reading "intact: 1 events".
+    await threeEvents();
+    const db = new Database(dbPath);
+    db.prepare(`DELETE FROM audit_events`).run();
+    db.close();
+
+    store = new SqliteMemoryStore(dbPath);
+    const governed = govern(store, { policies: [], context: () => ({ actor: "owner" }), audit: storeAudit(store) });
+    await expect(governed.addNode(node("after the wipe"))).rejects.toThrow(/the trail was deleted/);
+    // The three facts from before the wipe are untouched; the new one never landed.
+    const texts = (await store.listNodes()).map((n) => n.content.text);
+    expect(texts).toHaveLength(3);
+    expect(texts).not.toContain("after the wipe");
+  });
+
+  it("says nothing about a store that has simply never written an event", async () => {
+    // No high-water mark, so no claim to contradict: "0 events" is the truth,
+    // not a wipe. This is the case the check must NOT cry wolf on.
+    store = new SqliteMemoryStore(dbPath);
+    store.close();
+    store = undefined;
+
+    const checked = await verifyAuditLogs(dbPath);
+    expect(checked.ok).toBe(true);
+    const result = checked.logs[0]!.result;
+    expect(result.ok && result.count).toBe(0);
+  });
+
   it("verifies a database's chain, and names its head", async () => {
     await threeEvents();
     const checked = await verifyAuditLogs(dbPath);

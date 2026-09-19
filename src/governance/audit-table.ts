@@ -94,6 +94,45 @@ function walk(records: Iterable<{ seq: number; prev: string; hash: string; event
 }
 
 /**
+ * What the table itself knows about records that are no longer in it.
+ *
+ * A chain cannot prove its own tail: cut the newest records off and what remains
+ * verifies, which is why an anchored head hash is the only real answer and says
+ * so throughout these docs. That is true of a log FILE. A table has one more
+ * thing in it — `AUTOINCREMENT` keeps a high-water mark in `sqlite_sequence`
+ * that a `DELETE` does not roll back (measured for all three deletion shapes,
+ * 2026-09-19: emptying the table, a `WHERE`-qualified delete, and cutting the
+ * newest rows all leave the mark standing).
+ *
+ * So the table can catch, for free and without an anchor, the two cases that
+ * used to verify clean: records cut from the END, and a trail wiped and then
+ * kept in use — whose first surviving record claims to be the genesis of a
+ * chain whose sequence number says it is not.
+ *
+ * This is NOT tamper-proofing and must not be described as it: whoever can
+ * delete the records can reset the counter in the same breath. It catches
+ * accident and careless deletion, which is most of what actually happens to a
+ * file. A deliberate edit still needs the anchored head.
+ *
+ * Reported by the second reviewer of the audit-chain merge, 2026-09-19, which
+ * noticed the evidence was already in the file and nothing read it.
+ */
+function tailFault(db: Database.Database, count: number, lastSeq: number | null, firstSeq: number | null): string | null {
+  const mark = db.prepare(`SELECT seq FROM sqlite_sequence WHERE name = 'audit_events'`).get() as { seq?: number } | undefined;
+  if (mark?.seq === undefined) return null; // nothing was ever appended: no claim to check
+  if (count === 0) {
+    return `the table is empty but ${mark.seq} event${mark.seq === 1 ? " was" : "s were"} appended to it: the trail was deleted`;
+  }
+  if (lastSeq !== null && lastSeq < mark.seq) {
+    return `the newest event is seq ${lastSeq} but seq ${mark.seq} was reached: ${mark.seq - lastSeq} record(s) were removed from the end`;
+  }
+  if (firstSeq !== null && firstSeq !== 1) {
+    return `the chain starts at seq ${firstSeq} rather than 1: everything before it was deleted`;
+  }
+  return null;
+}
+
+/**
  * The live chain on an open database. One per store; the tail is re-read on
  * every append rather than cached, because another process may have extended
  * it since — that is the whole point of keeping it here.
@@ -173,10 +212,18 @@ export class AuditEventTable {
   }
 
   verify(opts: { head?: string } = {}): AuditTableResult {
-    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM audit_events`).get() as { n: number }).n;
-    const rows = this.db.prepare(`SELECT seq, prev, hash, event FROM audit_events ORDER BY seq`).iterate() as Iterable<EventRow>;
-    return walk(rows, total, this.key, opts.head);
+    return verifyOpenTable(this.db, this.key, opts.head);
   }
+}
+
+/** One pass plus the tail check, over an already-open database. */
+function verifyOpenTable(db: Database.Database, key: string | undefined, head?: string): AuditTableResult {
+  const bounds = db.prepare(`SELECT COUNT(*) AS n, MIN(seq) AS lo, MAX(seq) AS hi FROM audit_events`).get() as { n: number; lo: number | null; hi: number | null };
+  const rows = db.prepare(`SELECT seq, prev, hash, event FROM audit_events ORDER BY seq`).iterate() as Iterable<EventRow>;
+  const walked = walk(rows, bounds.n, key, head);
+  if (!walked.ok) return walked;
+  const cut = tailFault(db, bounds.n, bounds.hi, bounds.lo);
+  return cut === null ? walked : { ok: false, count: bounds.n, line: bounds.n, reason: cut };
 }
 
 /**
@@ -194,9 +241,7 @@ export async function verifyAuditTable(dbPath: string, opts: { key?: string; hea
       // Never call a database with no trail "intact: 0 events".
       return { ok: false, count: 0, line: 0, reason: `${dbPath} has no audit_events table: it was written before the table existed, or it is not an al-buddy-memory database` };
     }
-    const total = (db.prepare(`SELECT COUNT(*) AS n FROM audit_events`).get() as { n: number }).n;
-    const rows = db.prepare(`SELECT seq, prev, hash, event FROM audit_events ORDER BY seq`).iterate() as Iterable<EventRow>;
-    return walk(rows, total, opts.key, opts.head);
+    return verifyOpenTable(db, opts.key, opts.head);
   } catch (err) {
     return { ok: false, count: 0, line: 0, reason: `cannot read ${dbPath}: ${(err as Error).message}` };
   } finally {
