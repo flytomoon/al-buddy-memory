@@ -463,6 +463,10 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     if (this.pendingAudit !== null) {
       throw new Error("al-buddy-memory: an audited mutation is already in flight on this store; they must not overlap");
     }
+    // Verify the chain before the transaction opens, not inside it: the check
+    // is one pass over the table and it would otherwise run under the write
+    // lock on this store's first audited write.
+    this.auditTable.ensureChecked();
     const pending = { describe: describe as (result: unknown) => AuditEvent, written: false };
     this.pendingAudit = pending;
     try {
