@@ -5,15 +5,35 @@
 import type { MemoryNode, NewMemoryNode } from "../types/memory.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext } from "./policy.js";
 
-/** Things that look like secrets. Conservative on purpose: a false Sensitive costs a click, a leaked key costs more. */
+/**
+ * Shapes that look like secrets. A HEURISTIC, and only the shapes listed here:
+ * it is a net with a known mesh, not comprehensive secret detection, and
+ * anything unusual will pass straight through it.
+ *
+ * It used to be `password:`-shaped — the label form required a colon or an
+ * equals sign — so "my wifi password: hunter2" was hidden and "the wifi
+ * password is hunter2", which is how a person actually speaks one into a memory
+ * system, was written Private and read straight back to the assistant. AWS
+ * keys, JWTs and bearer tokens went through too (Astra R10 + Fable,
+ * 2026-09-18).
+ *
+ * Conservative on purpose in the other direction: "the secret is out" is
+ * classified Sensitive, and a false Sensitive costs a click while a leaked key
+ * costs more.
+ */
 export const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:sk|pk|rk|ghp|gho|xox[abp])[-_][A-Za-z0-9_-]{16,}\b/, // API tokens with a known prefix
   /\b(?:\d[ -]?){13,19}\b/, // card numbers
   /\b\d{3}-\d{2}-\d{4}\b/, // US SSN shape
-  /\b(?:password|passcode|passphrase|secret|api[_ -]?key|token)\s*[:=]\s*\S+/i,
+  /\b(?:password|passcode|passphrase|pin|secret|api[_ -]?key|token)\s*[:=]\s*\S+/i, // "password: hunter2"
+  /\b(?:password|passcode|passphrase|pin|secret|api[_ -]?key|token)\s+(?:is|was)\s+\S+/i, // "the password is hunter2"
+  /\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA|AGPA|AIDA|AIPA|ANPA|ANVA|APKA|AROA|ASCA)[A-Z0-9]{16}\b/, // AWS access key id
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/, // JWT (header always starts "eyJ")
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/i, // bearer token in an Authorization header
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ];
 
+/** True when the text matches one of {@link SECRET_PATTERNS}. Nothing more is claimed. */
 export function looksSecret(text: string): boolean {
   return SECRET_PATTERNS.some((re) => re.test(text));
 }
