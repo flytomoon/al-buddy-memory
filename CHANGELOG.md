@@ -37,11 +37,23 @@ everything here, with the measurements, are in
   answer for a store that cannot do this.
 
   What it does **not** change: the chain is tamper-*evident*, not tamper-proof.
-  Whoever holds the key can still rewrite it, a cut-off tail is still invisible
-  to the trail itself, and a restored backup still carries a self-consistent
-  chain of its own — anchor `head()` somewhere you do not control, exactly as
+  Whoever holds the key can still rewrite it, and a restored backup still carries
+  a self-consistent chain of its own — anchor `head()` somewhere you do not
+  control, exactly as
   before. And it is not a cross-process authorisation guarantee: the policy
   decision still happens before the transaction opens.
+- **A cut tail is now caught in the table, where it used to verify clean.** A hash
+  chain cannot prove its own tail — delete the newest records and what remains
+  still verifies — which is why an anchored head hash is, and remains, the only
+  answer to a deliberate edit. But a table knows something a log file does not:
+  `AUTOINCREMENT` leaves a high-water mark that `DELETE` does not roll back. So
+  `verify-audit` now names records removed from the end, a trail that was
+  emptied, and a trail emptied and then kept in use — and a store whose trail
+  was deleted **refuses to extend it** rather than beginning a second chain that
+  claims to be the first. This is a defence against accident and careless
+  deletion, not tamper-proofing: whoever can delete the records can reset the
+  counter too. Measured: the mark survives `DELETE`, `VACUUM`, `VACUUM INTO` and
+  `.backup()`, so ordinary maintenance does not trip it.
 - **`al-buddy-memory verify-audit` takes a database.** Point it at `brain.db` and
   it checks the `audit_events` chain, plus any per-process JSONL logs still at
   `brain.db.audit/`, and says which is which. Files and directories of files work
@@ -89,8 +101,10 @@ everything here, with the measurements, are in
 
 - Every mutating method of `SqliteMemoryStore` now runs in one `BEGIN IMMEDIATE`
   transaction (`mutation()`). `addEdge`, `deleteEdge`, `setEmbedding` and
-  `deleteEmbeddings` were bare statements before; they are now atomic with the
-  audit event and take the write lock up front, like the rest.
+  `deleteEmbeddings` were bare statements before; all four are now atomic and take
+  the write lock up front, like the rest. Atomic *with the audit event* applies to
+  the first two only — the embedding cache is not audited on any path, so for
+  `setEmbedding` and `deleteEmbeddings` there is no event to be atomic with.
 - **docs/STARTER.md consolidated through the raw store**, one step after building a
   governed handle — so every nightly-derived fact skipped policy and audit.
   Measured: a derived fact restating a password is written `Private` with 0 audit

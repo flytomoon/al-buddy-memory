@@ -106,14 +106,26 @@ a database it establishes one thing more: because each event was appended in the
 transaction as the fact, **no mutation made through a governed handle writing to this table
 committed without an event**.
 
-Read that clause exactly as written. It is not "every change to this database is recorded":
-a holder of the *raw* store mutates with no event at all, which is what "the raw store is
-not governed by anything" has always meant, and a handle configured with a different sink
-records somewhere else. The table attests to what went through it.
+Read that clause exactly as written. It is not "every change to this database is recorded",
+and there are three exceptions, not two. A holder of the *raw* store mutates with no event at
+all, which is what "the raw store is not governed by anything" has always meant. A handle
+configured with a different sink records somewhere else. And **the embedding cache is not
+audited on any path** — `setEmbedding` and `deleteEmbeddings` commit through a governed handle
+with no event, deliberately, because vectors are derived from facts that are themselves
+audited and the cache is disposable (see above). The table attests to what went through it,
+and "it" means facts and edges.
 
-It does not establish that the trail is complete. Records cut from the END leave a chain
-that verifies, so no trail can prove its own tail; only a head hash anchored somewhere the
-owner does not control catches that. It is tamper-**evident**, not tamper-proof: whoever
+It does not establish that the trail is complete, and how far it falls short now depends on
+the form. Records cut from the end of a **log file** leave a chain that verifies: a file cannot
+prove its own tail, and only an anchored head catches it. The **table** carries one thing a
+file does not — `AUTOINCREMENT` leaves a high-water mark in `sqlite_sequence` that a `DELETE`
+does not roll back — so deleting records from the end, emptying the trail, or emptying it and
+carrying on are all named by `verify-audit`, and a store whose trail was deleted refuses to
+extend it rather than starting a second chain that claims to be the first. That is a defence
+against accident and careless deletion, **not** tamper-proofing: whoever can delete the records
+can reset the counter in the same breath, and against a deliberate edit the anchored head is
+still the only answer. (Measured 2026-09-19: the mark survives `DELETE`, `VACUUM`,
+`VACUUM INTO` and `.backup()`, so ordinary maintenance does not trip it.) It is tamper-**evident**, not tamper-proof: whoever
 holds the HMAC key — or, with no key, anyone who can write the file — can recompute the
 whole chain, and a restored backup carries a self-consistent chain of its own. What
 distinguishes a rewrite or a restored backup from the real history is the anchored head
