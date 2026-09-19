@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { MemoryNode, MemoryNodeType, NewMemoryNode } from "./types/memory.js";
 
-import { SqliteMemoryStore } from "./sqlite-memory-store.js";
+import { SqliteMemoryStore, readRecordedScope } from "./sqlite-memory-store.js";
 import { renderMemoryBlock } from "./memory-block.js";
 import type { BlockScope } from "./memory-block.js";
 import { exportMemoryMarkdown } from "./memory-export.js";
@@ -40,21 +42,72 @@ export interface ProjectMemoryOptions {
 /** Default directory for per-project memory databases. */
 export const DEFAULT_MEMORY_DIR = join(homedir(), ".al-buddy", "memory");
 
-/** Resolve the database path for a project, sanitizing the name into a filename. */
+/**
+ * A readable, filename-safe stub of a project name. Lossy on purpose — it is
+ * for the human reading `ls`, and the digest beside it is what identifies the
+ * scope. `.` stays out of the allowed set so no name can introduce a `..`
+ * path-traversal segment, and a leading `-` is trimmed so no filename can be
+ * mistaken for a command-line flag.
+ */
+function slug(project: string): string {
+  const safe = project.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  return safe.replace(/-+$/, "") || "project";
+}
+
+/** 64 bits of SHA-256 over the whole scope — what makes the filename injective. */
+function scopeDigest(project: string): string {
+  return createHash("sha256").update(project, "utf8").digest("hex").slice(0, 16);
+}
+
+/**
+ * The filename a scope gets from 0.4.2 on: a readable stub plus a digest of the
+ * full name. Two scopes share a file only if they share a SHA-256 prefix, where
+ * before they shared one whenever they sanitised alike — "org/repo" and
+ * "org-repo" both became `org-repo.db`, and each recalled the other's private
+ * facts (R1, release review 2026-09-18).
+ */
+export function canonicalProjectDbPath(project: string, baseDir: string = DEFAULT_MEMORY_DIR): string {
+  return join(baseDir, `${slug(project)}-${scopeDigest(project)}.db`);
+}
+
+/** The filename 0.4.1 and earlier used: the sanitised name alone, collisions and all. */
+export function legacyProjectDbPath(project: string, baseDir: string = DEFAULT_MEMORY_DIR): string {
+  return join(baseDir, `${project.replace(/[^a-zA-Z0-9_-]/g, "-")}.db`);
+}
+
+/**
+ * Where this project's memory actually lives — the canonical path, unless a
+ * store written under the old scheme is already there and is this project's.
+ *
+ * Existing data is never stranded and never moved: a file from 0.4.1 records no
+ * scope, so the first project to open it claims it and stamps its name inside
+ * (see `SqliteMemoryStore`'s `scope` option). Where two names used to collide,
+ * the claimant keeps the old file and the other gets a fresh canonical one —
+ * whichever opens first, then stably from then on. That is the one case where
+ * facts a scope used to see move out of its reach; they are not deleted, they
+ * are in the other scope's file, and a mixed store cannot be split by machine.
+ */
 export function projectDbPath(project: string, baseDir: string = DEFAULT_MEMORY_DIR): string {
-  // Drop `.` from the allowed set so a project name can never introduce a `..`
-  // path-traversal segment into the filename.
-  const safe = project.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return join(baseDir, `${safe}.db`);
+  const canonical = canonicalProjectDbPath(project, baseDir);
+  if (existsSync(canonical)) return canonical;
+  const legacy = legacyProjectDbPath(project, baseDir);
+  if (legacy === canonical || !existsSync(legacy)) return canonical;
+  const claimed = readRecordedScope(legacy);
+  return claimed === null || claimed === project ? legacy : canonical;
 }
 
 export class ProjectMemory {
   readonly project: string;
+  /** The file this project's facts are in — resolved once, at construction. */
+  readonly dbPath: string;
   private readonly store: SqliteMemoryStore;
 
   constructor(project: string, options: ProjectMemoryOptions = {}) {
     this.project = project;
-    this.store = new SqliteMemoryStore(projectDbPath(project, options.baseDir));
+    this.dbPath = projectDbPath(project, options.baseDir);
+    // The scope goes inside the file as well as into its name: a filename is a
+    // label, and a store opened under the wrong project must fail, not merge.
+    this.store = new SqliteMemoryStore(this.dbPath, { scope: project });
   }
 
   /** Store a new memory. Raw text is preserved verbatim — never summarized away. */

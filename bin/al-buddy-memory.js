@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]
 // al-buddy-memory conformance --demo        score a small governed store, for comparison
-// al-buddy-memory verify-audit <audit.jsonl> [--head <hash>]
-//   check a hash-chained audit log; the HMAC key, if the log has one, comes from
-//   AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which lands in shell history)
+// al-buddy-memory verify-audit <audit.jsonl | <db>.audit dir> [--head <hash>]
+//   check a hash-chained audit log, or every log in a directory of them (the MCP
+//   server writes one per process). The HMAC key, if the logs have one, comes from
+//   AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which lands in shell history).
+//   --head anchors ONE chain, so it names a file, not a directory.
 import { readFileSync } from "node:fs";
-import { InMemoryStore, exportPortable, verifyAuditChain } from "../dist/index.js";
+import { InMemoryStore, exportPortable, verifyAuditLogs } from "../dist/index.js";
 import { toConformanceInput, scoreConformance, formatReport, fromPortable } from "../dist/conformance/index.js";
 
 const args = process.argv.slice(2);
@@ -15,14 +17,20 @@ const has = (name) => args.includes(name);
 
 if (cmd === "verify-audit") {
   if (!args[1]) {
-    console.error("usage: al-buddy-memory verify-audit <audit.jsonl> [--head <hash>]");
+    console.error("usage: al-buddy-memory verify-audit <audit.jsonl | <db>.audit> [--head <hash>]");
     process.exit(2);
   }
   const key = process.env.AL_BUDDY_MEMORY_AUDIT_KEY;
-  const result = await verifyAuditChain(args[1], { ...(key ? { key } : {}), ...(flag("--head") ? { head: flag("--head") } : {}) });
-  if (result.ok) console.log(`intact: ${result.count} events, head ${result.head}`);
-  else console.error(result.line > 0 ? `BROKEN at line ${result.line} of ${result.count}: ${result.reason}` : `NOT VERIFIED: ${result.reason}`);
-  process.exit(result.ok ? 0 : 1);
+  const checked = await verifyAuditLogs(args[1], { ...(key ? { key } : {}), ...(flag("--head") ? { head: flag("--head") } : {}) });
+  // One line per writer's chain: each stands on its own, and the set is intact
+  // only when every one of them is.
+  for (const { file, result } of checked.logs) {
+    const label = checked.logs.length > 1 ? `${file}: ` : "";
+    if (result.ok) console.log(`${label}intact: ${result.count} events, head ${result.head}`);
+    else console.error(`${label}${result.line > 0 ? `BROKEN at line ${result.line} of ${result.count}` : "NOT VERIFIED"}: ${result.reason}`);
+  }
+  if (checked.reason) console.error(`NOT VERIFIED: ${checked.reason}`);
+  process.exit(checked.ok ? 0 : 1);
 }
 
 if (cmd !== "conformance") {
