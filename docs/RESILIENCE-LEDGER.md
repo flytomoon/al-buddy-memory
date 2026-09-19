@@ -141,6 +141,37 @@ reality rather than described.*
   sabotaged build (chain head cached per process — the exact defect) passed it.
   A concurrency test that has not been shown to fail on the defect is decoration.
 
+### Verifying the chain read the whole chain into memory, holding the write lock
+
+- **Reported by:** Fable 5.1, same review, 2026-09-19, ranked "after" rather
+  than blocking. Fixed anyway, because it is the shape of thing a reader tries
+  on day one.
+- **The failure:** an audit trail is append-only and grows without bound, and
+  the verifier loaded all of it with `.all()` before walking it. Worse, the
+  once-per-process check ran on the first audited *write*, which meant inside
+  that mutation's `BEGIN IMMEDIATE` — so the first write on a long chain held
+  the write lock for the length of a full pass, and every other process waited.
+- **Us:** ours, present since the table was written; fixed 2026-09-19
+  (unreleased), before either had ever run against a chain long enough to
+  notice.
+- **Evidence:** measured on a real 200,000-event chain, 56 MB on disk, same
+  machine, 2026-09-19. Peak RSS above baseline to verify it: **317 MB → 30 MB**
+  (`walk` now takes an `Iterable` and the row count comes from one `COUNT(*)`,
+  so "BROKEN at event 3 of 5" still names the whole table). A second process
+  asking for the write lock during the first audited write waited **805 ms →
+  0 ms** (`AuditEventTable.ensureChecked()`, called before the transaction
+  opens). The pass itself is unchanged at ~723 ms — it is one pass by
+  construction — but it now blocks nobody and costs constant memory.
+- **Notes:** the first run of that measurement reported 805 ms *after* the fix,
+  because the benchmark imports `dist/` and `dist/` had not been rebuilt. The
+  suite runs from source and was green; the measurement was of the old code.
+  **A number measured against a stale build is not a measurement.** Rebuild,
+  then measure, then believe it — the same rule as "a concurrency test that has
+  not been shown to fail on the defect is decoration", two entries up.
+  Still open, and deliberately: a chain this process verified once and another
+  process corrupted afterwards will keep being extended. Verification at read
+  time names the break.
+
 ### The latch we exempted, that still fired on every read
 
 - **Reported by:** Fable 5.1, reviewing the audit-chain merge on the day it
