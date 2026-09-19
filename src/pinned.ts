@@ -84,9 +84,21 @@ export class PinnedBlocks {
     return true;
   }
 
-  /** Every live pin, oldest first — the order they render in. */
+  /**
+   * Every live pin, oldest first — the order they render in.
+   *
+   * Filtered by TAG, and not limited. It used to read the 500 highest-ranked
+   * Lessons and filter them down to the pins afterwards, so a store with 500
+   * newer Lessons in it returned no pins at all: list() was empty, render()
+   * was an empty string, and pinning the same rule again duplicated it instead
+   * of finding it. The tier whose whole claim is "these are in every prompt"
+   * was the one thing an ordinary day of memory could push out. Every pin has
+   * carried tags:["pinned"] since it was written, and both stores filter tags
+   * before any limit — it just never asked (Astra R12, 2026-09-18). The prompt
+   * budget in render() is the only thing that may drop a pin, and it says so.
+   */
   async list(): Promise<PinnedBlock[]> {
-    const nodes = await this.store.searchNodes({ memoryType: "Lesson", validAt: (this.opts.now ?? (() => new Date()))().toISOString(), limit: 500 });
+    const nodes = await this.store.searchNodes({ memoryType: "Lesson", tags: [PINNED_TAG], validAt: (this.opts.now ?? (() => new Date()))().toISOString() });
     return nodes
       .filter((n) => n.contextualMetadata[PINNED_TAG] === true)
       .map((n) => ({
