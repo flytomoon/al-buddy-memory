@@ -5,7 +5,7 @@ import { makeNode } from "./memory-store-conformance.spec.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import { exportView, personalDefaults } from "./governance/index.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
-import type { MemoryStore } from "./types/memory.js";
+import type { MemoryNode, MemoryStore } from "./types/memory.js";
 
 async function seededStore(): Promise<InMemoryStore> {
   const store = new InMemoryStore();
@@ -100,6 +100,108 @@ describe("importPortable — validation + safety", () => {
     // Pre-existing memory must be untouched — validation precedes all writes.
     expect(await target.searchNodes({ query: "precious" })).toHaveLength(1);
   });
+
+  /**
+   * The comment above validatePortable promised the WHOLE artifact was checked
+   * before any store was touched; it checked the shape of six fields. Every
+   * defect below is caught by restoreNode instead — one node too late, so the
+   * import left node #1 committed and node #2 refused: a half-imported memory
+   * graph, which is precisely what the preflight exists to prevent (Astra R5 +
+   * Fable, 2026-09-18).
+   */
+  describe("refuses the whole artifact before writing any of it", () => {
+    const damage: [string, (n: MemoryNode) => MemoryNode][] = [
+      ["a confidence outside [0,1]", (n) => ({ ...n, confidenceWeight: 2 })],
+      ["a negative decay rate", (n) => ({ ...n, decayRate: -1 })],
+      ["no creation anchor", (n) => ({ ...n, temporalAnchors: [{ timestamp: n.validFrom, event: "recalled" }] })],
+      ["an anchor event nobody defined", (n) => ({ ...n, temporalAnchors: [...n.temporalAnchors, { timestamp: n.validFrom, event: "invented" as never }] })],
+      ["no provenance at all", (n) => { const { provenance: _p, ...rest } = n; return rest as MemoryNode; }],
+      ["an invented provenance", (n) => ({ ...n, provenance: "Hacker" as never })],
+      ["a privacy classification in the wrong case", (n) => ({ ...n, privacyClassification: "sensitive" as never })],
+      ["a retention tier nobody defined", (n) => ({ ...n, retentionTier: "Forever" as never })],
+      ["a validFrom with no zone", (n) => ({ ...n, validFrom: "2026-01-01T00:00" })],
+      ["an anchor timestamp that is not an instant", (n) => ({ ...n, temporalAnchors: [{ timestamp: "yesterday", event: "created" }] })],
+    ];
+
+    for (const [label, damaged] of damage) {
+      for (const [store, make] of [["InMemoryStore", () => new InMemoryStore()], ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")]] as const) {
+        it(`${store}: ${label}`, async () => {
+          const artifact = await exportPortable(new Map([["p", await seededStore()]]));
+          const nodes = artifact.projects[0]!.nodes;
+          expect(nodes.length).toBe(2);
+          nodes[1] = damaged(nodes[1]!);
+          const target: MemoryStore = make();
+          await expect(importPortable(artifact, () => target)).rejects.toThrow();
+          // Not one node in: the artifact was refused, not half-applied.
+          expect(await target.listNodes()).toEqual([]);
+          (target as { close?: () => void }).close?.();
+        });
+      }
+    }
+
+    it("refuses an edge whose vocabulary or weight is wrong before writing the nodes", async () => {
+      for (const damaged of [{ strength: 9 }, { relationshipType: "Friend" as never }, { provenance: "Nobody" as never }]) {
+        const artifact = await exportPortable(new Map([["p", await seededStore()]]));
+        artifact.projects[0]!.edges[0] = { ...artifact.projects[0]!.edges[0]!, ...damaged };
+        const target = new InMemoryStore();
+        await expect(importPortable(artifact, () => target)).rejects.toThrow();
+        expect(await target.listNodes()).toEqual([]);
+      }
+    });
+
+    it("refuses an edge whose endpoints the artifact and the destination both lack", async () => {
+      const artifact = await exportPortable(new Map([["p", await seededStore()]]));
+      artifact.projects[0]!.edges[0] = { ...artifact.projects[0]!.edges[0]!, targetNodeId: "nobody-here" };
+      const target = new InMemoryStore();
+      await expect(importPortable(artifact, () => target)).rejects.toThrow(/nobody-here/);
+      expect(await target.listNodes()).toEqual([]);
+    });
+
+    it("refuses an artifact that would rewrite a fact the destination already holds", async () => {
+      const source = await seededStore();
+      const artifact = await exportPortable(new Map([["p", source]]));
+      const target = new InMemoryStore();
+      await importPortable(artifact, () => target);
+      const second = await exportPortable(new Map([["p", source]]));
+      const nodes = second.projects[0]!.nodes;
+      nodes[1] = { ...nodes[1]!, content: { text: "a tidier version of what was said" } };
+      await expect(importPortable(second, () => target)).rejects.toThrow(/immutable/);
+      expect((await target.getNode(nodes[1]!.nodeId))?.content.text).toBe("lives in London");
+      // And the first node was not re-written on the way past, either.
+      expect((await target.listNodes()).length).toBe(2);
+    });
+  });
+});
+
+/**
+ * The artifact must be a state the store actually had. Export enumerated the
+ * nodes, then fetched each node's edges one await at a time, so a delete landing
+ * in between produced two nodes and zero edges — a graph that never existed
+ * (Astra R6, reproduced in both stores, 2026-09-18).
+ */
+describe("exportPortable is one snapshot", () => {
+  for (const [label, make] of [
+    ["InMemoryStore", () => new InMemoryStore()],
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+  ] as const) {
+    it(`${label}: a write during the export cannot produce a graph that never existed`, async () => {
+      const store: MemoryStore = make();
+      const a = await store.addNode(makeNode({ content: { text: "one" } }));
+      const b = await store.addNode(makeNode({ content: { text: "two" } }));
+      await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Temporal", strength: 0.5, provenance: "UserAsserted" });
+
+      const pending = exportPortable(new Map([["p", store]]));
+      await store.deleteNode(a.nodeId); // concurrent write, mid-export
+      const artifact = await pending;
+
+      const p = artifact.projects[0]!;
+      const ids = p.nodes.map((n) => n.nodeId).sort();
+      // Either state is honest; a two-node artifact with no edge is not.
+      if (ids.length === 2) expect(p.edges).toHaveLength(1);
+      else expect(ids).toEqual([b.nodeId]);
+      (store as { close?: () => void }).close?.();
+    });
+  }
 });
 
 describe("importPortable — round trip", () => {
