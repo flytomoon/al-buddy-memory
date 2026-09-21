@@ -18,6 +18,9 @@
   .wrap { max-width:960px; margin:0 auto; padding:0 20px }
   header { position:static; background:var(--paper); border-bottom:1px solid var(--line) }
   @media (min-width:700px) { header { position:sticky; top:0; z-index:5 } }
+  /* The sticky header would otherwise sit on top of the heading a nav link
+     jumps to — the "Compare" link added 2026-09-21 landed under it. */
+  @media (min-width:700px) { .block { scroll-margin-top:72px } }
   .bar { display:flex; align-items:center; gap:12px; min-height:60px }
   .bar img { width:34px; height:34px; border-radius:9px }
   .bar b { font-size:18px; letter-spacing:-.01em; white-space:nowrap }
@@ -40,6 +43,10 @@
   .card h3 { margin:0 0 6px; font-size:18px }
   .card p { margin:0; color:var(--fg-dim); font-size:15.5px }
   .card .k { display:inline-block; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--ember); margin-bottom:8px }
+  .vs { margin:12px 0 0; padding:12px 0 0; border-top:1px solid var(--line); display:grid; gap:7px }
+  .vs div { font-size:14.5px; color:var(--fg-dim); display:grid; grid-template-columns:5.5rem 1fr; gap:10px; align-items:baseline }
+  .vs b { font-weight:600; color:var(--fg); font-size:13px }
+  .card .ours { color:var(--fg) }
   /* the scorer (unchanged ids: the script drives them) */
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:12px 0 }
   button, select, label.file { font:inherit; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--fg); cursor:pointer; min-height:44px }
@@ -67,7 +74,7 @@
 </head>
 <body>
 <header><div class="wrap bar"><img src="al-icon.png" alt=""><b>Al Buddy</b>
-  <nav><a href="#why">Why</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
+  <nav><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
 <main class="wrap">
   <section class="hero">
@@ -89,6 +96,51 @@
       <div class="card"><span class="k">Governed</span><h3>Rules you can read</h3><p>Who may write, who may see, what may leave, with an audit trail. Sensitive things stay sensitive. A guardian can protect what needs protecting.</p></div>
       <div class="card"><span class="k">Open</span><h3>Apache-2.0, one dependency</h3><p>A single SQLite file on your machine. No account, no key, no service. Read every line on GitHub.</p></div>
     </div>
+  </section>
+
+
+  <section class="block" id="compare">
+    <h2>What the others answer</h2>
+    <p class="sub">Every agent memory answers "what does it recall?" well. These are the four questions that decide whether the memory is yours — asked of the projects people compare us with. Our reading of their own code and docs, September 2026; if a line is wrong, <a href="https://github.com/flytomoon/al-buddy-memory/issues">tell us and we'll fix it</a>.</p>
+    <div class="grid">
+      <div class="card">
+        <span class="k">Question one</span><h3>Where did this fact come from, and who asserted it?</h3>
+        <p class="ours"><strong>Here:</strong> every fact and every relationship carries it — you said it, the assistant inferred it, a guardian added it, or the system generated it — and it cannot be changed after it is written.</p>
+        <div class="vs">
+          <div><b>Letta</b><span>The git history of its memory files, not a field on a fact.</span></div>
+          <div><b>Mem0</b><span>A metadata field you can fill in; nothing requires it.</span></div>
+          <div><b>Zep</b><span>Graph episodes record the conversation a fact came from.</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="k">Question two</span><h3>When was it true, and what replaced it?</h3>
+        <p class="ours"><strong>Here:</strong> a fact that stops being true gets an end date and stays, so "where did he live in 2024?" has an answer. What we do not yet answer: what we believed at a past moment.</p>
+        <div class="vs">
+          <div><b>Letta</b><span>File history, not a model of when a fact was true.</span></div>
+          <div><b>Mem0</b><span>A change log per memory — old value, new value, when — which is transaction history, not valid time.</span></div>
+          <div><b>Zep</b><span>Its real strength: graph edges carry valid-from and valid-to alongside created and expired.</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="k">Question three</span><h3>Can I take it with me, losslessly?</h3>
+        <p class="ours"><strong>Here:</strong> one versioned JSON export with a published schema and a round-trip proven by tests. Paste yours into the scorer below and see what survives.</p>
+        <div class="vs">
+          <div><b>Letta</b><span>An agent-state file, shaped like the framework; archival memory is not in it yet.</span></div>
+          <div><b>Mem0</b><span>A cloud export.</span></div>
+          <div><b>Zep</b><span>Cloud only since 2025; Graphiti, the engine under it, self-hosts.</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="k">Question four</span><h3>Does it run with no vendor, no key, no server?</h3>
+        <p class="ours"><strong>Here:</strong> a SQLite file on your machine and embeddings computed on it. No account, no API key, nothing to sign up for.</p>
+        <div class="vs">
+          <div><b>Letta</b><span>Self-hosting is possible; the cloud is the product.</span></div>
+          <div><b>Mem0</b><span>Apache-2.0 and local vector stores work, but the default path calls an LLM to extract facts, and the cloud is the product.</span></div>
+          <div><b>Zep</b><span>Zep is cloud; Graphiti self-hosts with a graph database and an LLM key.</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="notes">Worth naming too: <a href="https://github.com/basicmachines-co/basic-memory">basic-memory</a> keeps everything as Markdown files you own, the <a href="https://github.com/modelcontextprotocol/servers/tree/main/src/memory">MCP memory server</a> is the local baseline most agents start from, and <a href="https://github.com/GibsonAI/Memori">Memori</a> puts memory in your own SQL database. All three are local and keyless, which is the half of this we agree on; none of them records who asserted a fact or when it stopped being true, which is the half this library exists for.</p>
   </section>
 
   <section class="block" id="try">
