@@ -140,7 +140,7 @@
         </div>
       </div>
     </div>
-    <p class="notes">Worth naming too: <a href="https://github.com/basicmachines-co/basic-memory">basic-memory</a> keeps everything as Markdown files you own, the <a href="https://github.com/modelcontextprotocol/servers/tree/main/src/memory">MCP memory server</a> is the local baseline most agents start from, and <a href="https://github.com/GibsonAI/Memori">Memori</a> puts memory in your own SQL database. All three are local and keyless, which is the half of this we agree on; none of them records who asserted a fact or when it stopped being true, which is the half this library exists for.</p>
+    <p class="notes">Worth naming too, because they answer question four the way we do — on your own machine, no key: <a href="https://github.com/basicmachines-co/basic-memory">basic-memory</a> keeps everything as Markdown notes you own and, alone among these, writes when a note was true (<code>@effective[2026-06-10,2026-07-27)</code>) — what it does not record is who asserted a fact, on a local install; the <a href="https://github.com/modelcontextprotocol/servers/tree/main/src/memory">MCP memory server</a> is the baseline most agents start from, one JSONL file with no source, no dates and a delete that removes the old value; and <a href="https://github.com/GibsonAI/Memori">Memori</a> puts memory in your own SQL database, though extraction needs an LLM key and a fact carries no asserter of its own. Read against their code on 21 September 2026.</p>
   </section>
 
   <section class="block" id="try">
