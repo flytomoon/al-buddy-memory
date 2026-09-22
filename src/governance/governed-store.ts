@@ -16,6 +16,7 @@
 import { compareRecency, effectiveConfidence } from "../decay.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
 import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
+import { RETENTION_TIERS } from "../types/memory.js";
 import type { AsOfFact, AsOfOptions, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
@@ -80,12 +81,32 @@ interface DeletionRequest { at: string | null; from: MemoryNode["retentionTier"]
 function deletionRequest(node: MemoryNode): DeletionRequest | null {
   if (node.retentionTier !== "PendingDeletion") return null;
   const raw = node.contextualMetadata[DELETION_REQUEST] as Partial<DeletionRequest> | undefined;
-  const from = raw?.from && raw.from !== "PendingDeletion" ? raw.from : "FullRetention";
+  // An unknown tier would make the fact unrestorable (the vocabulary check
+  // refuses it), so anything that is not a real tier comes back as FullRetention.
+  const from = typeof raw?.from === "string" && (RETENTION_TIERS as readonly string[]).includes(raw.from) && raw.from !== "PendingDeletion" ? raw.from : "FullRetention";
   const at = typeof raw?.at === "string" && Number.isFinite(Date.parse(raw.at)) ? raw.at : null;
   return { at, from };
 }
 
 const DAY_MS = 86_400_000;
+
+/**
+ * Whether a write would put a fact into Recently deleted, take it out, or
+ * change its deletion record. That record decides when a purge erases the
+ * fact, so writing it is part of erasing: an actor with update rights but no
+ * erase rights used to move a fact into PendingDeletion with a backdated
+ * request, and the owner's next purge erased it at once (release review
+ * 2026-09-21). On every governed handle, with or without `recentlyDeleted`,
+ * such a write is judged by the erase policies too. `deleteNode` and
+ * `restoreDeleted` are the ways in and out, and they write the record themselves.
+ */
+function touchesDeletion(
+  before: Pick<MemoryNode, "retentionTier" | "contextualMetadata"> | undefined,
+  after: Pick<MemoryNode, "retentionTier" | "contextualMetadata">,
+): boolean {
+  if ((before?.retentionTier === "PendingDeletion") !== (after.retentionTier === "PendingDeletion")) return true;
+  return canonicalJson(before?.contextualMetadata?.[DELETION_REQUEST] ?? null) !== canonicalJson(after.contextualMetadata?.[DELETION_REQUEST] ?? null);
+}
 
 function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
   const c = opts.context(purpose);
@@ -414,6 +435,10 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         assertAuditUsable(opts);
         const ctx = authorised();
         const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
+        if (touchesDeletion(undefined, current)) {
+          const provisional = { ...current, nodeId: "", temporalAnchors: [], validFrom: current.validFrom ?? ctx.now.toISOString(), validTo: current.validTo ?? null } as MemoryNode;
+          await guarded(opts, ctx, [], () => erasePolicies({ node: provisional }, ctx));
+        }
         assertAuditUsable(opts);
         return commitAudited(opts, inner, ctx, () => inner.addNode(current), (saved) => ({ ids: [saved.nodeId] }));
       });
@@ -432,6 +457,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         const { node: existing, seen } = await visibleOrNotFound(nodeId, ctx);
         await guarded(opts, ctx, [nodeId], async () => {
           for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
+          if (touchesDeletion(existing, { ...existing, ...patch })) await erasePolicies({ node: existing }, ctx);
         });
         assertAuditUsable(opts);
         const updated = await commitAudited(
@@ -473,6 +499,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
           // a write policy that archived on import slipped past an update policy
           // that forbade archiving).
           if (existing) for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(incoming), ctx);
+          if (touchesDeletion(existing, incoming)) await erasePolicies({ node: existing ?? incoming }, ctx);
         });
         assertAuditUsable(opts);
         await commitAudited(opts, inner, ctx, () => inner.restoreNode(incoming), () => ({ ids: [node.nodeId] }));
@@ -494,8 +521,15 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         }
         // Already waiting: a second delete is not "delete harder". It keeps the
         // first request and its clock; purgeDeleted is the way to make it final.
-        if (deletionRequest(node) !== null) return;
-        const request: DeletionRequest = { at: ctx.now.toISOString(), from: node.retentionTier };
+        // It is still an erase request that was allowed, so it is recorded.
+        const pending = deletionRequest(node);
+        if (pending !== null && pending.at !== null) {
+          await record(opts, ctx, "allowed", [nodeId], { reason: "already in Recently deleted; the first request's clock stands" });
+          return;
+        }
+        // In PendingDeletion with no recorded request (put there some other way):
+        // this request starts the clock, instead of leaving it waiting for ever.
+        const request: DeletionRequest = { at: ctx.now.toISOString(), from: pending?.from ?? node.retentionTier };
         await commitAudited(
           opts,
           inner,
@@ -698,7 +732,11 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         if (!current) return null;
         const versions = await inner.history(nodeId);
         const again = await inner.getNode(nodeId);
-        if (again && canonicalJson(again) === canonicalJson(current)) return { current, versions };
+        // The versions are read twice as well: erasing a fact and re-importing an
+        // identical copy between two reads leaves the fact looking the same while
+        // its history went with the erasure (release review 2026-09-21).
+        const versionsAgain = await inner.history(nodeId);
+        if (again && canonicalJson(again) === canonicalJson(current) && canonicalJson(versionsAgain) === canonicalJson(versions)) return { current, versions };
       }
       return null;
     };
@@ -856,7 +894,9 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
  */
 export function exportView<T extends MemoryStore>(inner: T, opts: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable : MemoryStore;
 export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore {
-  const view = govern(inner, { ...opts, readAs: "export" });
+  // No Recently deleted on an export view: it is read-only, and purgeDeleted and
+  // restoreDeleted are writes (release review 2026-09-21).
+  const view = govern(inner, { ...opts, readAs: "export", recentlyDeleted: undefined });
   const refuse = async (): Promise<never> => {
     throw new Error("exportView is read-only");
   };

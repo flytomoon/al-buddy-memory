@@ -1,5 +1,5 @@
 import { compareBinary, learnedAt } from "./decay.js";
-import { canonicalInstant, canonicalPatch, instantMs } from "./instant.js";
+import { canonicalInstant, instantMs } from "./instant.js";
 import {
   MUTABLE_NODE_FIELDS,
   VERSION_EVENTS,
@@ -59,9 +59,17 @@ function assertMutableImage(value: unknown, field: string): asserts value is Mut
   if (record["contextualMetadata"] === null || typeof record["contextualMetadata"] !== "object" || Array.isArray(record["contextualMetadata"])) {
     throw new Error(`${field}.contextualMetadata must be an object`);
   }
-  const canonical = canonicalPatch(record as MutableNodeState);
-  if (canonicalJson(canonical) !== canonicalJson(record)) {
-    throw new Error(`${field} instants must be canonical`);
+  // Shape and types only. A history image is what the store held, and a store
+  // from before 0.4.0 can have held a word outside today's vocabulary, a weight
+  // above 1, an instant it never parsed. Refusing those refused a store's own
+  // export (release review 2026-09-21). Today's rules apply to the fact as it is
+  // now, which every write path still checks.
+  for (const key of ["memoryType", "privacyClassification", "retentionTier", "validFrom"] as const) {
+    if (typeof record[key] !== "string") throw new Error(`${field}.${key} must be a string`);
+  }
+  if (record["validTo"] !== null && typeof record["validTo"] !== "string") throw new Error(`${field}.validTo must be a string or null`);
+  for (const key of ["confidenceWeight", "decayRate"] as const) {
+    if (typeof record[key] !== "number" || !Number.isFinite(record[key])) throw new Error(`${field}.${key} must be a finite number`);
   }
 }
 
@@ -92,14 +100,19 @@ export function assertVersion(value: NodeVersion): void {
  * imported version that fits neither is history nobody recorded: refused at
  * import, before anything is written.
  */
-export function assertVersionFitsNode(version: NodeVersion, node: MemoryNode): void {
+export function assertVersionFitsNode(version: NodeVersion, node: MemoryNode, notAfterMs: number = Date.now()): void {
   const at = instantMs(version.recordedAt);
   if (at < instantMs(learnedAt(node))) {
     throw new Error(`version ${version.versionId} is dated before its fact was learned`);
   }
-  if (version.event === "restored") return;
-  if (!node.temporalAnchors.some((a) => a.event === version.event && instantMs(a.timestamp) === at)) {
+  if (version.event !== "restored" && !node.temporalAnchors.some((a) => a.event === version.event && instantMs(a.timestamp) === at)) {
     throw new Error(`version ${version.versionId} records a "${version.event}" at ${version.recordedAt} that its fact's anchor trail does not`);
+  }
+  // A version from the future would decide what "as of now" says, and a
+  // `restored` one needs no anchor to do it (release review 2026-09-21). Nothing
+  // is recorded after the moment it is written, or after the export it came in.
+  if (at > notAfterMs) {
+    throw new Error(`version ${version.versionId} is dated in the future (${version.recordedAt})`);
   }
 }
 
@@ -146,10 +159,22 @@ export function nodeAsOf(
  *   and event, and every later version (other than `restored`) its own anchor.
  */
 function explains(current: MemoryNode, ordered: readonly NodeVersion[], at: number): boolean {
-  for (let i = 1; i < ordered.length; i++) {
-    if (!mutableStatesEqual(ordered[i - 1]!.after, ordered[i]!.before)) return false;
+  // The chain matters from the state in force at `at` onward: a break further
+  // back cannot make this read wrong. And a `restored` version whose result the
+  // chain already reached is redundant: refreshing a store from a newer backup
+  // records one after the backup's own versions, and it must not mark the fact
+  // inexact for ever (release review 2026-09-21).
+  let start = 0;
+  for (let i = 0; i < ordered.length; i++) if (instantMs(ordered[i]!.recordedAt) <= at) start = i;
+  let reached: MutableNodeState | null = null;
+  for (const version of ordered.slice(start)) {
+    if (reached !== null && !mutableStatesEqual(reached, version.before)) {
+      if (version.event === "restored" && mutableStatesEqual(reached, version.after)) continue;
+      return false;
+    }
+    reached = version.after;
   }
-  if (ordered.length > 0 && !mutableStatesEqual(ordered[ordered.length - 1]!.after, mutableState(current))) return false;
+  if (reached !== null && !mutableStatesEqual(reached, mutableState(current))) return false;
   const key = (ms: number, event: string) => `${ms}|${event}`;
   const versionsLeft = new Map<string, number>();
   for (const version of ordered) {

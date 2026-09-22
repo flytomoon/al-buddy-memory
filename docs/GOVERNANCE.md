@@ -248,7 +248,8 @@ leak through its own history. A policy that redacts a fact on read was written f
 form and cannot redact the fields its past images carry, so a redacted fact's history is withheld
 entirely, and the read is audited as hidden. Writing history (`restoreVersion`) is judged by the
 update policies, like any other change to that fact, and they see the state the version says the
-fact moved to. Erasing a fact erases its history.
+fact moved to. Erasing a fact erases its history (on a handle with Recently deleted, when it is
+purged).
 
 One consequence worth saying plainly: from 0.5.0 an edit does not remove the old value. If a secret
 was pasted into a fact's metadata and then edited out, the earlier image is still in the fact's
@@ -265,11 +266,20 @@ whose days are up, and asks the erase policies again at that moment: a memory lo
 the meantime keeps the fact, and the refusal is reported. `purgeDeleted({ nodeIds, immediately:
 true })` empties the bin for those facts at once.
 
-Three things worth knowing. Nothing runs on a timer: the days are a minimum, and a fact is made
-final when something calls `purgeDeleted`, a nightly job say. A fact put in PendingDeletion some
-other way has no recorded request and is never made final on a clock, only by id. And until it
-is purged, a fact in Recently deleted is still in the store, so it is still in an export or a
-backup. Links (`deleteEdge`) are erased at once either way.
+Worth knowing:
+- Nothing runs on a timer. The days are a minimum, and a fact is made final when something
+  calls `purgeDeleted`, a nightly job say.
+- The deletion record decides when a purge erases a fact, so writing it is part of erasing. On
+  every governed handle, with or without this option, a write that moves a fact into or out of
+  PendingDeletion, or adds, changes or removes its `deletionRequested` record (an update, an
+  import, a new fact), is judged by the erase policies too. An actor who may not erase cannot
+  put a fact in the bin by the back door. `deleteNode` and `restoreDeleted` are the doors.
+- Deleting a fact that is already in PendingDeletion with no recorded request starts its clock.
+  Deleting one that is already waiting changes nothing, and is recorded in the audit trail.
+- A fact in Recently deleted is out of recall, not out of reach. Until it is purged it can
+  still be read by id (`getNode`, the MCP `history` tool), invalidated, and it is still in an
+  export and in a backup. Its history lasts until the purge.
+- Links (`deleteEdge`) are erased at once either way.
 
 ## What the store guarantees without any policy
 

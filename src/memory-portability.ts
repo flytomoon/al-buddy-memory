@@ -1,5 +1,5 @@
 import { assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { canonicalEdge, canonicalNode } from "./instant.js";
+import { canonicalEdge, canonicalNode, instantMs } from "./instant.js";
 import { assertVersion, assertVersionFitsNode, isHistoryCapable, versionsEqual } from "./history.js";
 import type { GraphSnapshot, MemoryEdge, MemoryNode, MemoryStore, NodeVersion, SnapshotCapable } from "./types/memory.js";
 
@@ -167,6 +167,11 @@ function validatePortable(artifact: PortableExport): void {
     );
   }
   if (!Array.isArray(artifact.projects)) throw new Error("Invalid artifact: projects must be an array.");
+  // Nothing in an export can have happened after the export was made. A fact or
+  // a version dated later would decide what "as of now" says in the store that
+  // imports it (release review 2026-09-21).
+  const exportedAtMs = instantMs(artifact.exportedAt);
+  if (!Number.isFinite(exportedAtMs)) throw new Error("Invalid artifact: exportedAt must be an ISO 8601 instant.");
   const str = (v: unknown) => typeof v === "string";
   for (const project of artifact.projects) {
     if (!str(project.project)) throw new Error("Invalid artifact: project.project must be a string.");
@@ -187,6 +192,9 @@ function validatePortable(artifact: PortableExport): void {
         throw new Error(`Invalid artifact: malformed node in ${where}.`);
       }
       if (seenNodes.has(n.nodeId)) throw new Error(`Invalid artifact: ${where} lists node ${n.nodeId} twice.`);
+      if (n.temporalAnchors.some((a) => instantMs(a?.timestamp) > exportedAtMs)) {
+        throw new Error(`Invalid artifact: node ${n.nodeId} in ${where} has an anchor dated after the export (${artifact.exportedAt}).`);
+      }
       seenNodes.add(n.nodeId);
       // Exactly what restoreNode would apply, node by node, before any of it is
       // written: instants with a zone, weights in range, the published
@@ -216,7 +224,7 @@ function validatePortable(artifact: PortableExport): void {
       // History nobody recorded — dated before the fact, or a change its anchor
       // trail never saw — is refused here, before anything is written.
       try {
-        assertVersionFitsNode(version, node);
+        assertVersionFitsNode(version, node, exportedAtMs);
       } catch (err) {
         throw new Error(`Invalid artifact: ${where}: ${err instanceof Error ? err.message : String(err)}.`);
       }
