@@ -111,6 +111,36 @@ export function guardianMode(opts: { guardians: string[] }): GovernancePolicy {
 }
 
 /**
+ * Memory lock: while it is installed and locked, nothing is erased — by
+ * anyone, the owner in person included. Erasure needs one allow and no
+ * refusal, so this refusal wins over every other policy, in any order.
+ *
+ * Unlocking is a deliberate act: take the policy out of the list, or pass
+ * `isLocked` and change what it reads (a settings toggle, say). If `isLocked`
+ * throws, erasure is refused: a lock that cannot be read stays shut.
+ *
+ * What it does not cover, said plainly: it guards the governed handle. The raw
+ * store and the database file are outside every policy — backups are the
+ * answer to those. And invalidation is not erasure: a fact can still be closed
+ * with `validTo`, which is how memory is meant to change anyway.
+ */
+export function memoryLock(opts: { isLocked?: () => boolean } = {}): GovernancePolicy {
+  const isLocked = opts.isLocked ?? (() => true);
+  return {
+    name: "memory-lock",
+    beforeErase(_subject: ErasureSubject, _ctx: PolicyContext): void {
+      let locked = true;
+      try {
+        locked = isLocked();
+      } catch {
+        // Fail closed: stay locked.
+      }
+      if (locked) throw new PolicyDenied("memory-lock", "memory is locked: nothing can be erased until the lock is lifted");
+    },
+  };
+}
+
+/**
  * Enterprise audit: every decision is already in the audit trail; this policy
  * adds the two rules reviewers ask for first. AI-inferred facts below a
  * confidence floor are hidden from everyone but reviewers, and nothing leaves
