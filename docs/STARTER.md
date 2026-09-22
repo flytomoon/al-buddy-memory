@@ -53,9 +53,13 @@ with a confidence and an edge back to the raw sources, and never rewrites the ra
 Hand it the **governed** handle from step 2, not the raw store. A derived fact is written
 like any other, so on the raw store it skips the policy and the audit log that the rest of
 your memory runs behind — and a derived fact restates what the raw turn said. Measured on
-this code: given a raw turn containing a password, a proposal repeating it is written
+0.4.2: given a raw turn containing a password, a proposal repeating it is written
 `Private` with nothing audited through the raw store, and `Sensitive` with eight audit
 events through `governed`.
+
+Sensitive facts are not shown to the model at all unless you pass `includeSensitive: true`,
+and a fact derived from one is written Sensitive. Sealed facts are never shown. Since 0.5.1, then,
+that password turn — classified Sensitive by the policy on `governed` — never reaches the model.
 
 ```ts
 import { consolidate } from "al-buddy-memory";
