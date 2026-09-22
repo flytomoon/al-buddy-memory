@@ -1,4 +1,5 @@
-export { govern, exportView } from "./governed-store.js";
+export { govern, exportView, isRecentlyDeletedCapable, DELETION_REQUEST } from "./governed-store.js";
+export type { RecentlyDeletedCapable, DeletedFact } from "./governed-store.js";
 export type { GovernOptions } from "./governed-store.js";
 export { PolicyDenied } from "./policy.js";
 export type { GovernancePolicy, PolicyContext, Purpose, NodePatch, ErasureSubject } from "./policy.js";
