@@ -323,3 +323,79 @@ describe("consolidate — the whole pass, and only what the pass wrote", () => {
     expect(forDerived.at(-1)?.purpose).toBe("invalidate"); // the validity change that stood it up
   });
 });
+
+describe("consolidate — privacy, fresh metadata and instants (review 2026-09-22)", () => {
+  const both: [string, () => MemoryStore][] = [
+    ["InMemoryStore", () => new InMemoryStore()],
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:") as MemoryStore],
+  ];
+
+  for (const [label, make] of both) {
+    /**
+     * Every derived fact was written Private whatever it rested on, so a
+     * Sensitive fact restated by the nightly pass reached every AI audience that
+     * may read Private. The vocabulary says Sensitive is "excluded from
+     * summarization unless the user explicitly opts in".
+     */
+    it(`${label}: a Sensitive fact is not shown to the model unless the caller opts in`, async () => {
+      const store = make();
+      await store.addNode(makeNode({ privacyClassification: "Sensitive", content: { text: "Therapist is Dr Lee on Thursdays" } }));
+      const [plain] = await seed(store, ["Likes long walks"]);
+      const seen: string[] = [];
+      const report = await consolidate(store, { since: "2000-01-01T00:00:00Z", model: "m", propose: async (raw) => (seen.push(...raw.map((r) => r.nodeId)), []) });
+      expect(seen).toEqual([plain]);
+      expect(report.read).toBe(1);
+    });
+
+    it(`${label}: opted in, a fact derived from a Sensitive source is written Sensitive`, async () => {
+      const store = make();
+      const sensitive = await store.addNode(makeNode({ privacyClassification: "Sensitive", content: { text: "Therapist is Dr Lee on Thursdays" } }));
+      const [plain] = await seed(store, ["Thursdays are busy"]);
+      const report = await consolidate(store, {
+        since: "2000-01-01T00:00:00Z", model: "m", includeSensitive: true,
+        propose: async () => [{ text: "Sees Dr Lee weekly for therapy", sourceNodeIds: [sensitive.nodeId, plain!] }],
+      });
+      const derived = (await store.getNode(report.derivedNodeIds[0]!))!;
+      expect(derived.privacyClassification).toBe("Sensitive");
+    });
+
+    it(`${label}: a Sealed fact is never shown to the model, even opted in`, async () => {
+      const store = make();
+      await store.addNode(makeNode({ privacyClassification: "Sealed", content: { text: "sealed thing" } }));
+      const seen: string[] = [];
+      await consolidate(store, { since: "2000-01-01T00:00:00Z", model: "m", includeSensitive: true, propose: async (raw) => (seen.push(...raw.map((r) => r.text)), []) });
+      expect(seen).toEqual([]);
+    });
+
+    /**
+     * The raw was marked with the metadata read BEFORE the model ran, so an
+     * invalidate that landed while it was thinking lost its receipts from the
+     * fact's current record.
+     */
+    it(`${label}: marking the raw keeps a change made while the model was thinking`, async () => {
+      const store = make();
+      const [id] = await seed(store, ["Lives in London"]);
+      await consolidate(store, {
+        since: "2000-01-01T00:00:00Z", model: "m",
+        propose: async (raw) => {
+          const n = (await store.getNode(id!))!;
+          await store.updateNode(id!, { validTo: new Date().toISOString(), contextualMetadata: { ...n.contextualMetadata, invalidatedBecause: "moved to Berlin" } });
+          return [{ text: "Is in London", sourceNodeIds: [raw[0]!.nodeId] }];
+        },
+      });
+      const after = (await store.getNode(id!))!;
+      expect(after.contextualMetadata["invalidatedBecause"]).toBe("moved to Berlin");
+      expect(after.contextualMetadata["consolidatedBy"]).toBe("m");
+    });
+  }
+
+  /** `since` was compared as text: an instant spelled with an offset read nothing. */
+  it("`since` is an instant, whatever its spelling", async () => {
+    const store = new InMemoryStore();
+    await seed(store, ["today's fact"]);
+    const hourAgo = new Date(Date.now() - 3600e3 + 10 * 3600e3);
+    const since = hourAgo.toISOString().replace(/\.\d{3}Z$/, "+10:00");
+    const report = await consolidate(store, { since, model: "m", dryRun: true, propose: async () => [] });
+    expect(report.read).toBe(1);
+  });
+});

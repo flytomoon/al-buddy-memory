@@ -11,7 +11,7 @@
  * model-agnostic and calls nothing itself.
  */
 import { compareBinary, compareRecency, learnedAt } from "./decay.js";
-import { instantMs } from "./instant.js";
+import { canonicalInstant, instantMs } from "./instant.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
@@ -44,6 +44,13 @@ export interface ConsolidateOptions {
   maxRaw?: number;
   now?: () => Date;
   encryptionKeyRef?: string;
+  /**
+   * Show the model Sensitive facts too. Off by default: Sensitive is "excluded
+   * from summarization unless the user explicitly opts in" (types/memory.ts), so
+   * only the person can switch this on. A fact derived from a Sensitive source is
+   * written Sensitive. Sealed facts are never shown, whatever this says.
+   */
+  includeSensitive?: boolean;
 }
 
 export interface ConsolidationReport {
@@ -87,10 +94,17 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
   // the right trade; `maxRaw` still bounds what the model is shown. Pushing
   // `since` into the query would make it O(new facts) and is the next step if
   // a pass ever gets expensive.
-  const all = await store.searchNodes({});
+  //
+  // Named classifications, never Sealed: every derived fact used to be written
+  // Private whatever it rested on, so a Sensitive fact restated by the pass
+  // reached every audience that may read Private (review 2026-09-22).
+  const all = await store.searchNodes({ privacyClassification: opts.includeSensitive === true ? ["Public", "Private", "Sensitive"] : ["Public", "Private"] });
+  // An instant, not a spelling: "+10:00" and "Z" sort differently as text.
+  const sinceMs = instantMs(canonicalInstant(opts.since, "since"));
   const raw = all
     .filter((n) => n.provenance !== "AIInferred") // derived facts are never re-derived
-    .filter((n) => createdAt(n) >= opts.since)
+    .filter((n) => n.privacyClassification !== "Sealed")
+    .filter((n) => instantMs(createdAt(n)) >= sinceMs)
     .filter((n) => !alreadyConsolidated(n))
     .sort(chronologically)
     .slice(0, opts.maxRaw ?? 200);
@@ -100,7 +114,7 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
   const excerpts: RawExcerpt[] = raw.map((n) => ({ nodeId: n.nodeId, text: n.content.text, memoryType: n.memoryType, createdAt: createdAt(n) }));
   const proposals = await opts.propose(excerpts);
   report.proposed = proposals.length;
-  const known = new Set(raw.map((n) => n.nodeId));
+  const known = new Map(raw.map((n) => [n.nodeId, n]));
 
   for (const p of proposals) {
     const text = (p.text ?? "").trim();
@@ -126,7 +140,8 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
       provenance: "AIInferred",
       encryptionKeyRef: opts.encryptionKeyRef ?? "local",
       memoryType: p.memoryType ?? "Lesson",
-      privacyClassification: "Private",
+      // As restricted as the most restricted fact it rests on, and never less than Private.
+      privacyClassification: sources.some((id) => known.get(id)!.privacyClassification === "Sensitive") ? "Sensitive" : "Private",
       retentionTier: "FullRetention",
       content: { text },
       contextualMetadata: { derivedFrom: sources, [CONSOLIDATED_MARK]: opts.model, consolidatedAt: now, tags: ["derived"] },
@@ -173,9 +188,13 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
     // Mark the raw as read by this pass — an anchor, never a rewrite. A fact
     // that has gone since the read is skipped rather than thrown over: it was
     // never consolidated, so nothing is owed to it.
+    // The mark goes onto the fact as it is NOW: merging it onto the copy read
+    // before the model ran erased whatever changed in between, such as an
+    // invalidation's receipts (review 2026-09-22).
     for (const n of raw) {
-      if (!(await store.getNode(n.nodeId))) continue;
-      await store.updateNode(n.nodeId, { contextualMetadata: { ...n.contextualMetadata, [CONSOLIDATED_MARK]: opts.model } }, "summarized");
+      const fresh = await store.getNode(n.nodeId);
+      if (!fresh) continue;
+      await store.updateNode(n.nodeId, { contextualMetadata: { ...fresh.contextualMetadata, [CONSOLIDATED_MARK]: opts.model } }, "summarized");
     }
   }
   return report;
