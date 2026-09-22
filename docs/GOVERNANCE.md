@@ -279,6 +279,9 @@ Worth knowing:
 - A fact in Recently deleted is out of recall, not out of reach. Until it is purged it can
   still be read by id (`getNode`, the MCP `history` tool), invalidated, and it is still in an
   export and in a backup. Its history lasts until the purge.
+- A fact that arrives already in Recently deleted, from a backup, keeps its original request
+  time, so a purge may make it final straight away. Importing it is not refused, because a new
+  fact in the bin can only erase itself.
 - Links (`deleteEdge`) are erased at once either way.
 
 ## What the store guarantees without any policy

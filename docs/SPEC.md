@@ -82,6 +82,8 @@ History cannot invent values that were never recorded, and says so when it canno
 
 With nothing recorded after `asOf`, the answer is the fact as it is stored: as of now is always the present.
 
+An imported artifact is trusted as the record of its own past. The checks above refuse history that contradicts the fact or comes from the future, but the first version's before-image is what the exporting store said it held, and nothing can check that from the file alone.
+
 As-of reads reconstruct in memory. This keeps the persistent representation and the verification rule simple, but its cost is linear in the facts and versions read. The measured cost is recorded in the README.
 
 When a fact stops being true, set `validTo` rather than deleting it. Deletion is reserved for erasure.

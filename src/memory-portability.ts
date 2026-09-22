@@ -172,6 +172,11 @@ function validatePortable(artifact: PortableExport): void {
   // imports it (release review 2026-09-21).
   const exportedAtMs = instantMs(artifact.exportedAt);
   if (!Number.isFinite(exportedAtMs)) throw new Error("Invalid artifact: exportedAt must be an ISO 8601 instant.");
+  // An export from the future would pass the checks above and then fail part-way,
+  // when each store checks a version against its own clock. Refused here, before
+  // anything is written (review 2026-09-21). A device whose clock runs ahead:
+  // wait until this clock passes exportedAt, or fix the clock.
+  if (exportedAtMs > Date.now()) throw new Error(`Invalid artifact: exportedAt (${artifact.exportedAt}) is in the future; nothing was imported.`);
   const str = (v: unknown) => typeof v === "string";
   for (const project of artifact.projects) {
     if (!str(project.project)) throw new Error("Invalid artifact: project.project must be a string.");

@@ -166,3 +166,28 @@ describe.each(both)("Recently deleted cannot be entered by the back door (%s)", 
     expect((await owner.restoreDeleted(n.nodeId)).retentionTier).toBe("FullRetention");
   });
 });
+
+describe.each(both)("third review: imports that used to stop part-way (%s)", (_l, make) => {
+  it("restoring a backup that holds a Recently deleted fact works under the lock", async () => {
+    const src = make();
+    const kept = await src.addNode(fact("kept"));
+    const binned = await src.addNode(fact("in the bin", { retentionTier: "PendingDeletion", contextualMetadata: { [DELETION_REQUEST]: { at: "2026-09-01T00:00:00.000Z", from: "FullRetention" } } }));
+    const artifact = await exportPortable(new Map([["p", src]]));
+    const { memoryLock } = await import("./governance/samples.js");
+    const dest = make();
+    const locked = govern(dest, { policies: [personalDefaults({ owner: "o" }), memoryLock()], context: () => ({ actor: "o" }) });
+    await expect(importPortable(artifact, () => locked)).resolves.toEqual({ nodes: 2, edges: 0 });
+    expect((await dest.getNode(kept.nodeId))?.retentionTier).toBe("FullRetention");
+    expect((await dest.getNode(binned.nodeId))?.retentionTier).toBe("PendingDeletion");
+  });
+
+  it("an export dated in the future is refused before anything is written", async () => {
+    const src = make();
+    const n = await src.addNode(fact("from a fast clock"));
+    const artifact = JSON.parse(JSON.stringify(await exportPortable(new Map([["p", src]])))) as PortableExport;
+    artifact.exportedAt = new Date(Date.now() + 60_000).toISOString();
+    const dest = make();
+    await expect(importPortable(artifact, () => dest)).rejects.toThrow(/in the future/);
+    expect(await dest.getNode(n.nodeId)).toBeUndefined();
+  });
+});

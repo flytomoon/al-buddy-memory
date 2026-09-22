@@ -435,10 +435,6 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         assertAuditUsable(opts);
         const ctx = authorised();
         const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
-        if (touchesDeletion(undefined, current)) {
-          const provisional = { ...current, nodeId: "", temporalAnchors: [], validFrom: current.validFrom ?? ctx.now.toISOString(), validTo: current.validTo ?? null } as MemoryNode;
-          await guarded(opts, ctx, [], () => erasePolicies({ node: provisional }, ctx));
-        }
         assertAuditUsable(opts);
         return commitAudited(opts, inner, ctx, () => inner.addNode(current), (saved) => ({ ids: [saved.nodeId] }));
       });
@@ -499,7 +495,10 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
           // a write policy that archived on import slipped past an update policy
           // that forbade archiving).
           if (existing) for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, asPatch(incoming), ctx);
-          if (touchesDeletion(existing, incoming)) await erasePolicies({ node: existing ?? incoming }, ctx);
+          // Only over a fact that exists. A new fact that arrives already in the bin
+          // (a backup restored with its Recently deleted) can only ever erase itself,
+          // and refusing it stopped a restore part-way under a lock (review 2026-09-21).
+          if (existing && touchesDeletion(existing, incoming)) await erasePolicies({ node: existing }, ctx);
         });
         assertAuditUsable(opts);
         await commitAudited(opts, inner, ctx, () => inner.restoreNode(incoming), () => ({ ids: [node.nodeId] }));
