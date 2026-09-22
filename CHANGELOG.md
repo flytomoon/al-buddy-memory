@@ -22,6 +22,11 @@ earlier were GitHub releases only.
 - Governed as-of reads decide access from the fact's current state. The MCP server exposes
   a governed `history` tool.
 
+- **Recently deleted**, opt-in: `govern(inner, { recentlyDeleted: { days: 14 } })` makes an
+  allowed `deleteNode` move the fact out of recall for that many days instead of destroying it.
+  `listDeleted`, `restoreDeleted` and `purgeDeleted` manage it; purging asks the erase policies
+  again. Off by default, so existing callers see no change.
+
 ### Behaviour change
 
 - Every `updateNode` writes one version row, including an empty reinforcement. On the M1 Pro

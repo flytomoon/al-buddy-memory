@@ -27,7 +27,65 @@ export interface GovernOptions {
   audit?: AuditSink | undefined;
   /** What a read counts as. exportView sets "export" so beforeExport decides instead of beforeRead. */
   readAs?: "recall" | "export" | undefined;
+  /**
+   * "Recently deleted". When set, `deleteNode` on this handle does not destroy a
+   * fact: after the erase policies allow it, the fact moves to the
+   * PendingDeletion tier, out of recall, and stays there for `days`.
+   * `restoreDeleted` brings it back; `purgeDeleted` makes erasure final once the
+   * days have passed (the erase policies are asked again at that moment, so a
+   * memory lock installed since still stops it). Off by default: without it,
+   * `deleteNode` erases at once, exactly as before. Links (`deleteEdge`) are
+   * still erased at once either way.
+   */
+  recentlyDeleted?: { days: number } | undefined;
 }
+
+/** The contextualMetadata key a pending deletion is recorded under. */
+export const DELETION_REQUEST = "deletionRequested";
+
+/** What `listDeleted` returns for each fact waiting in Recently deleted. */
+export interface DeletedFact {
+  node: MemoryNode;
+  /** null when the fact was put in PendingDeletion by some other path, with no recorded request. */
+  requestedAt: string | null;
+  /** null for the same reason: such a fact is never made final automatically. */
+  finalAfter: string | null;
+}
+
+/** The governed handle's extra methods when `recentlyDeleted` is set. */
+export interface RecentlyDeletedCapable {
+  listDeleted(): Promise<DeletedFact[]>;
+  restoreDeleted(nodeId: string): Promise<MemoryNode>;
+  /**
+   * Erase, for good, every fact whose days are up (or only `nodeIds`;
+   * `immediately` skips the wait for those). Each erasure is asked of the erase
+   * policies again; a refusal leaves the fact where it is and is reported.
+   */
+  purgeDeleted(options?: { nodeIds?: string[]; immediately?: boolean }): Promise<{ purged: string[]; waiting: string[]; refused: string[] }>;
+}
+
+export function isRecentlyDeletedCapable(store: unknown): store is RecentlyDeletedCapable {
+  if (store === null || typeof store !== "object") return false;
+  const s = store as Partial<RecentlyDeletedCapable>;
+  return typeof s.listDeleted === "function" && typeof s.restoreDeleted === "function" && typeof s.purgeDeleted === "function";
+}
+
+interface DeletionRequest { at: string | null; from: MemoryNode["retentionTier"] }
+
+/**
+ * The request behind a PendingDeletion fact. A fact put in that tier some other
+ * way has no recorded moment (`at: null`), and a clock that was never started
+ * never runs out: it waits until someone purges it by id, `immediately`.
+ */
+function deletionRequest(node: MemoryNode): DeletionRequest | null {
+  if (node.retentionTier !== "PendingDeletion") return null;
+  const raw = node.contextualMetadata[DELETION_REQUEST] as Partial<DeletionRequest> | undefined;
+  const from = raw?.from && raw.from !== "PendingDeletion" ? raw.from : "FullRetention";
+  const at = typeof raw?.at === "string" && Number.isFinite(Date.parse(raw.at)) ? raw.at : null;
+  return { at, from };
+}
+
+const DAY_MS = 86_400_000;
 
 function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
   const c = opts.context(purpose);
@@ -429,7 +487,22 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         const { node } = await visibleOrNotFound(nodeId, ctx);
         await guarded(opts, ctx, [nodeId], () => erasePolicies({ node }, ctx));
         assertAuditUsable(opts);
-        await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids: [nodeId] }));
+        const grace = opts.recentlyDeleted;
+        if (grace === undefined) {
+          await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids: [nodeId] }));
+          return;
+        }
+        // Already waiting: a second delete is not "delete harder". It keeps the
+        // first request and its clock; purgeDeleted is the way to make it final.
+        if (deletionRequest(node) !== null) return;
+        const request: DeletionRequest = { at: ctx.now.toISOString(), from: node.retentionTier };
+        await commitAudited(
+          opts,
+          inner,
+          ctx,
+          () => inner.updateNode(nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...node.contextualMetadata, [DELETION_REQUEST]: request } }, "archived"),
+          () => ({ ids: [nodeId], reason: `moved to Recently deleted; final after ${grace.days} days` }),
+        );
       });
     },
 
@@ -702,6 +775,73 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         });
         assertAuditUsable(opts);
         await commitAudited(opts, inner, ctx, () => inner.restoreVersion(version), () => ({ ids: [version.nodeId] }));
+      });
+    };
+  }
+
+  const grace = opts.recentlyDeleted;
+  if (grace !== undefined) {
+    if (!(Number.isFinite(grace.days) && grace.days >= 0)) throw new Error("recentlyDeleted.days must be a number of days, 0 or more");
+    const finalAfter = (r: DeletionRequest): string | null => (r.at === null ? null : new Date(Date.parse(r.at) + grace.days * DAY_MS).toISOString());
+    const extra = governed as MemoryStore & Partial<RecentlyDeletedCapable>;
+
+    extra.listDeleted = async (): Promise<DeletedFact[]> => {
+      const pending = (await inner.listNodes()).filter((n) => n.retentionTier === "PendingDeletion");
+      const visible = await filterRead(opts, pending, readCtx());
+      const byId = new Map(pending.map((n) => [n.nodeId, n]));
+      return visible.map((node) => {
+        const request = deletionRequest(byId.get(node.nodeId) ?? node)!;
+        return { node, requestedAt: request.at, finalAfter: finalAfter(request) };
+      });
+    };
+
+    extra.restoreDeleted = async (nodeId: string): Promise<MemoryNode> => {
+      const authorised = authorise(opts, "write");
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = authorised();
+        const { node: existing, seen } = await visibleOrNotFound(nodeId, ctx);
+        const request = deletionRequest(existing);
+        if (request === null) throw new Error(`Memory node ${nodeId} is not in Recently deleted`);
+        const { [DELETION_REQUEST]: _dropped, ...metadata } = existing.contextualMetadata;
+        const patch = { retentionTier: request.from, contextualMetadata: metadata };
+        await guarded(opts, ctx, [nodeId], async () => {
+          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
+        });
+        assertAuditUsable(opts);
+        const restored = await commitAudited(opts, inner, ctx, () => inner.updateNode(nodeId, patch), () => ({ ids: [nodeId], reason: "restored from Recently deleted" }));
+        return (await view(opts, restored, { ...ctx, purpose: "recall" })) ?? { ...seen, ...patch, temporalAnchors: restored.temporalAnchors };
+      });
+    };
+
+    extra.purgeDeleted = async (options = {}) => {
+      const authorised = authorise(opts, "erase");
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = authorised();
+        const only = options.nodeIds === undefined ? null : new Set(options.nodeIds);
+        const purged: string[] = [];
+        const waiting: string[] = [];
+        const refused: string[] = [];
+        for (const node of await inner.listNodes()) {
+          const request = deletionRequest(node);
+          if (request === null || (only !== null && !only.has(node.nodeId))) continue;
+          // A fact this actor cannot read is not theirs to erase, and not theirs to learn about.
+          if (!(await view(opts, node, { ...ctx, purpose: "recall" }))) continue;
+          const final = finalAfter(request);
+          const due = (only !== null && options.immediately === true) || (final !== null && Date.parse(final) <= ctx.now.getTime());
+          if (!due) { waiting.push(node.nodeId); continue; }
+          try {
+            await guarded(opts, ctx, [node.nodeId], () => erasePolicies({ node }, ctx));
+          } catch (err) {
+            if (err instanceof PolicyDenied) { refused.push(node.nodeId); continue; }
+            throw err;
+          }
+          assertAuditUsable(opts);
+          await commitAudited(opts, inner, ctx, () => inner.deleteNode(node.nodeId), () => ({ ids: [node.nodeId], reason: "Recently deleted: made final" }));
+          purged.push(node.nodeId);
+        }
+        return { purged, waiting, refused };
       });
     };
   }
