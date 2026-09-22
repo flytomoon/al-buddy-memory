@@ -666,6 +666,92 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect(results).toHaveLength(2);
     });
 
+    // --- Paging (review 2026-09-22) ---------------------------------------
+
+    /**
+     * `after` continues the list it came from. The SQLite store used to filter
+     * `created_at >` the cursor while returning newest first, so page 2 was the
+     * facts NEWER than the cursor — page 1 again — and nothing past it was ever
+     * reached.
+     */
+    describe("paging with after", () => {
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+
+      const seed = async (n: number, text = (i: number) => `fact ${i}`) => {
+        for (let i = 0; i < n; i++) {
+          vi.setSystemTime(new Date(Date.UTC(2026, 0, 1, 0, 0, i)));
+          await store.addNode(makeNode({ content: { text: text(i) } }));
+        }
+      };
+
+      it("page 2 is the next page of the same list, without a query", async () => {
+        await seed(7);
+        const all = (await store.searchNodes({})).map((n) => n.nodeId);
+        const pages: string[] = [];
+        let after: string | undefined;
+        for (;;) {
+          const page = (await store.searchNodes(after === undefined ? { limit: 3 } : { limit: 3, after })).map((n) => n.nodeId);
+          if (page.length === 0) break;
+          pages.push(...page);
+          after = page[page.length - 1];
+        }
+        expect(pages).toEqual(all);
+      });
+
+      it("page 2 is the next page of the same list, with a query", async () => {
+        await seed(7, (i) => `coffee note ${i}`);
+        const all = (await store.searchNodes({ query: "coffee" })).map((n) => n.nodeId);
+        const page1 = (await store.searchNodes({ query: "coffee", limit: 3 })).map((n) => n.nodeId);
+        const page2 = (await store.searchNodes({ query: "coffee", limit: 3, after: page1[2]! })).map((n) => n.nodeId);
+        expect([...page1, ...page2]).toEqual(all.slice(0, 6));
+      });
+
+      it("a cursor that is not in the list has nothing after it", async () => {
+        await seed(3);
+        expect(await store.searchNodes({ after: "00000000-0000-4000-8000-00000000dead" })).toEqual([]);
+        expect(await store.searchNodes({ after: "00000000-0000-4000-8000-00000000dead", limit: 2 })).toEqual([]);
+      });
+    });
+
+    it("limit means the same on every store: negative is none, non-finite is no limit, fractions round down", async () => {
+      for (let i = 0; i < 3; i++) await store.addNode(makeNode({ content: { text: `fact ${i}` } }));
+      expect(await store.searchNodes({ limit: -1 })).toHaveLength(0);
+      expect(await store.searchNodes({ limit: 0 })).toHaveLength(0);
+      expect(await store.searchNodes({ limit: Number.NaN })).toHaveLength(3);
+      expect(await store.searchNodes({ limit: Number.POSITIVE_INFINITY })).toHaveLength(3);
+      expect(await store.searchNodes({ limit: 2.7 })).toHaveLength(2);
+    });
+
+    // --- A clock that steps back (review 2026-09-22) ---------------------
+
+    /**
+     * An NTP correction or a resumed VM can move the clock backwards between
+     * two changes to one fact. The store used to stamp the change with the
+     * clock as it was, so the fact's own version was dated before it was
+     * learned and its own export could not be imported back.
+     */
+    it("a change is never stamped before the fact's last recorded moment", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-09-22T10:00:05.000Z"));
+        const fact = await store.addNode(makeNode());
+        vi.setSystemTime(new Date("2026-09-22T10:00:01.000Z"));
+        const once = await store.updateNode(fact.nodeId, { confidenceWeight: 0.5 });
+        const twice = await store.updateNode(fact.nodeId, { confidenceWeight: 0.4 });
+        const stamps = twice.temporalAnchors.map((a) => Date.parse(a.timestamp));
+        for (let i = 1; i < stamps.length; i++) expect(stamps[i]!).toBeGreaterThanOrEqual(stamps[i - 1]!);
+        // Held at the fact's last moment while the clock is behind; not pushed past it.
+        expect(once.temporalAnchors.at(-1)!.timestamp).toBe("2026-09-22T10:00:05.000Z");
+        if (isHistoryCapable(store)) {
+          const recorded = (await store.history(fact.nodeId)).map((v) => v.recordedAt);
+          expect(recorded).toEqual(twice.temporalAnchors.slice(1).map((a) => a.timestamp));
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     // --- Update / delete --------------------------------------------------
 
     it("updates what may change and appends a 'modified' anchor", async () => {

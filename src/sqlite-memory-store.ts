@@ -9,12 +9,12 @@ import Database from "better-sqlite3";
 
 import { AUDIT_EVENTS_SCHEMA, AuditEventTable } from "./governance/audit-table.js";
 import type { AuditCapable, AuditEvent } from "./governance/audit.js";
-import { queryTokens } from "./query-filter.js";
+import { normaliseLimit, queryTokens } from "./query-filter.js";
 import { buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf, orderVersions } from "./history.js";
 import { MIGRATION_V8, insertVersion, readAllVersions, readNodeVersions, restoreSqliteVersion } from "./sqlite-history.js";
 import { retryWhileBusy } from "./sqlite-busy.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
+import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs, stampAfter } from "./instant.js";
 import type {
   AsOfFact,
   AsOfOptions,
@@ -721,7 +721,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
           insertVersion(this.db, {
             versionId: randomUUID(),
             nodeId: node.nodeId,
-            recordedAt: new Date().toISOString(),
+            recordedAt: this.stampFor(existing, node),
             event: "restored",
             before: mutableState(existing),
             after: mutableState(node),
@@ -936,17 +936,18 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       params["validAt"] = canonicalInstant(options.validAt, "validAt");
     }
 
-    if (options.after !== undefined) {
-      conditions.push(`created_at > (SELECT created_at FROM memory_nodes WHERE node_id = @after)`);
-      params["after"] = options.after;
-    }
-
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     // With a query, ordering happens by BM25 relevance below — the SQL LIMIT
     // would truncate by confidence first, cutting off relevant hits.
     // Numeric by construction: every caller clamps, and a string that reached
     // here would be interpolated into SQL (review 2026-09-01, F5).
-    const limitN = options.limit !== undefined ? Math.max(0, Math.floor(Number(options.limit))) : undefined;
+    const limitN = normaliseLimit(options.limit);
+    // `after` continues the list as it is RANKED, which happens in JS below, so
+    // it cannot be a SQL predicate: `created_at >` the cursor, under a newest-
+    // first order, selected the rows already on page 1 (review 2026-09-22). A
+    // paged read ranks the whole matching set and cuts after the cursor; a
+    // keyset over the SQL order would not survive decay's re-rank.
+    const paged = options.after !== undefined;
     // Ranking happens in JS so decay can apply (decay.ts): the SQL limit would
     // cut by stored confidence before age had a say. With a query, SQLite
     // orders by BM25 and hands over a candidate pool (a multiple of the
@@ -954,7 +955,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     // read — at a store of hundreds to low thousands that is cheap, and the
     // measured cost at 100k facts is in README "Limits".
     type Row = NodeRow & { fts_rank?: number };
-    const limited = limitN !== undefined && Number.isFinite(limitN);
+    const limited = limitN !== undefined && !paged;
     const pool = limited ? Math.max(limitN! * FTS_POOL_MULTIPLIER, FTS_POOL_MIN) : FTS_POOL_UNLIMITED;
     const also = (condition: string) => (where ? `${where} AND ${condition}` : `WHERE ${condition}`);
     // The pool's ORDER BY ends the same way the JS re-rank does, or a limited
@@ -1036,8 +1037,23 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       }
     }
 
-    if (limited) nodes.length = Math.min(nodes.length, limitN!);
+    if (paged) {
+      // A cursor that is not in this list has nothing after it, on every store.
+      const at = nodes.findIndex((n) => n.node.nodeId === options.after);
+      nodes = at < 0 ? [] : nodes.slice(at + 1);
+    }
+    if (limitN !== undefined) nodes.length = Math.min(nodes.length, limitN);
     return nodes.map((n) => n.node);
+  }
+
+  /** When a change to this fact happens: never before anything already on its record. */
+  private stampFor(existing: MemoryNode, incoming?: MemoryNode): string {
+    // recorded_at is canonical (assertVersion), so the string maximum is the latest.
+    const last = this.db.prepare(`SELECT MAX(recorded_at) AS at FROM node_versions WHERE node_id = ?`).get(existing.nodeId) as { at: string | null };
+    return stampAfter([
+      ...existing.temporalAnchors.map((a) => a.timestamp),
+      last.at,
+    ], (incoming?.temporalAnchors ?? []).map((a) => a.timestamp));
   }
 
   async updateNode(
@@ -1061,7 +1077,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       }
 
       const existing = rowToNode(existingRow);
-      const now = new Date().toISOString();
+      const now = this.stampFor(existing);
       const newAnchors: TemporalAnchor[] = [
         ...existing.temporalAnchors,
         { timestamp: now, event: anchorEvent },

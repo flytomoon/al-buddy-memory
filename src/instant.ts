@@ -46,6 +46,29 @@ export function instantMs(value: string | null | undefined): number {
   return ISO.test(upper) ? Date.parse(upper) : Number.NaN;
 }
 
+/**
+ * The moment to stamp a change to one fact: now, or the latest moment already on
+ * that fact's record, whichever is later. A clock that steps back (an NTP
+ * correction, a resumed VM) used to date a change before the fact was learned,
+ * and the store's own export then refused to import (review 2026-09-22). One
+ * fact's record never moves backwards; an equal instant is allowed, because
+ * same-instant changes are ordered by the store and read inclusively. `after`
+ * lists moments the stamp must strictly follow — an incoming backup's anchors,
+ * whose versions a `restored` version must sort behind.
+ */
+export function stampAfter(atLeast: Iterable<string | null | undefined>, after: Iterable<string | null | undefined> = []): string {
+  let latest = Date.now();
+  for (const value of atLeast) {
+    const ms = instantMs(value);
+    if (Number.isFinite(ms) && ms > latest) latest = ms;
+  }
+  for (const value of after) {
+    const ms = instantMs(value);
+    if (Number.isFinite(ms) && ms + 1 > latest) latest = ms + 1;
+  }
+  return new Date(latest).toISOString();
+}
+
 export function canonicalInstant(value: string, field = "timestamp"): string {
   const m = typeof value === "string" ? ISO.exec(value.toUpperCase()) : null;
   // Date.parse rolls impossible fields forward (2026-02-30 becomes 2 March), so

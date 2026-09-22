@@ -1,7 +1,7 @@
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
-import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
-import { queryTokens, visibleRelevance } from "./query-filter.js";
+import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, stampAfter } from "./instant.js";
+import { normaliseLimit, queryTokens, visibleRelevance } from "./query-filter.js";
 import { assertVersion, assertVersionFitsNode, buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf, orderVersions, versionsEqual } from "./history.js";
 import type {
   AsOfFact,
@@ -42,6 +42,14 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
   private readonly versions = new Map<string, NodeVersion[]>();
   /** versionId → version, so an import is not a scan of every version per call. */
   private readonly versionIds = new Map<string, NodeVersion>();
+
+  /** When a change to this fact happens: never before anything already on its record. */
+  private stampFor(existing: MemoryNode, incoming?: MemoryNode): string {
+    return stampAfter([
+      ...existing.temporalAnchors.map((a) => a.timestamp),
+      ...(this.versions.get(existing.nodeId) ?? []).map((v) => v.recordedAt),
+    ], (incoming?.temporalAnchors ?? []).map((a) => a.timestamp));
+  }
 
   private recordVersion(version: NodeVersion): void {
     const list = this.versions.get(version.nodeId) ?? [];
@@ -183,12 +191,13 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     }
 
     if (options.after !== undefined) {
+      // A cursor that is not in this list has nothing after it — the same answer
+      // on every store, and on a governed handle for a cursor it hides.
       const idx = results.findIndex((n) => n.nodeId === options.after);
-      if (idx >= 0) results = results.slice(idx + 1);
+      results = idx < 0 ? [] : results.slice(idx + 1);
     }
-    if (options.limit !== undefined) {
-      results = results.slice(0, options.limit);
-    }
+    const limit = normaliseLimit(options.limit);
+    if (limit !== undefined) results = results.slice(0, limit);
     return results.map(copy);
   }
 
@@ -206,7 +215,7 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
       ...copy(canonicalPatch(patch)),
       temporalAnchors: [
         ...existing.temporalAnchors,
-        { timestamp: new Date().toISOString(), event: anchorEvent },
+        { timestamp: this.stampFor(existing), event: anchorEvent },
       ],
     };
     const recordedAt = updated.temporalAnchors[updated.temporalAnchors.length - 1]!.timestamp;
@@ -230,7 +239,7 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
       this.recordVersion({
         versionId: globalThis.crypto.randomUUID(),
         nodeId: node.nodeId,
-        recordedAt: new Date().toISOString(),
+        recordedAt: this.stampFor(existing, node),
         event: "restored",
         before: mutableState(existing),
         after: mutableState(node),
