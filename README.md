@@ -373,6 +373,7 @@ a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 - [x] Governance hooks with an audit trail and three sample policies; provenance immutable at runtime; measured limits at 100k facts (v0.3.0)
 - [x] The audit event committed in the same transaction as the fact it describes, as one chain many processes share (v0.4.2)
 - [x] A comparison table and a live paste-your-export demo (albuddy.com)
+- [ ] Transaction time, the second half of bi-temporal: "what did we believe at X", so the store can reconstruct its own past state, including a fact it held wrongly and later corrected (valid time, "what was true at X", ships today)
 - [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
 
