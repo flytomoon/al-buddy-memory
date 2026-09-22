@@ -21,7 +21,7 @@ A policy is a plain object with up to five hooks:
 | `beforeWrite(node, ctx)` | before a fact is stored, and on import (`restoreNode`) | transform it (classify, tag) or refuse it |
 | `beforeUpdate(existing, patch, ctx)` | before a change or invalidation, and when an import overwrites a fact | refuse it |
 | `beforeRead(node, ctx)` | on the way out of `getNode`, `searchNodes`, `listNodes`, and for the endpoints of `getEdges` and the facts behind embeddings | hide it (`null`) or redact it |
-| `beforeExport(node, ctx)` | when an `exportView` is being exported | allow or refuse |
+| `beforeExport(node, ctx)` | when an `exportView` is being exported; without it, that policy's `beforeRead` decides, and with it `beforeRead` does not run on export, so repeat any hiding rule | allow or refuse |
 | `beforeErase(subject, ctx)` | before `deleteNode` / `deleteEdge` | return `true` to allow, throw to refuse, return nothing to abstain; erasure needs one allow and no refusal |
 
 `ctx` carries `actor`, optional `audience`, `purpose` (write / recall / invalidate / export /
@@ -270,9 +270,11 @@ Worth knowing:
 - Nothing runs on a timer. The days are a minimum, and a fact is made final when something
   calls `purgeDeleted`, a nightly job say.
 - The deletion record decides when a purge erases a fact, so writing it is part of erasing. On
-  every governed handle, with or without this option, a write that moves a fact into or out of
-  PendingDeletion, or adds, changes or removes its `deletionRequested` record (an update, an
-  import, a new fact), is judged by the erase policies too. An actor who may not erase cannot
+  every governed handle, with or without this option, a write that moves an existing fact into
+  or out of PendingDeletion, or adds, changes or removes its `deletionRequested` record (an
+  update, or an import over a fact already held), is judged by the erase policies too. A new
+  fact that arrives already in the bin, as a backup restored with its bin does, is not: it can
+  only ever erase itself. An actor who may not erase cannot
   put a fact in the bin by the back door. `deleteNode` and `restoreDeleted` are the doors.
 - Deleting a fact that is already in PendingDeletion with no recorded request starts its clock.
   Deleting one that is already waiting changes nothing, and is recorded in the audit trail.

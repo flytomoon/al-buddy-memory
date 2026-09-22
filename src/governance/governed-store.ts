@@ -847,7 +847,19 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         });
         assertAuditUsable(opts);
         const restored = await commitAudited(opts, inner, ctx, () => inner.updateNode(nodeId, patch), () => ({ ids: [nodeId], reason: "restored from Recently deleted" }));
-        return (await view(opts, restored, { ...ctx, purpose: "recall" })) ?? { ...seen, ...patch, temporalAnchors: restored.temporalAnchors };
+        // Unlike updateNode's fallback, `patch` is not the caller's own input: its
+        // metadata is the stored, unredacted copy. So the fallback is what they
+        // could already see, minus the request, at the restored tier — never
+        // the patch's metadata (review 2026-09-22).
+        const { [DELETION_REQUEST]: _seenRequest, ...seenMetadata } = seen.contextualMetadata;
+        return (
+          (await view(opts, restored, { ...ctx, purpose: "recall" })) ?? {
+            ...seen,
+            retentionTier: patch.retentionTier,
+            contextualMetadata: seenMetadata,
+            temporalAnchors: restored.temporalAnchors,
+          }
+        );
       });
     };
 

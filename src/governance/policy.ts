@@ -30,7 +30,13 @@ export interface GovernancePolicy {
   beforeUpdate?(existing: MemoryNode, patch: NodePatch, ctx: PolicyContext): void | Promise<void>;
   /** Hide (null) or redact a fact on the way out of a recall. */
   beforeRead?(node: MemoryNode, ctx: PolicyContext): MemoryNode | null | Promise<MemoryNode | null>;
-  /** Decide whether a fact may leave in an export. Defaults to beforeRead's answer. */
+  /**
+   * Decide whether a fact may leave in an export. Without it, export uses this
+   * policy's beforeRead. With it, it REPLACES this policy's beforeRead on
+   * export: nothing beforeRead hides or redacts applies, so a policy that
+   * hides facts on read must repeat that rule here (and cannot redact — an
+   * export carries a fact whole or not at all).
+   */
   beforeExport?(node: MemoryNode, ctx: PolicyContext): boolean | Promise<boolean>;
   /**
    * Physically erasing a fact or a link — the one destructive operation, which
