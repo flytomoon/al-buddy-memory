@@ -7,7 +7,7 @@ import type { MemoryStore } from "../types/memory.js";
 import { MemoryAudit } from "./audit.js";
 import { DELETION_REQUEST, govern, isRecentlyDeletedCapable, type RecentlyDeletedCapable } from "./governed-store.js";
 import { PolicyDenied, type GovernancePolicy } from "./policy.js";
-import { personalDefaults } from "./samples.js";
+import { memoryLock, personalDefaults } from "./samples.js";
 
 const base = { encryptionKeyRef: "t", privacyClassification: "Private" as const, retentionTier: "FullRetention" as const, contextualMetadata: {}, decayRate: 0, confidenceWeight: 1, memoryType: "Experience" as const };
 const fact = (text: string, extra: Record<string, unknown> = {}) => ({ ...base, provenance: "UserInput" as const, content: { text }, ...extra });
@@ -92,6 +92,21 @@ describe.each(stores)("Recently deleted (%s)", (_label, make) => {
     who.now = new Date(T0 + 30 * DAY);
     expect(await store.purgeDeleted()).toEqual({ purged: [], waiting: [], refused: [a.nodeId] });
     expect((await inner.getNode(a.nodeId))?.retentionTier).toBe("PendingDeletion");
+  });
+
+  it("with the memory lock on, nothing even reaches Recently deleted, and purging waits for the lock to lift", async () => {
+    let locked = false;
+    const { inner, who, store } = setup(make, [memoryLock({ isLocked: () => locked })]);
+    const a = await store.addNode(fact("in the bin before the lock"));
+    await store.deleteNode(a.nodeId);
+    locked = true;
+    const b = await store.addNode(fact("deleted while locked"));
+    await expect(store.deleteNode(b.nodeId)).rejects.toBeInstanceOf(PolicyDenied);
+    expect((await inner.getNode(b.nodeId))?.retentionTier).toBe("FullRetention");
+    who.now = new Date(T0 + 30 * DAY);
+    expect(await store.purgeDeleted()).toEqual({ purged: [], waiting: [], refused: [a.nodeId] });
+    locked = false;
+    expect((await store.purgeDeleted()).purged).toEqual([a.nodeId]);
   });
 
   it("a second delete keeps the first request and its clock", async () => {
