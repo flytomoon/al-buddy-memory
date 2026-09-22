@@ -9,30 +9,49 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
-## 0.5.0 — unreleased
+## 0.5.0 — 2026-09-22
+
+The store can now say what it believed at a past moment, not only what was true then. And
+erasure got two safeguards: a lock, and a waiting period you can take back.
 
 ### Added
 
-- Transaction-time history through the optional `HistoryCapable` interface. Both shipped
-  stores record full before and after mutable images, expose per-fact history, reconstruct
-  one fact or the whole graph at an inclusive `asOf`, and report legacy gaps in `inexact`.
-- SQLite schema v8 adds `node_versions`. Erasing a fact cascades to its versions, so an
-  erased fact cannot be recovered through a past read.
-- Portable format 1.1.0 exports and imports versions losslessly. Format 1.0.0 still imports.
-- Governed as-of reads decide access from the fact's current state. The MCP server exposes
-  a governed `history` tool.
-
-- **Recently deleted**, opt-in: `govern(inner, { recentlyDeleted: { days: 14 } })` makes an
-  allowed `deleteNode` move the fact out of recall for that many days instead of destroying it.
-  `listDeleted`, `restoreDeleted` and `purgeDeleted` manage it; purging asks the erase policies
-  again. Off by default, so existing callers see no change.
+- **Transaction time.** Every `updateNode` records a version: the full before and after
+  image of the fact's mutable fields, written in the same transaction as the change. The
+  optional `HistoryCapable` capability, on both shipped stores, reads it: `history(id)`,
+  `getNodeAsOf(id, asOf)` (returns `{ node, exact }`), `snapshotAsOf(asOf, { validAt })`,
+  `historySnapshot()` and `restoreVersion(version)`. "What did we believe at X about what
+  was true at Y" is one call. A read the recorded history cannot vouch for is marked, never
+  guessed: changes made before 0.5.0 or by an older library, a fact a write policy reshaped
+  on import, two stores' histories joined by an import. Schema v8 adds `node_versions`. The
+  contract is docs/SPEC.md §8.
+- **Portable format 1.1.0** carries versions, and 1.0.0 still imports. An imported version
+  must sit on its fact's anchor trail: same instant and event, never before the fact was
+  learned. One that does not is refused before anything is written, and so is a version id
+  the destination already holds as a different change.
+- **Governed history.** Access is decided on the fact as it is now, on the same read that is
+  served. A fact the policies hide or redact today has its history withheld, because a rule
+  written for the present cannot redact the past. `restoreVersion` is judged by the update
+  policies, on the change it records. The MCP server gains a `history` tool.
+- **`memoryLock()`**, a sample policy: while it is installed, nothing is erased on a governed
+  handle, the owner included. Unlock it by removing it, or with a switch that reads exactly
+  `false`. A switch that is missing or throws counts as locked.
+- **Recently deleted**, opt-in: `govern(inner, { recentlyDeleted: { days: 14 } })`. An
+  allowed `deleteNode` moves the fact out of recall for that many days instead of destroying
+  it. `listDeleted`, `restoreDeleted` and `purgeDeleted` manage it. Purging asks the erase
+  policies again, so a lock put on in the meantime keeps the fact. Nothing runs on a timer,
+  and until purged the fact is still in exports and backups. Off by default.
 
 ### Behaviour change
 
-- Every `updateNode` writes one version row, including an empty reinforcement. On the M1 Pro
-  benchmark, a version added 738 bytes to the SQLite file, so 100,000 updates added 70.4 MB.
-- `restoreNode` over an existing fact records one `restored` version when its mutable state
-  differs. An identical restore remains a no-op for history.
+- **An edit no longer removes the old value.** The earlier value stays in the fact's
+  history, readable by anyone who may read the fact today. Erasing the fact is the only way
+  to remove it. (Content was always immutable; now every earlier state is too.)
+- Every `updateNode` writes one version row, reinforcements included. On the benchmark
+  machine that is about 738 bytes each, so 100,000 updates add about 70 MB.
+- `restoreNode` over an existing fact with different values records a `restored` version.
+  An identical restore records nothing.
+- Erasing a fact erases its history, in the same transaction.
 
 ## 0.4.3 — 2026-09-21
 

@@ -111,6 +111,12 @@ is there, erasure is refused for everyone, the owner included, until you take it
 the switch it reads). Invalidating a fact still works; that is not erasure. The raw store and
 the database file are outside any policy, so keep backups.
 
+And to make a deletion something you can take back, pass `recentlyDeleted: { days: 14 }` to
+`govern()`: a delete then moves the fact out of recall for 14 days, `restoreDeleted` brings it
+back, and `purgeDeleted` erases it for good once the days are up (asking the policies again, so
+the lock still wins). Nothing runs on a timer, and until it is purged the fact is still in
+exports and backups.
+
 Check the trail with `al-buddy-memory verify-audit brain.db`. It names the first event that
 was edited, removed, inserted or reordered. What it establishes, and the two things it does
 not, are written out in [docs/GOVERNANCE.md](docs/GOVERNANCE.md#what-verification-establishes) —
@@ -312,17 +318,17 @@ transaction as the fact.
 
 ```json
 { "mcpServers": { "memory": { "command": "npx",
-    "args": ["-y", "--package=al-buddy-memory@0.4.2", "al-buddy-memory-mcp"] } } }
+    "args": ["-y", "--package=al-buddy-memory@0.5.0", "al-buddy-memory-mcp"] } } }
 ```
 
 `al-buddy-memory-mcp` is an executable *inside* the `al-buddy-memory` package, not a
 package of its own, so `--package=` is what tells npx where to find it — `npx
-al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.4.2`
+al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.5.0`
 to track the latest release instead of the one you tested.
 
 > **Releasing?** This pin is a documented version and goes stale the moment a new one
 > publishes — the example would then install an older server than the page describes.
-> **Advance it in the same commit as the version bump** — it has been, at 0.4.2, and was
+> **Advance it in the same commit as the version bump** — it has been, at 0.4.2 and 0.5.0, and was
 > `@0.4.1` while 0.4.1 was current. Running the pinned command against a newer release
 > returns the older server's handshake, which is how a reader ends up reading documentation
 > that does not match what they just installed (Astra release review, 2026-09-19).

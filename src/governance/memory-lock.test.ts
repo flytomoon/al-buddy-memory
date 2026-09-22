@@ -66,6 +66,17 @@ describe.each(stores)("memory lock (%s)", (_label, make) => {
     expect(await inner.getNode(a.nodeId)).toBeDefined();
   });
 
+  it("reads a missing setting as locked: only an explicit false unlocks", async () => {
+    const inner = make();
+    const settings: Record<string, unknown> = {};
+    const store = govern(inner, { policies: [personalDefaults({ owner: "o" }), memoryLock({ isLocked: () => settings["memoryLocked"] as boolean })], context: () => ({ actor: "o" }) });
+    const a = await store.addNode(fact("a"));
+    await expect(store.deleteNode(a.nodeId)).rejects.toBeInstanceOf(PolicyDenied);
+    settings["memoryLocked"] = false;
+    await store.deleteNode(a.nodeId);
+    expect(await inner.getNode(a.nodeId)).toBeUndefined();
+  });
+
   it("does not stop a fact being invalidated: that is how memory changes", async () => {
     const inner = make();
     const store = govern(inner, { policies: [personalDefaults({ owner: "o" }), memoryLock()], context: () => ({ actor: "o" }) });

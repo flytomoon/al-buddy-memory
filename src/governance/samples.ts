@@ -131,7 +131,9 @@ export function memoryLock(opts: { isLocked?: () => boolean } = {}): GovernanceP
     beforeErase(_subject: ErasureSubject, _ctx: PolicyContext): void {
       let locked = true;
       try {
-        locked = isLocked();
+        // Only an explicit false unlocks. A setting that is missing reads as
+        // undefined from JavaScript, and a missing setting is not a decision.
+        locked = isLocked() !== false;
       } catch {
         // Fail closed: stay locked.
       }
