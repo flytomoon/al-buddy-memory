@@ -96,6 +96,15 @@ export class PinnedBlocks {
       validFrom: now,
     };
     const saved = await this.store.addNode(node);
+    // A pin the reader cannot see is not in the tier. Through a governed handle
+    // a policy may have hidden it (classified it Sensitive, say): that used to
+    // report success while the rule never rendered, and every retry wrote
+    // another hidden copy the dedupe above could not find (review 2026-09-22).
+    if (!(await this.store.getNode(saved.nodeId))) {
+      throw new Error(
+        `Pin ${saved.nodeId} was stored, but a policy hides it from this reader (classified ${saved.privacyClassification}), so it is not visible in the pinned tier and will never render. Reword it, or pin it as the owner.`,
+      );
+    }
     return { nodeId: saved.nodeId, label: label ?? null, text, pinnedAt: now };
   }
 
