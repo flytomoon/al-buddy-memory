@@ -146,7 +146,7 @@ export function nodeAsOf(
   else state = later[0]!.before;
 
   const anchors = current.temporalAnchors.filter((anchor) => instantMs(anchor.timestamp) <= at);
-  return { node: { ...copy(current), ...copy(state), temporalAnchors: copy(anchors) }, exact: explains(current, ordered, at) };
+  return { node: { ...copy(current), ...copy(state), temporalAnchors: copy(anchors) }, exact: explains(current, ordered, at, state) };
 }
 
 /**
@@ -158,18 +158,24 @@ export function nodeAsOf(
  * - every later change on the anchor trail needs its own version, same instant
  *   and event, and every later version (other than `restored`) its own anchor.
  */
-function explains(current: MemoryNode, ordered: readonly NodeVersion[], at: number): boolean {
+function explains(current: MemoryNode, ordered: readonly NodeVersion[], at: number, served: MutableNodeState): boolean {
   // The chain matters from the state in force at `at` onward: a break further
   // back cannot make this read wrong. And a `restored` version whose result the
   // chain already reached is redundant: refreshing a store from a newer backup
   // records one after the backup's own versions, and it must not mark the fact
-  // inexact for ever (release review 2026-09-21).
+  // inexact for ever (release review 2026-09-21). But it is redundant only
+  // from the moment it was recorded: before that, this store held its `before`
+  // image, not the joined-in versions it skips, so a read in that window that
+  // serves anything else is the seam SPEC §8 says is marked (review 2026-09-22).
   let start = 0;
   for (let i = 0; i < ordered.length; i++) if (instantMs(ordered[i]!.recordedAt) <= at) start = i;
   let reached: MutableNodeState | null = null;
   for (const version of ordered.slice(start)) {
     if (reached !== null && !mutableStatesEqual(reached, version.before)) {
-      if (version.event === "restored" && mutableStatesEqual(reached, version.after)) continue;
+      if (version.event === "restored" && mutableStatesEqual(reached, version.after)) {
+        if (instantMs(version.recordedAt) > at && !mutableStatesEqual(served, version.before)) return false;
+        continue;
+      }
       return false;
     }
     reached = version.after;

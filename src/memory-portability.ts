@@ -243,24 +243,52 @@ function validatePortable(artifact: PortableExport): void {
  * already recorded, and an edge endpoint that exists neither in the artifact
  * nor in the store. All reads; nothing is written.
  */
-async function preflightDestination(project: PortableProject, store: MemoryStore): Promise<void> {
-  const incoming = new Set(project.nodes.map((n) => n.nodeId));
+async function preflightDestination(project: PortableProject, store: MemoryStore, pending: PendingWrites): Promise<void> {
   const existingEdges = new Map<string, MemoryEdge>();
   for (const node of project.nodes) {
+    const incoming = canonicalNode(node);
     const existing = await store.getNode(node.nodeId);
-    assertRestorable(canonicalNode(node), existing);
+    assertRestorable(incoming, existing);
+    // An earlier project in this artifact bound for the same store writes
+    // first, so this copy must also restore cleanly over that one.
+    const earlier = pending.nodes.get(node.nodeId);
+    if (earlier !== undefined) assertRestorable(incoming, earlier);
     if (existing) for (const e of await store.getEdges(node.nodeId)) existingEdges.set(e.edgeId, e);
+    pending.nodes.set(node.nodeId, incoming);
   }
   for (const edge of project.edges) {
     for (const id of [edge.sourceNodeId, edge.targetNodeId]) {
-      if (incoming.has(id)) continue;
+      if (pending.nodes.has(id)) continue;
       if (await store.getNode(id)) continue;
       throw new Error(`Invalid artifact: edge ${edge.edgeId} points at ${id}, which is neither in this artifact nor in the destination.`);
     }
-    // Throws when the stored link says something different; true means the
-    // import is a no-op for it, which is fine.
-    edgeRestoreIsNoop(canonicalEdge(edge), existingEdges.get(edge.edgeId));
+    const incoming = canonicalEdge(edge);
+    // Throws when the stored link, or one an earlier project will write, says
+    // something different; true means the import is a no-op for it, which is fine.
+    edgeRestoreIsNoop(incoming, existingEdges.get(edge.edgeId) ?? (await storedEdge(store, incoming)));
+    edgeRestoreIsNoop(incoming, pending.edges.get(edge.edgeId));
+    pending.edges.set(edge.edgeId, incoming);
   }
+}
+
+/** A link the store already holds under this id, looked up from either end. */
+async function storedEdge(store: MemoryStore, edge: MemoryEdge): Promise<MemoryEdge | undefined> {
+  for (const id of [edge.sourceNodeId, edge.targetNodeId]) {
+    const found = (await store.getEdges(id)).find((e) => e.edgeId === edge.edgeId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * What the artifact will have written to one destination store by the time a
+ * later project reaches it: two projects bound for the same store are checked
+ * against each other, not only against the store as it stands (review
+ * 2026-09-22).
+ */
+interface PendingWrites {
+  nodes: Map<string, MemoryNode>;
+  edges: Map<string, MemoryEdge>;
 }
 
 /**
@@ -287,10 +315,16 @@ export async function importPortable(
   // artifact will write, so a clash is found before the first write rather than
   // after the nodes are in (release review 2026-09-21).
   const versionIds = new Map<MemoryStore, Map<string, NodeVersion>>();
+  const pending = new Map<MemoryStore, PendingWrites>();
   for (const project of artifact.projects) {
     const store = storeFor(project.project);
     stores.set(project, store);
-    await preflightDestination(project, store);
+    let writes = pending.get(store);
+    if (writes === undefined) {
+      writes = { nodes: new Map(), edges: new Map() };
+      pending.set(store, writes);
+    }
+    await preflightDestination(project, store, writes);
     if (!isHistoryCapable(store) || (project.versions ?? []).length === 0) continue;
     let known = versionIds.get(store);
     if (known === undefined) {
