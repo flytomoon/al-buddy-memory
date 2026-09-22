@@ -52,6 +52,10 @@ erasure got two safeguards: a lock, and a waiting period you can take back.
 - `restoreNode` over an existing fact with different values records a `restored` version.
   An identical restore records nothing.
 - Erasing a fact erases its history, in the same transaction.
+- On every governed handle, a write that moves an EXISTING fact into or out of PendingDeletion,
+  or changes its `deletionRequested` record, is also judged by the erase policies. Before, an
+  update right was enough.
+- An import whose `exportedAt` is in the future is refused before anything is written.
 
 ## 0.4.3 — 2026-09-21
 
