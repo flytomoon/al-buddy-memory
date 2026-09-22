@@ -6,4 +6,4 @@ export { MemoryAudit, JsonlAudit, ChainedAudit, StoreAudit, storeAudit, isAuditC
 export type { AuditEvent, AuditSink, AuditCapable, AuditChainResult, AuditLogsResult } from "./audit.js";
 export { verifyAuditTable } from "./audit-table.js";
 export type { AuditTableResult } from "./audit-table.js";
-export { personalDefaults, guardianMode, enterpriseAudit, looksSecret, SECRET_PATTERNS } from "./samples.js";
+export { personalDefaults, guardianMode, memoryLock, enterpriseAudit, looksSecret, SECRET_PATTERNS } from "./samples.js";

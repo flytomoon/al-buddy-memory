@@ -216,7 +216,7 @@ find them: importing over a hidden fact is refused with `PolicyDenied` (so an ac
 import and holds a candidate id learns that it exists), and `deleteEdge` is judged by the
 erase policies alone, because an edge id carries no endpoints to check.
 
-## The three samples
+## The four samples
 
 - **personalDefaults({ owner })** — the owner sees everything; anything that looks like a
   secret (API tokens, card numbers, "password: …", private keys) is written as Sensitive;
@@ -226,6 +226,12 @@ erase policies alone, because an edge id carries no endpoints to check.
   working for them is a different audience — which is how the MCP server is wired.
 - **guardianMode({ guardians })** — only a guardian may write, change or invalidate a
   `GuardianAdded` fact. Everyone may read them; that is what they are for.
+- **memoryLock({ isLocked? })** — while installed and locked, nothing is erased by anyone,
+  the owner in person included. Erasure needs one allow and no refusal, so the lock wins over
+  every other policy in any order. Unlock by removing it, or pass `isLocked` to read a
+  switch; if the switch cannot be read, the lock stays shut. It guards the governed handle
+  only: the raw store and the database file are outside every policy, and backups are the
+  answer to those. Invalidation still works, because closing `validTo` is not erasure.
 - **enterpriseAudit({ reviewers, exporters, minInferredConfidence })** — AI-inferred facts
   below the confidence floor are hidden from everyone but reviewers; nothing leaves in an
   export unless the actor is an exporter. The audit trail does the rest.
