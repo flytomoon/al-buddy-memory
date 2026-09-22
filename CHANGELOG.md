@@ -9,6 +9,26 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.5.0 — unreleased
+
+### Added
+
+- Transaction-time history through the optional `HistoryCapable` interface. Both shipped
+  stores record full before and after mutable images, expose per-fact history, reconstruct
+  one fact or the whole graph at an inclusive `asOf`, and report legacy gaps in `inexact`.
+- SQLite schema v8 adds `node_versions`. Erasing a fact cascades to its versions, so an
+  erased fact cannot be recovered through a past read.
+- Portable format 1.1.0 exports and imports versions losslessly. Format 1.0.0 still imports.
+- Governed as-of reads decide access from the fact's current state. The MCP server exposes
+  a governed `history` tool.
+
+### Behaviour change
+
+- Every `updateNode` writes one version row, including an empty reinforcement. On the M1 Pro
+  benchmark, a version added 738 bytes to the SQLite file, so 100,000 updates added 70.4 MB.
+- `restoreNode` over an existing fact records one `restored` version when its mutable state
+  differs. An identical restore remains a no-op for history.
+
 ## 0.4.3 — 2026-09-21
 
 Documentation only. No code, schema or behaviour changes from 0.4.2; this

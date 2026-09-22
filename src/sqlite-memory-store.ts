@@ -10,17 +10,22 @@ import Database from "better-sqlite3";
 import { AUDIT_EVENTS_SCHEMA, AuditEventTable } from "./governance/audit-table.js";
 import type { AuditCapable, AuditEvent } from "./governance/audit.js";
 import { queryTokens } from "./query-filter.js";
+import { buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf } from "./history.js";
+import { MIGRATION_V8, insertVersion, readAllVersions, readNodeVersions, restoreSqliteVersion } from "./sqlite-history.js";
 import { retryWhileBusy } from "./sqlite-busy.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
+  AsOfSnapshot,
   GraphSnapshot,
+  HistoryCapable,
   MemoryEdge,
   MemoryEmbedding,
   MemoryNode,
   MemoryQueryOptions,
   MemoryStore,
   NewMemoryNode,
+  NodeVersion,
   SnapshotCapable,
   TemporalAnchor,
 } from "./types/memory.js";
@@ -335,7 +340,7 @@ function runMigrationStep(db: Database.Database, stmt: string): void {
   }
 }
 
-const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7];
+const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8];
 
 /** The `user_version` a store is brought up to on open. */
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -408,7 +413,7 @@ const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
 const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 
-export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCapable {
+export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCapable, HistoryCapable {
   private readonly db: Database.Database;
   /** The `audit_events` chain on this connection. Built after migration, so the table exists. */
   private readonly auditTable: AuditEventTable;
@@ -709,6 +714,17 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       };
 
       if (row) {
+        const existing = rowToNode(row);
+        if (!mutableStatesEqual(mutableState(existing), mutableState(node))) {
+          insertVersion(this.db, {
+            versionId: randomUUID(),
+            nodeId: node.nodeId,
+            recordedAt: new Date().toISOString(),
+            event: "restored",
+            before: mutableState(existing),
+            after: mutableState(node),
+          });
+        }
         this.db
           .prepare(
             `UPDATE memory_nodes SET
@@ -799,6 +815,47 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       nodes: (this.db.prepare(`SELECT * FROM memory_nodes ORDER BY created_at ASC, node_id ASC`).all() as NodeRow[]).map(rowToNode),
       edges: (this.db.prepare(`SELECT * FROM memory_edges ORDER BY edge_id ASC`).all() as EdgeRow[]).map(rowToEdge),
     }))();
+  }
+
+  async history(nodeId: string): Promise<NodeVersion[]> {
+    return this.db.transaction((): NodeVersion[] => {
+      const exists = this.db.prepare(`SELECT 1 FROM memory_nodes WHERE node_id = ?`).get(nodeId);
+      return exists === undefined ? [] : readNodeVersions(this.db, nodeId);
+    })();
+  }
+
+  async getNodeAsOf(nodeId: string, asOf: string): Promise<MemoryNode | undefined> {
+    return this.db.transaction((): MemoryNode | undefined => {
+      const row = this.db.prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`).get(nodeId) as NodeRow | undefined;
+      if (row === undefined) return undefined;
+      return nodeAsOf(rowToNode(row), readNodeVersions(this.db, nodeId), asOf).node;
+    })();
+  }
+
+  async snapshotAsOf(asOf: string): Promise<AsOfSnapshot> {
+    return this.db.transaction((): AsOfSnapshot => {
+      const nodes = (this.db.prepare(`SELECT * FROM memory_nodes ORDER BY created_at ASC, node_id ASC`).all() as NodeRow[]).map(rowToNode);
+      const edges = (this.db.prepare(`SELECT * FROM memory_edges ORDER BY edge_id ASC`).all() as EdgeRow[]).map(rowToEdge);
+      const byNode = new Map<string, NodeVersion[]>();
+      for (const version of readAllVersions(this.db)) {
+        const versions = byNode.get(version.nodeId) ?? [];
+        versions.push(version);
+        byNode.set(version.nodeId, versions);
+      }
+      return buildSnapshotAsOf(nodes, edges, byNode, asOf);
+    })();
+  }
+
+  async historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }> {
+    return this.db.transaction(() => ({
+      nodes: (this.db.prepare(`SELECT * FROM memory_nodes ORDER BY created_at ASC, node_id ASC`).all() as NodeRow[]).map(rowToNode),
+      edges: (this.db.prepare(`SELECT * FROM memory_edges ORDER BY edge_id ASC`).all() as EdgeRow[]).map(rowToEdge),
+      versions: readAllVersions(this.db),
+    }))();
+  }
+
+  async restoreVersion(version: NodeVersion): Promise<void> {
+    this.mutation(() => restoreSqliteVersion(this.db, version));
   }
 
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
@@ -1013,6 +1070,15 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
         nodeId,
         temporalAnchors: newAnchors,
       };
+
+      insertVersion(this.db, {
+        versionId: randomUUID(),
+        nodeId,
+        recordedAt: now,
+        event: anchorEvent,
+        before: mutableState(existing),
+        after: mutableState(updated),
+      });
 
       // No full-text update: content is immutable (assertPatchMutable above), so
       // the indexed text can never drift from the row.

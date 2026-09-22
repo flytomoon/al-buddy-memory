@@ -4,7 +4,7 @@
  * it, with every recall. 217 memory MCP servers hand agents facts; this one
  * hands them facts they can weigh.
  *
- * Tools: remember, recall, invalidate, pin, unpin, pinned. Every answer
+ * Tools: remember, recall, history, invalidate, pin, unpin, pinned. Every answer
  * carries provenance, validFrom, validTo, confidence, and — for a superseded
  * fact — the id of what replaced it. There is no erase tool; invalidation keeps
  * the record. The shipped server serves `serverStore(...)`, a governed handle.
@@ -21,6 +21,7 @@ import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.
 import { HybridRetriever } from "../hybrid-retriever.js";
 import { PinnedBlocks } from "../pinned.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
+import { isHistoryCapable } from "../history.js";
 import type { Embedder } from "../embedder.js";
 import type { MemoryNode, MemoryStore } from "../types/memory.js";
 
@@ -195,9 +196,10 @@ export interface GovernanceDeps {
  * what let that ship. Anything added here has to come out of something else.
  */
 export const SERVER_INSTRUCTIONS = [
-  "This is the user's long-term memory, shared across their assistants.",
-  "At the start of a conversation, and when a person, project, preference or decision comes up, call recall with a few keywords; each fact says who asserted it and when.",
-  "When the user states something durable, call remember with one plain sentence.",
+  "This is the user's long-term memory shared across assistants.",
+  "At the start of a conversation, or when a person, project, preference or decision comes up, call recall with a few keywords.",
+  "Call history with a fact id when its recorded changes matter.",
+  "For durable statements, call remember with one plain sentence.",
   "Never remember secrets, small talk or one-off requests.",
   "When a fact stops being true, call invalidate with its id; nothing is deleted.",
   "Use pin only for rules that belong in every conversation.",
@@ -266,6 +268,10 @@ export function governanceTools(deps: GovernanceDeps) {
       else nodes = await deps.store.searchNodes({ query: input.query, limit, ...currentOnly });
       return nodes.map(toGovernedFact);
     },
+    async history(input: { id: string }) {
+      if (!isHistoryCapable(deps.store)) return [];
+      return (await deps.store.history(input.id)).map(({ recordedAt, event, before, after }) => ({ recordedAt, event, before, after }));
+    },
     /** Close a fact's validity. Never deletes; optionally names the replacement. */
     async invalidate(input: { id: string; replacedBy?: string | undefined; reason?: string | undefined }): Promise<GovernedFact> {
       const node = await deps.store.getNode(input.id);
@@ -299,7 +305,7 @@ export function governanceTools(deps: GovernanceDeps) {
 export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ server: unknown; connectStdio: () => Promise<void> }> {
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const server = new McpServer({ name: "al-buddy-memory", version: "0.4.1" }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: "al-buddy-memory", version: "0.5.0" }, { instructions: SERVER_INSTRUCTIONS });
   // The app that wrote a fact is the client that connected, as it announced itself
   // in the handshake — the model cannot change that.
   const tools = governanceTools({
@@ -327,6 +333,9 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
     const body = { type: "text" as const, text: JSON.stringify(facts, null, 2) };
     return { content: preamble === "" ? [body] : [{ type: "text" as const, text: preamble }, body] };
   });
+  server.tool("history", "Show the recorded changes to one fact, including each change time and the full mutable state before and after it.", {
+    id: z.string(),
+  }, async (a) => json(await tools.history(a)));
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string(), replacedBy: z.string().optional(), reason: z.string().optional(),
   }, async (a) => json(await tools.invalidate(a)));

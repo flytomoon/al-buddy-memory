@@ -2,14 +2,18 @@ import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch } from "./instant.js";
 import { queryTokens, visibleRelevance } from "./query-filter.js";
+import { assertVersion, buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf, versionsEqual } from "./history.js";
 import type {
+  AsOfSnapshot,
   GraphSnapshot,
+  HistoryCapable,
   MemoryEdge,
   MemoryEmbedding,
   MemoryNode,
   MemoryQueryOptions,
   MemoryStore,
   NewMemoryNode,
+  NodeVersion,
   SnapshotCapable,
 } from "./types/memory.js";
 
@@ -28,11 +32,12 @@ import type {
  */
 const copy = <T>(value: T): T => structuredClone(value);
 
-export class InMemoryStore implements MemoryStore, SnapshotCapable {
+export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable {
   private readonly nodes = new Map<string, MemoryNode>();
   private readonly edges = new Map<string, MemoryEdge>();
   // Embeddings keyed by `${nodeId}::${model}` — one vector per (node, model).
   private readonly embeddings = new Map<string, MemoryEmbedding>();
+  private readonly versions = new Map<string, NodeVersion[]>();
 
   async addNode(input: NewMemoryNode): Promise<MemoryNode> {
     const node = canonicalNew(input);
@@ -62,6 +67,28 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable {
     return {
       nodes: [...this.nodes.values()].sort((a, b) => compareRecency(b, a)).map(copy),
       edges: [...this.edges.values()].map(copy),
+    };
+  }
+
+  async history(nodeId: string): Promise<NodeVersion[]> {
+    if (!this.nodes.has(nodeId)) return [];
+    return copy(this.versions.get(nodeId) ?? []);
+  }
+
+  async getNodeAsOf(nodeId: string, asOf: string): Promise<MemoryNode | undefined> {
+    const current = this.nodes.get(nodeId);
+    return current === undefined ? undefined : copy(nodeAsOf(current, this.versions.get(nodeId) ?? [], asOf).node);
+  }
+
+  async snapshotAsOf(asOf: string): Promise<AsOfSnapshot> {
+    return buildSnapshotAsOf([...this.nodes.values()], [...this.edges.values()], this.versions, asOf);
+  }
+
+  async historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }> {
+    return {
+      nodes: [...this.nodes.values()].sort((a, b) => compareRecency(b, a)).map(copy),
+      edges: [...this.edges.values()].map(copy),
+      versions: [...this.versions.values()].flat().map(copy),
     };
   }
 
@@ -169,14 +196,54 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable {
         { timestamp: new Date().toISOString(), event: anchorEvent },
       ],
     };
+    const recordedAt = updated.temporalAnchors[updated.temporalAnchors.length - 1]!.timestamp;
+    const versions = this.versions.get(nodeId) ?? [];
+    versions.push({
+      versionId: globalThis.crypto.randomUUID(),
+      nodeId,
+      recordedAt,
+      event: anchorEvent,
+      before: mutableState(existing),
+      after: mutableState(updated),
+    });
+    this.versions.set(nodeId, versions);
     this.nodes.set(nodeId, updated);
     return copy(updated);
   }
 
   async restoreNode(input: MemoryNode): Promise<void> {
     const node = canonicalNode(input);
-    assertRestorable(node, this.nodes.get(node.nodeId));
+    const existing = this.nodes.get(node.nodeId);
+    assertRestorable(node, existing);
+    if (existing !== undefined && !mutableStatesEqual(mutableState(existing), mutableState(node))) {
+      const versions = this.versions.get(node.nodeId) ?? [];
+      versions.push({
+        versionId: globalThis.crypto.randomUUID(),
+        nodeId: node.nodeId,
+        recordedAt: new Date().toISOString(),
+        event: "restored",
+        before: mutableState(existing),
+        after: mutableState(node),
+      });
+      this.versions.set(node.nodeId, versions);
+    }
     this.nodes.set(node.nodeId, copy(node));
+  }
+
+  async restoreVersion(input: NodeVersion): Promise<void> {
+    const version = copy(input);
+    assertVersion(version);
+    if (!this.nodes.has(version.nodeId)) throw new Error(`cannot restore version ${version.versionId}: node ${version.nodeId} does not exist`);
+    for (const existing of this.versions.values()) {
+      const found = existing.find((item) => item.versionId === version.versionId);
+      if (found !== undefined) {
+        if (!versionsEqual(found, version)) throw new Error(`cannot restore version ${version.versionId}: that id already records a different change`);
+        return;
+      }
+    }
+    const versions = this.versions.get(version.nodeId) ?? [];
+    versions.push(version);
+    this.versions.set(version.nodeId, versions);
   }
 
   /** The same referential rule SQLite's foreign keys enforce, so the stores agree. */
@@ -195,6 +262,7 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable {
 
   async deleteNode(nodeId: string): Promise<void> {
     this.nodes.delete(nodeId);
+    this.versions.delete(nodeId);
     for (const [id, edge] of this.edges) {
       if (edge.sourceNodeId === nodeId || edge.targetNodeId === nodeId) {
         this.edges.delete(id);

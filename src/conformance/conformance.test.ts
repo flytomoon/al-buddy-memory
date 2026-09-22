@@ -44,7 +44,9 @@ describe("conformance — the provenance & portability score", () => {
 
   it("the round-trip proof fails when a node is missing from the re-export", async () => {
     const artifact = await exportPortable(new Map([["p", await governedStore()]]));
-    const tampered = { ...artifact, projects: artifact.projects.map((p) => ({ ...p, nodes: p.nodes.slice(1), edges: [] })) };
+    // Dropping a fact drops its versions too, or the artifact is not self-consistent
+    // (and the import refuses it — whether it did depended on which fact sorted first).
+    const tampered = { ...artifact, projects: artifact.projects.map((p) => ({ ...p, nodes: p.nodes.slice(1), edges: [], versions: (p.versions ?? []).filter((v) => v.nodeId !== p.nodes[0]!.nodeId) })) };
     // The tampered artifact is self-consistent, so it round-trips; the ORIGINAL against a tampered import must not.
     expect(await proveRoundTrip(tampered)).toBe(true);
     const doubled = { ...artifact, projects: [...artifact.projects, { ...artifact.projects[0]!, project: "q" }] };

@@ -233,6 +233,16 @@ erase policies alone, because an edge id carries no endpoints to check.
 Copy one, rename it, change the rule. Governance should read like a rule a person can
 check, not a framework.
 
+## History, on a governed handle (0.5.0)
+
+A fact's history (`history`, `getNodeAsOf`, `snapshotAsOf`, and the versions an export carries) is
+served only for facts the read policies let this actor see TODAY, and pass through unchanged.
+Access is never decided on a past image: a fact that was Private and is now Sealed does not
+leak through its own history. A policy that redacts a fact on read was written for its present
+form and cannot redact the fields its past images carry, so a redacted fact's history is withheld
+entirely, and the read is audited as hidden. Writing history (`restoreVersion`) is judged by the
+update policies, like any other change to that fact. Erasing a fact erases its history.
+
 ## What the store guarantees without any policy
 
 - Sealed facts never surface unless asked for by classification.

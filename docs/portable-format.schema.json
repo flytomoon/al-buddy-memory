@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/flytomoon/al-buddy-memory/docs/portable-format.schema.json",
-  "title": "Portable Memory Export, format 1.0.0",
+  "title": "Portable Memory Export, format 1.1.0",
   "description": "One documented, lossless interchange format for an agent's memory: every fact with its provenance, its valid-time window, its confidence, and the edges between facts. Nothing in it is specific to a model, a vendor, or a runtime.",
   "type": "object",
   "required": [
@@ -11,7 +11,7 @@
   ],
   "properties": {
     "formatVersion": {
-      "const": "1.0.0"
+      "enum": ["1.0.0", "1.1.0"]
     },
     "exportedAt": {
       "type": "string",
@@ -59,6 +59,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/edge"
+          }
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/version"
           }
         }
       }
@@ -195,6 +201,34 @@
           "type": "number",
           "minimum": 0
         }
+      }
+    },
+    "mutableImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memoryType", "privacyClassification", "retentionTier", "contextualMetadata", "validFrom", "validTo", "confidenceWeight", "decayRate"],
+      "properties": {
+        "memoryType": { "$ref": "#/$defs/node/properties/memoryType" },
+        "privacyClassification": { "$ref": "#/$defs/node/properties/privacyClassification" },
+        "retentionTier": { "$ref": "#/$defs/node/properties/retentionTier" },
+        "contextualMetadata": { "type": "object" },
+        "validFrom": { "$ref": "#/$defs/node/properties/validFrom" },
+        "validTo": { "$ref": "#/$defs/node/properties/validTo" },
+        "confidenceWeight": { "$ref": "#/$defs/node/properties/confidenceWeight" },
+        "decayRate": { "$ref": "#/$defs/node/properties/decayRate" }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["versionId", "nodeId", "recordedAt", "event", "before", "after"],
+      "properties": {
+        "versionId": { "type": "string", "format": "uuid" },
+        "nodeId": { "type": "string", "format": "uuid" },
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "event": { "type": "string", "enum": ["created", "recalled", "reinforced", "modified", "summarized", "archived", "restored"] },
+        "before": { "$ref": "#/$defs/mutableImage" },
+        "after": { "$ref": "#/$defs/mutableImage" }
       }
     },
     "edge": {
