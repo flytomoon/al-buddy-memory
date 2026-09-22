@@ -40,6 +40,18 @@ export function matchesFilter(node: MemoryNode, filter: NodeFilter): boolean {
   return true;
 }
 
+/**
+ * What a `limit` means, on every store: none given, or one that is not a finite
+ * number, is no limit; a negative is zero; a fraction rounds down. The stores
+ * used to disagree — `-1` was nothing on SQLite and all-but-the-last in memory,
+ * `NaN` everything on one and nothing on the other (review 2026-09-22).
+ */
+export function normaliseLimit(limit: number | undefined): number | undefined {
+  if (limit === undefined) return undefined;
+  const n = Number(limit);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : undefined;
+}
+
 /** The words of a keyword query, as both stores and the governed ranking read it: letters and digits, at most 16. */
 export function queryTokens(query: string): string[] {
   return (query.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 16);

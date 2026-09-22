@@ -130,9 +130,19 @@ export async function exportPortable(
     }
   }
 
+  // Nothing in an export is dated after it. A store stamps a change a
+  // millisecond past the fact's last entry while its clock is behind
+  // (stampAfter in instant.ts), so the export moment is lifted past those too, or the artifact
+  // would contradict itself and refuse to import (review 2026-09-22).
+  let latest = Date.now();
+  for (const p of projects) {
+    for (const n of p.nodes) for (const a of n.temporalAnchors) latest = Math.max(latest, instantMs(a.timestamp) || 0);
+    for (const v of p.versions ?? []) latest = Math.max(latest, instantMs(v.recordedAt) || 0);
+  }
+  const exportedAt = new Date(latest).toISOString();
   return {
     formatVersion: PORTABLE_FORMAT_VERSION,
-    exportedAt: new Date().toISOString(),
+    exportedAt,
     projects,
     mcp: { entities, relations },
   };
