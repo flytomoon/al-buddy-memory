@@ -10,12 +10,14 @@ import Database from "better-sqlite3";
 import { AUDIT_EVENTS_SCHEMA, AuditEventTable } from "./governance/audit-table.js";
 import type { AuditCapable, AuditEvent } from "./governance/audit.js";
 import { queryTokens } from "./query-filter.js";
-import { buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf } from "./history.js";
+import { buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf, orderVersions } from "./history.js";
 import { MIGRATION_V8, insertVersion, readAllVersions, readNodeVersions, restoreSqliteVersion } from "./sqlite-history.js";
 import { retryWhileBusy } from "./sqlite-busy.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs } from "./instant.js";
 import type {
+  AsOfFact,
+  AsOfOptions,
   AsOfSnapshot,
   GraphSnapshot,
   HistoryCapable,
@@ -820,19 +822,20 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
   async history(nodeId: string): Promise<NodeVersion[]> {
     return this.db.transaction((): NodeVersion[] => {
       const exists = this.db.prepare(`SELECT 1 FROM memory_nodes WHERE node_id = ?`).get(nodeId);
-      return exists === undefined ? [] : readNodeVersions(this.db, nodeId);
+      return exists === undefined ? [] : orderVersions(readNodeVersions(this.db, nodeId));
     })();
   }
 
-  async getNodeAsOf(nodeId: string, asOf: string): Promise<MemoryNode | undefined> {
-    return this.db.transaction((): MemoryNode | undefined => {
+  async getNodeAsOf(nodeId: string, asOf: string): Promise<AsOfFact | undefined> {
+    return this.db.transaction((): AsOfFact | undefined => {
       const row = this.db.prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`).get(nodeId) as NodeRow | undefined;
       if (row === undefined) return undefined;
-      return nodeAsOf(rowToNode(row), readNodeVersions(this.db, nodeId), asOf).node;
+      const { node, exact } = nodeAsOf(rowToNode(row), readNodeVersions(this.db, nodeId), asOf);
+      return node === undefined ? undefined : { node, exact };
     })();
   }
 
-  async snapshotAsOf(asOf: string): Promise<AsOfSnapshot> {
+  async snapshotAsOf(asOf: string, options: AsOfOptions = {}): Promise<AsOfSnapshot> {
     return this.db.transaction((): AsOfSnapshot => {
       const nodes = (this.db.prepare(`SELECT * FROM memory_nodes ORDER BY created_at ASC, node_id ASC`).all() as NodeRow[]).map(rowToNode);
       const edges = (this.db.prepare(`SELECT * FROM memory_edges ORDER BY edge_id ASC`).all() as EdgeRow[]).map(rowToEdge);
@@ -842,7 +845,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
         versions.push(version);
         byNode.set(version.nodeId, versions);
       }
-      return buildSnapshotAsOf(nodes, edges, byNode, asOf);
+      return buildSnapshotAsOf(nodes, edges, byNode, asOf, options);
     })();
   }
 

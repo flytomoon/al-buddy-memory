@@ -17,7 +17,7 @@ Every agent-memory product on the market answers one question well: *what does t
 | Question | This library | Letta | Mem0 | Zep |
 |---|---|---|---|---|
 | **Where did this fact come from, and who asserted it?** | Provenance on every node and edge (`UserInput` / `AIInferred` / `GuardianAdded` / `SystemGenerated`) | Memory-file git history | Metadata field | Graph episodes |
-| **When was it true, and what replaced it?** | Two queryable axes: `validAt` answers what was true at Y; `getNodeAsOf` / `snapshotAsOf` answer what the store believed at X from full before/after versions. They combine, and erasure removes the history | Git history of files, not a fact model | Change history per memory (`history()`: old value, new value, event, timestamps) — transaction history, not valid time | Temporal graph (its real strength): Graphiti edges carry `valid_at` / `invalid_at` alongside `created_at` / `expired_at` |
+| **When was it true, and what replaced it?** | Two queryable axes: `validAt` answers what was true at Y; `getNodeAsOf` / `snapshotAsOf` answer what the store believed at X from full before/after versions. They combine in one call (`snapshotAsOf(X, { validAt: Y })`), a read the history cannot vouch for is marked, and erasure removes the history too | Git history of files, not a fact model | Change history per memory (`history()`: old value, new value, event, timestamps) — transaction history, not valid time | Temporal graph (its real strength): Graphiti edges carry `valid_at` / `invalid_at` alongside `created_at` / `expired_at` |
 | **Can I take it with me, losslessly, to another runtime?** | One versioned JSON export with a published schema and conformance tests | `.af` (agent state, framework-shaped, archival memory not yet included) | Cloud export | Cloud-only since 2025 |
 | **Does it run with no vendor, no key, no server?** | SQLite on disk, on-device embeddings | Self-host possible; cloud is the product | Self-host possible (Apache-2.0, local vector stores); needs an LLM for extraction; cloud is the product | Zep is cloud; Graphiti self-hosts (graph DB + LLM key required) |
 
@@ -151,7 +151,7 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 | Get by id | 0.1 ms |
 | Invalidate a fact | 0.5 ms |
 | Reconstruct `snapshotAsOf` | 2.19 s with 100,001 versions |
-| File size | 69 MB |
+| File size | 69 MB for the 100,000 facts; each recorded change adds ~738 bytes (140 MB after one update to every fact) |
 | Audit event into `audit_events`, in the fact's own transaction | +0.04 ms per governed write, +0.5 ms per governed read (a read is audited too, so it takes the write lock briefly) |
 | Checking the chain — `verify-audit <db>` | linear, ~3 µs/event: 83 ms at 20,000 events, 325 ms at 100,000, 1.5 s at 500,000. Each process pays it once, before its first governed write and **outside** the write transaction, so it delays that process and blocks no other. Constant memory (the walk streams) |
 | How fast the trail grows | one event per governed write, one or two per governed read — a `remember` is +2, a `recall` +1. Nothing prunes it. At 500,000 events the trail is ~128 MB, which can exceed the facts it describes; if you drive a store that hard, keep an eye on it |

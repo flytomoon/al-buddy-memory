@@ -57,7 +57,7 @@ describe("governed transaction history", () => {
     expect((await store.getNode(fact.nodeId))?.contextualMetadata).toEqual({});
     const leaked = JSON.stringify([
       await store.history(fact.nodeId),
-      await store.getNodeAsOf(fact.nodeId, new Date().toISOString()),
+      (await store.getNodeAsOf(fact.nodeId, new Date().toISOString()))?.node,
       await store.snapshotAsOf(new Date().toISOString()),
       (await store.historySnapshot()).versions,
     ]);

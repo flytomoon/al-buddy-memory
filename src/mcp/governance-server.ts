@@ -189,7 +189,7 @@ export interface GovernanceDeps {
  * connected five times and never called a tool: a client that is not told when to
  * recall and what to remember does neither (founder, 2026-09-15).
  *
- * All of it fits in 512 characters — measured at 507 — because some clients read
+ * All of it fits in 512 characters — measured at 504 with `history` in it — because some clients read
  * only that much. It was 637 until 2026-09-18, which put `invalidate` and `pin`
  * outside the window the claim exists to satisfy; the test asserts the LENGTH
  * now, not a sample of the words, because sampling three of the six rules is

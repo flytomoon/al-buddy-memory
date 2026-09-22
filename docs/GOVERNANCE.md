@@ -241,7 +241,12 @@ Access is never decided on a past image: a fact that was Private and is now Seal
 leak through its own history. A policy that redacts a fact on read was written for its present
 form and cannot redact the fields its past images carry, so a redacted fact's history is withheld
 entirely, and the read is audited as hidden. Writing history (`restoreVersion`) is judged by the
-update policies, like any other change to that fact. Erasing a fact erases its history.
+update policies, like any other change to that fact, and they see the state the version says the
+fact moved to. Erasing a fact erases its history.
+
+One consequence worth saying plainly: from 0.5.0 an edit does not remove the old value. If a secret
+was pasted into a fact's metadata and then edited out, the earlier image is still in the fact's
+history, served to anyone who may read the fact today. Erase the fact to remove it.
 
 ## What the store guarantees without any policy
 
