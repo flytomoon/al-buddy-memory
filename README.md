@@ -378,7 +378,10 @@ rules — as a second content block, so the tier that claims to be in every prom
 without spending any of the 512-character handshake.
 
 Tools: `remember`, `recall`, `history`, `invalidate`, `pin`, `unpin`, `pinned`. `remember` takes at
-most 4,000 characters and `pin` 500. SQLite on disk, no service, no key. The tool bodies are
+most 4,000 characters and `pin` 500; a `recall` query 1,000, an `invalidate` reason 500, and
+an id 128. `pin` refuses text that reads like a secret, because the server would store it
+Sensitive and no assistant could see it. `invalidate`'s `replacedBy` must name a fact the
+caller can see. SQLite on disk, no service, no key. The tool bodies are
 a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 `al-buddy-memory/mcp`), so they run against any backend and test without a transport.
 

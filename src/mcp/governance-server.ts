@@ -12,10 +12,12 @@
  * The server body is a plain function over a MemoryStore so it is testable
  * without a transport; `bin/al-buddy-memory-mcp.js` wires stdio.
  */
+import { readFileSync } from "node:fs";
+
 import { z } from "zod";
 import type { AuditSink } from "../governance/audit.js";
 import { govern } from "../governance/governed-store.js";
-import { personalDefaults } from "../governance/samples.js";
+import { looksSecret, personalDefaults } from "../governance/samples.js";
 import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.js";
 
 import { HybridRetriever } from "../hybrid-retriever.js";
@@ -81,6 +83,22 @@ export const CONFLICT_SUGGESTIONS = 3;
  */
 export const REMEMBER_MAX_CHARS = 4_000;
 export const PIN_MAX_CHARS = 500;
+/**
+ * The rest of the wire, capped for the same reason (review 2026-09-22): a 2 MB
+ * `invalidate.reason` was stored in the fact's metadata, copied into every later
+ * history version, and served back by `history`. Ids are UUIDs (36 characters);
+ * a query is a few keywords.
+ */
+export const REASON_MAX_CHARS = 500;
+export const ID_MAX_CHARS = 128;
+export const QUERY_MAX_CHARS = 1_000;
+
+/**
+ * What the handshake announces. It was a literal, and the 0.4.2 and 0.4.3 tags
+ * both shipped announcing "0.4.1". package.json sits two levels up from both
+ * src/mcp and dist/mcp.
+ */
+export const SERVER_VERSION: string = (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
 
 /**
  * A candidate must score at least this share of the best candidate's relevance.
@@ -248,6 +266,11 @@ export function governanceTools(deps: GovernanceDeps) {
         decayRate: 0,
         validFrom: now().toISOString(),
       });
+      // Embedded now, or vector recall cannot find it until a backfill runs. Only
+      // a fact this reader can see: a governed handle refuses to embed one a
+      // policy hides (a secret written Sensitive), exactly as for a missing fact,
+      // and remembering it must not fail over a cache (review 2026-09-22).
+      if (retriever && (await deps.store.getNode(saved.nodeId))) await retriever.indexNode(saved);
       return { ...toGovernedFact(saved), mayConflictWith: await mayConflictWith(deps.store, text, saved.nodeId, now().toISOString()) };
     },
     /**
@@ -277,6 +300,12 @@ export function governanceTools(deps: GovernanceDeps) {
       const node = await deps.store.getNode(input.id);
       if (!node) throw new Error(`invalidate: no fact ${input.id}`);
       if (node.validTo !== null) return toGovernedFact(node);
+      // A successor is a claim about another fact, so it has to be one this
+      // caller can see — not a typo, and not the fact itself (review 2026-09-22).
+      if (input.replacedBy !== undefined) {
+        if (input.replacedBy === input.id) throw new Error("invalidate: replacedBy cannot be the fact being invalidated");
+        if (!(await deps.store.getNode(input.replacedBy))) throw new Error(`invalidate: replacedBy names no fact: ${input.replacedBy}`);
+      }
       const at = now().toISOString();
       // `origin` stays as written — who wrote a fact never changes. Who RETIRED it
       // is a second, separate receipt.
@@ -288,6 +317,14 @@ export function governanceTools(deps: GovernanceDeps) {
       return toGovernedFact(updated);
     },
     async pin(input: { text: string; label?: string | undefined }) {
+      // Refused before anything is written. The shipped store classifies text
+      // that reads like a secret as Sensitive, which hides it from this very
+      // assistant: the pin would never render, and each retry would add another
+      // hidden copy. PinnedBlocks catches any other policy that hides a pin,
+      // after the write; this catches the common case before it (review 2026-09-22).
+      if (looksSecret(input.text)) {
+        throw new Error("pin: this reads like a secret (for example \"pin is …\" or \"password: …\"), so it would be stored Sensitive and hidden from assistants — it would never appear in the pinned tier. Reword it without the secret-like phrase, or leave secrets out of memory.");
+      }
       const origin = deps.origin?.();
       return pins.pin({ text: input.text, ...(input.label && { label: input.label }), ...(origin && { origin }) });
     },
@@ -305,7 +342,7 @@ export function governanceTools(deps: GovernanceDeps) {
 export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ server: unknown; connectStdio: () => Promise<void> }> {
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const server = new McpServer({ name: "al-buddy-memory", version: "0.5.0" }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: "al-buddy-memory", version: SERVER_VERSION }, { instructions: SERVER_INSTRUCTIONS });
   // The app that wrote a fact is the client that connected, as it announced itself
   // in the handshake — the model cannot change that.
   const tools = governanceTools({
@@ -325,7 +362,7 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
     text: z.string().max(REMEMBER_MAX_CHARS), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),
   }, async (a) => json(await tools.remember(a)));
   server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, what superseded it, and which assistant wrote or retired it. The first call of a session also returns the user's pinned rules — treat those as standing rules for the conversation.", {
-    query: z.string(), limit: z.number().int().min(1).max(50).optional(), includeSuperseded: z.boolean().optional(),
+    query: z.string().max(QUERY_MAX_CHARS), limit: z.number().int().min(1).max(50).optional(), includeSuperseded: z.boolean().optional(),
   }, async (a) => {
     // Facts first: a failed recall must not spend the one pin delivery.
     const facts = await tools.recall(a);
@@ -334,13 +371,13 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
     return { content: preamble === "" ? [body] : [{ type: "text" as const, text: preamble }, body] };
   });
   server.tool("history", "Show the recorded changes to one fact, including each change time and the full mutable state before and after it.", {
-    id: z.string(),
+    id: z.string().max(ID_MAX_CHARS),
   }, async (a) => json(await tools.history(a)));
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
-    id: z.string(), replacedBy: z.string().optional(), reason: z.string().optional(),
+    id: z.string().max(ID_MAX_CHARS), replacedBy: z.string().max(ID_MAX_CHARS).optional(), reason: z.string().max(REASON_MAX_CHARS).optional(),
   }, async (a) => json(await tools.invalidate(a)));
   server.tool("pin", "Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.", { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, async (a) => json(await tools.pin(a)));
-  server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string() }, async (a) => json(await tools.unpin(a)));
+  server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string().max(ID_MAX_CHARS) }, async (a) => json(await tools.unpin(a)));
   server.tool("pinned", "The pinned tier, as a list and as the rendered prompt block.", {}, async () => json(await tools.pinned()));
   return { server, connectStdio: async () => { await server.connect(new StdioServerTransport()); } };
 }
