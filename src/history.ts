@@ -3,6 +3,7 @@ import { canonicalInstant, canonicalPatch, instantMs } from "./instant.js";
 import {
   MUTABLE_NODE_FIELDS,
   VERSION_EVENTS,
+  type AsOfOptions,
   type AsOfSnapshot,
   type HistoryCapable,
   type MemoryEdge,
@@ -65,8 +66,15 @@ function assertMutableImage(value: unknown, field: string): asserts value is Mut
 }
 
 /** Validate one portable/stored version with the same vocabulary rules as nodes. */
+const VERSION_KEYS = ["after", "before", "event", "nodeId", "recordedAt", "versionId"];
+
 export function assertVersion(value: NodeVersion): void {
   if (value === null || typeof value !== "object") throw new Error("version must be an object");
+  // Exactly these six: the schema says additionalProperties false, and a store
+  // that kept an extra key would re-export an artifact the schema refuses.
+  if (canonicalJson(Object.keys(value).sort()) !== canonicalJson(VERSION_KEYS)) {
+    throw new Error(`version must have exactly ${VERSION_KEYS.join(", ")}`);
+  }
   if (!UUID_V4.test(value.versionId)) throw new Error(`versionId must be a UUID v4; got ${JSON.stringify(value.versionId)}`);
   if (typeof value.nodeId !== "string" || value.nodeId.length === 0) throw new Error("version.nodeId must be a string");
   if (!(VERSION_EVENTS as readonly unknown[]).includes(value.event)) throw new Error(`unknown version event: ${String(value.event)}`);
@@ -75,6 +83,29 @@ export function assertVersion(value: NodeVersion): void {
   }
   assertMutableImage(value.before, "version.before");
   assertMutableImage(value.after, "version.after");
+}
+
+/**
+ * A version the store itself would have written sits on the fact's anchor trail:
+ * never before the fact was learned, and (unless it is a `restored` version,
+ * which carries no anchor) at the same instant and event as an anchor. An
+ * imported version that fits neither is history nobody recorded: refused at
+ * import, before anything is written.
+ */
+export function assertVersionFitsNode(version: NodeVersion, node: MemoryNode): void {
+  const at = instantMs(version.recordedAt);
+  if (at < instantMs(learnedAt(node))) {
+    throw new Error(`version ${version.versionId} is dated before its fact was learned`);
+  }
+  if (version.event === "restored") return;
+  if (!node.temporalAnchors.some((a) => a.event === version.event && instantMs(a.timestamp) === at)) {
+    throw new Error(`version ${version.versionId} records a "${version.event}" at ${version.recordedAt} that its fact's anchor trail does not`);
+  }
+}
+
+/** Versions in the order the changes happened. Stable, so same-instant changes keep the store's order. */
+export function orderVersions<T extends Pick<NodeVersion, "recordedAt">>(versions: readonly T[]): T[] {
+  return [...versions].sort((a, b) => instantMs(a.recordedAt) - instantMs(b.recordedAt));
 }
 
 /** Reconstruct one fact and say whether recorded history fully supports it. */
@@ -89,38 +120,51 @@ export function nodeAsOf(
 
   // Time order, not insertion order: re-importing over an existing fact records
   // a "restored" version now and then inserts the artifact's older versions
-  // after it. A stable sort keeps the store's order for same-instant changes.
-  const ordered = [...versions].sort((a, b) => instantMs(a.recordedAt) - instantMs(b.recordedAt));
-
-  let state: MutableNodeState;
+  // after it.
+  const ordered = orderVersions(versions);
   const happened = ordered.filter((version) => instantMs(version.recordedAt) <= at);
-  if (happened.length > 0) state = happened[happened.length - 1]!.after;
-  else if (ordered.length > 0) state = ordered[0]!.before;
-  else state = mutableState(current);
+  const later = ordered.filter((version) => instantMs(version.recordedAt) > at);
+
+  // With nothing recorded after asOf, the answer is the fact as it is: as of now
+  // is always the present, even when history does not explain how it got there.
+  let state: MutableNodeState;
+  if (later.length === 0) state = mutableState(current);
+  else if (happened.length > 0) state = happened[happened.length - 1]!.after;
+  else state = later[0]!.before;
 
   const anchors = current.temporalAnchors.filter((anchor) => instantMs(anchor.timestamp) <= at);
-  // Exact only if every later change on the anchor trail has its OWN version:
-  // same instant, same event. Matching counts per event let an unrelated
-  // version stand in for an unrecorded change.
-  const unmatched = new Map<string, number>();
+  return { node: { ...copy(current), ...copy(state), temporalAnchors: copy(anchors) }, exact: explains(current, ordered, at) };
+}
+
+/**
+ * Whether the recorded history accounts for the fact from `at` to now. Every
+ * test here is one way a past read could be wrong while looking right:
+ * - the chain must join: each version starts where the one before it ended;
+ * - it must end at the fact as stored (a write policy that reshaped an
+ *   imported fact, or a change made by an older library, breaks this);
+ * - every later change on the anchor trail needs its own version, same instant
+ *   and event, and every later version (other than `restored`) its own anchor.
+ */
+function explains(current: MemoryNode, ordered: readonly NodeVersion[], at: number): boolean {
+  for (let i = 1; i < ordered.length; i++) {
+    if (!mutableStatesEqual(ordered[i - 1]!.after, ordered[i]!.before)) return false;
+  }
+  if (ordered.length > 0 && !mutableStatesEqual(ordered[ordered.length - 1]!.after, mutableState(current))) return false;
   const key = (ms: number, event: string) => `${ms}|${event}`;
+  const versionsLeft = new Map<string, number>();
   for (const version of ordered) {
     if (version.event === "restored" || instantMs(version.recordedAt) <= at) continue;
     const k = key(instantMs(version.recordedAt), version.event);
-    unmatched.set(k, (unmatched.get(k) ?? 0) + 1);
+    versionsLeft.set(k, (versionsLeft.get(k) ?? 0) + 1);
   }
-  let exact = true;
   for (const anchor of current.temporalAnchors) {
     if (anchor.event === "created" || instantMs(anchor.timestamp) <= at) continue;
     const k = key(instantMs(anchor.timestamp), anchor.event);
-    const left = unmatched.get(k) ?? 0;
-    if (left === 0) { exact = false; break; }
-    unmatched.set(k, left - 1);
+    const left = versionsLeft.get(k) ?? 0;
+    if (left === 0) return false;
+    versionsLeft.set(k, left - 1);
   }
-  return {
-    node: { ...copy(current), ...copy(state), temporalAnchors: copy(anchors) },
-    exact,
-  };
+  return [...versionsLeft.values()].every((n) => n === 0);
 }
 
 /** Reconstruct a graph at one transaction instant. */
@@ -129,13 +173,21 @@ export function buildSnapshotAsOf(
   edges: readonly MemoryEdge[],
   versionsByNode: ReadonlyMap<string, readonly NodeVersion[]>,
   asOfInput: string,
+  options: AsOfOptions = {},
 ): AsOfSnapshot {
   const asOf = canonicalInstant(asOfInput, "asOf");
+  // "What did we believe at X about what was true at Y": valid time is filtered
+  // on the reconstructed window, the one the store held at X.
+  const validAt = options.validAt === undefined ? undefined : instantMs(canonicalInstant(options.validAt, "validAt"));
   const reconstructed: MemoryNode[] = [];
   const inexact: string[] = [];
   for (const current of nodes) {
     const result = nodeAsOf(current, versionsByNode.get(current.nodeId) ?? [], asOf);
     if (result.node === undefined) continue;
+    if (validAt !== undefined) {
+      const n = result.node;
+      if (instantMs(n.validFrom) > validAt || (n.validTo !== null && instantMs(n.validTo) <= validAt)) continue;
+    }
     reconstructed.push(result.node);
     if (!result.exact) inexact.push(current.nodeId);
   }

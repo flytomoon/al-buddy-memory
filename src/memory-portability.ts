@@ -1,6 +1,6 @@
 import { assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalNode } from "./instant.js";
-import { assertVersion, isHistoryCapable } from "./history.js";
+import { assertVersion, assertVersionFitsNode, isHistoryCapable, versionsEqual } from "./history.js";
 import type { GraphSnapshot, MemoryEdge, MemoryNode, MemoryStore, NodeVersion, SnapshotCapable } from "./types/memory.js";
 
 /**
@@ -206,11 +206,20 @@ function validatePortable(artifact: PortableExport): void {
       throw new Error(`Invalid artifact: ${where} versions must be an array.`);
     }
     const seenVersions = new Set<string>();
+    const nodesById = new Map(project.nodes.map((n) => [n.nodeId, n]));
     for (const version of project.versions ?? []) {
       assertVersion(version);
       if (seenVersions.has(version.versionId)) throw new Error(`Invalid artifact: ${where} lists version ${version.versionId} twice.`);
       seenVersions.add(version.versionId);
-      if (!seenNodes.has(version.nodeId)) throw new Error(`Invalid artifact: version ${version.versionId} refers to node ${version.nodeId} outside ${where}.`);
+      const node = nodesById.get(version.nodeId);
+      if (node === undefined) throw new Error(`Invalid artifact: version ${version.versionId} refers to node ${version.nodeId} outside ${where}.`);
+      // History nobody recorded — dated before the fact, or a change its anchor
+      // trail never saw — is refused here, before anything is written.
+      try {
+        assertVersionFitsNode(version, node);
+      } catch (err) {
+        throw new Error(`Invalid artifact: ${where}: ${err instanceof Error ? err.message : String(err)}.`);
+      }
     }
   }
 }
@@ -261,10 +270,27 @@ export async function importPortable(
   // Fail fast on the ENTIRE artifact before writing anything.
   validatePortable(artifact);
   const stores = new Map<PortableProject, MemoryStore>();
+  // Version ids per destination store: what it already holds plus what this
+  // artifact will write, so a clash is found before the first write rather than
+  // after the nodes are in (release review 2026-09-21).
+  const versionIds = new Map<MemoryStore, Map<string, NodeVersion>>();
   for (const project of artifact.projects) {
     const store = storeFor(project.project);
     stores.set(project, store);
     await preflightDestination(project, store);
+    if (!isHistoryCapable(store) || (project.versions ?? []).length === 0) continue;
+    let known = versionIds.get(store);
+    if (known === undefined) {
+      known = new Map((await store.historySnapshot()).versions.map((v) => [v.versionId, v]));
+      versionIds.set(store, known);
+    }
+    for (const version of project.versions ?? []) {
+      const held = known.get(version.versionId);
+      if (held !== undefined && !versionsEqual(held, version)) {
+        throw new Error(`Invalid artifact: version ${version.versionId} is already recorded in the destination as a different change.`);
+      }
+      known.set(version.versionId, version);
+    }
   }
   let nodes = 0;
   let edges = 0;

@@ -72,11 +72,15 @@ Nodes have two independent time axes:
 - **Valid time** uses `validFrom` / `validTo` to say when a fact was true in the world. A `validAt` query answers **what was true at Y**.
 - **Transaction time** uses full before and after images recorded by every `updateNode`. An `asOf` read answers **what did the store believe at X**.
 
-The two axes combine. Reconstruct the store at X, then apply the valid-time window for Y. Both boundaries are inclusive for changes: a version recorded exactly at `asOf` has happened, just as `validFrom <= validAt`. Validity ends remain exclusive.
+The two axes combine: `snapshotAsOf(X, { validAt: Y })` answers "what did the store believe at X about what was true at Y", filtering on the valid-time window the store held at X. Both boundaries are inclusive for changes: a version recorded exactly at `asOf` has happened, just as `validFrom <= validAt`. Validity ends remain exclusive.
 
-Erasure wins over history. `deleteNode` removes the fact and its versions in one transaction, so no past `asOf` can resurrect an erased fact. On a governed handle, access is decided from the fact's current classification and current policy. Historical values are returned as data only after that current check, so a fact that is sealed today cannot disclose an older private copy.
+Erasure wins over history. `deleteNode` removes the fact and its versions in one transaction, so no past `asOf` can resurrect an erased fact. On a governed handle, access is decided from the fact's current classification and current policy, on the same read of the fact that is served: a fact that is sealed today cannot disclose an older private copy, and a fact a policy redacts today has its history withheld entirely.
 
-History cannot invent values that were never recorded. Databases created before 0.5.0 and portable 1.0.0 imports may carry later anchors without versions. An as-of snapshot lists such node ids in `inexact` and returns the earliest state the recorded history supports. Matching is count-based between later non-created anchors and later non-restored versions.
+**Editing no longer removes anything.** Before 0.5.0, changing a fact's metadata overwrote the old value. Now the old value stays in the fact's history and is served to anyone who may read the fact today. Content was always immutable; the same is now true of every earlier state. To remove something from the past, erase the fact.
+
+History cannot invent values that were never recorded, and says so when it cannot vouch for a read. A store writes a version only at the instant and event of an anchor it appends, so an imported or restored version that is dated before its fact was learned, or that records a change the fact's anchor trail never saw, is refused. A read is **exact** only when the recorded history accounts for the fact from that instant to now: the versions join end to end, the last one ends at the fact as stored, and every later change on the anchor trail has its own version (same instant, same event) and the reverse. Otherwise `getNodeAsOf` returns `exact: false` and `snapshotAsOf` lists the id in `inexact`, with the best state the history supports. That covers databases created before 0.5.0, changes made by an older library, a write policy that reshaped a fact on import, and an import over an existing fact, where the history is the two stores' histories joined: each part is what that store believed, and the join is marked.
+
+With nothing recorded after `asOf`, the answer is the fact as it is stored: as of now is always the present.
 
 As-of reads reconstruct in memory. This keeps the persistent representation and the verification rule simple, but its cost is linear in the facts and versions read. The measured cost is recorded in the README.
 

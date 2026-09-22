@@ -15,8 +15,8 @@
  */
 import { compareRecency, effectiveConfidence } from "../decay.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
-import { buildSnapshotAsOf, canonicalJson, isHistoryCapable } from "../history.js";
-import type { HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
+import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
+import type { AsOfFact, AsOfOptions, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
 
@@ -610,17 +610,38 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
   };
 
   if (isHistoryCapable(inner)) {
-    governed.history = async (nodeId: string): Promise<NodeVersion[]> => {
-      const current = await inner.getNode(nodeId);
-      if (!current) return [];
-      const readable = await historyReadable(opts, [current], readCtx());
-      return readable.has(nodeId) ? inner.history(nodeId) : [];
+    /**
+     * A fact and its versions as ONE state, so the fact the policies judge is
+     * the fact whose history is served. They used to be read separately, and a
+     * fact sealed between the check and the second read leaked through its own
+     * history (release review 2026-09-21). No cross-call transaction exists on
+     * the interface, so: read the fact, its versions, the fact again, and retry
+     * if it moved. Every change appends an anchor, so a fact that reads the same
+     * twice did not change in between. Still moving after five tries: withheld.
+     */
+    const factWithHistory = async (nodeId: string): Promise<{ current: MemoryNode; versions: NodeVersion[] } | null> => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const current = await inner.getNode(nodeId);
+        if (!current) return null;
+        const versions = await inner.history(nodeId);
+        const again = await inner.getNode(nodeId);
+        if (again && canonicalJson(again) === canonicalJson(current)) return { current, versions };
+      }
+      return null;
     };
-    governed.getNodeAsOf = async (nodeId: string, asOf: string): Promise<MemoryNode | undefined> => {
-      const current = await inner.getNode(nodeId);
-      if (!current) return undefined;
-      const readable = await historyReadable(opts, [current], readCtx());
-      return readable.has(nodeId) ? inner.getNodeAsOf(nodeId, asOf) : undefined;
+    governed.history = async (nodeId: string): Promise<NodeVersion[]> => {
+      const read = await factWithHistory(nodeId);
+      if (!read) return [];
+      const readable = await historyReadable(opts, [read.current], readCtx());
+      return readable.has(nodeId) ? read.versions : [];
+    };
+    governed.getNodeAsOf = async (nodeId: string, asOf: string): Promise<AsOfFact | undefined> => {
+      const read = await factWithHistory(nodeId);
+      if (!read) return undefined;
+      const readable = await historyReadable(opts, [read.current], readCtx());
+      if (!readable.has(nodeId)) return undefined;
+      const { node, exact } = nodeAsOf(read.current, read.versions, asOf);
+      return node === undefined ? undefined : { node, exact };
     };
     governed.historySnapshot = async () => {
       // The export path. A fact the policies let out but redact leaves redacted,
@@ -645,7 +666,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         versions: snap.versions.filter((version) => withHistory.has(version.nodeId)),
       };
     };
-    governed.snapshotAsOf = async (asOf: string) => {
+    governed.snapshotAsOf = async (asOf: string, asOfOptions: AsOfOptions = {}) => {
       const snap = await inner.historySnapshot();
       const included = await historyReadable(opts, snap.nodes, readCtx());
       const versions = new Map<string, NodeVersion[]>();
@@ -660,6 +681,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         snap.edges.filter((edge) => included.has(edge.sourceNodeId) && included.has(edge.targetNodeId)),
         versions,
         asOf,
+        asOfOptions,
       );
     };
     governed.restoreVersion = async (input: NodeVersion): Promise<void> => {
@@ -670,10 +692,13 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         const ctx = authorised();
         const { node: existing } = await visibleOrNotFound(version.nodeId, ctx);
         // Writing a fact's history is a change to that fact's record, so the
-        // update policies judge it as they judge restoreNode over it. Without
-        // this, an actor the owner's rules refuse could plant history.
+        // update policies judge it as they judge restoreNode over it, and they
+        // see the change it records: the state it says the fact moved to. An
+        // empty patch let a rule about, say, who may retire a fact wave through
+        // a version that retires it (release review 2026-09-21).
+        const patch: NodePatch = { ...version.after };
         await guarded(opts, ctx, [version.nodeId], async () => {
-          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, {}, ctx);
+          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
         });
         assertAuditUsable(opts);
         await commitAudited(opts, inner, ctx, () => inner.restoreVersion(version), () => ({ ids: [version.nodeId] }));

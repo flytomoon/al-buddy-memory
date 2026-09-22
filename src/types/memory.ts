@@ -284,14 +284,37 @@ export interface NodeVersion {
 
 export interface AsOfSnapshot extends GraphSnapshot {
   readonly asOf: string;
+  /** Facts whose state at `asOf` the recorded history cannot vouch for (see `exact`). */
   readonly inexact: string[];
+}
+
+/** One fact as the store held it at an instant. */
+export interface AsOfFact {
+  readonly node: MemoryNode;
+  /**
+   * false when the recorded history does not account for the fact from that
+   * instant to now: changes made before 0.5.0 (or by an older library), a
+   * write policy that reshaped an imported fact, or two stores' histories
+   * joined by an import. The node is then the best the history supports, not
+   * a guarantee.
+   */
+  readonly exact: boolean;
+}
+
+/** Filters for an as-of read. */
+export interface AsOfOptions {
+  /** Keep only facts whose valid-time window, as the store held it at `asOf`, contains this instant. */
+  validAt?: string;
 }
 
 /** Optional transaction-history capability. MemoryStore itself stays unchanged. */
 export interface HistoryCapable {
+  /** Every recorded change to one fact, in the order the changes happened. [] if unknown or erased. */
   history(nodeId: string): Promise<NodeVersion[]>;
-  getNodeAsOf(nodeId: string, asOf: string): Promise<MemoryNode | undefined>;
-  snapshotAsOf(asOf: string): Promise<AsOfSnapshot>;
+  /** One fact as the store held it at `asOf`, and whether history vouches for it; undefined if not yet learned, or erased. */
+  getNodeAsOf(nodeId: string, asOf: string): Promise<AsOfFact | undefined>;
+  /** The whole graph as the store held it at `asOf`, read as one state; `validAt` combines the two time axes. */
+  snapshotAsOf(asOf: string, options?: AsOfOptions): Promise<AsOfSnapshot>;
   historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }>;
   restoreVersion(version: NodeVersion): Promise<void>;
 }

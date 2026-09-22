@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 
-import { assertVersion, versionsEqual } from "./history.js";
-import type { NodeVersion } from "./types/memory.js";
+import { assertVersion, assertVersionFitsNode, versionsEqual } from "./history.js";
+import type { MemoryNode, NodeVersion } from "./types/memory.js";
 
 export const MIGRATION_V8 = [
   `CREATE TABLE IF NOT EXISTS node_versions (
@@ -36,8 +36,16 @@ function rowToVersion(row: VersionRow): NodeVersion {
   };
 }
 
+/**
+ * Write one version. NOT validated here, on purpose: the store builds these
+ * images itself from the row it just read, and rows written before 0.4.0 can
+ * hold values today's checks refuse (a word outside the vocabulary, a weight
+ * above 1, an instant v5 could not parse and left as it was). Validating the
+ * store's own before-image made every update to such a fact throw, so it could
+ * no longer even be invalidated (release review 2026-09-21). Imports are
+ * validated, in `restoreSqliteVersion`.
+ */
 export function insertVersion(db: Database.Database, version: NodeVersion): void {
-  assertVersion(version);
   db.prepare(
     `INSERT INTO node_versions
        (version_id, node_id, recorded_at, event, before_json, after_json)
@@ -59,9 +67,19 @@ export function restoreSqliteVersion(db: Database.Database, version: NodeVersion
     if (!versionsEqual(rowToVersion(existing), version)) throw new Error(`cannot restore version ${version.versionId}: that id already records a different change`);
     return;
   }
-  const node = db.prepare(`SELECT 1 FROM memory_nodes WHERE node_id = ?`).get(version.nodeId);
-  if (node === undefined) throw new Error(`cannot restore version ${version.versionId}: node ${version.nodeId} does not exist`);
-  insertVersion(db, version);
+  const row = db.prepare(`SELECT temporal_anchors, valid_from FROM memory_nodes WHERE node_id = ?`).get(version.nodeId) as { temporal_anchors: string; valid_from: string } | undefined;
+  if (row === undefined) throw new Error(`cannot restore version ${version.versionId}: node ${version.nodeId} does not exist`);
+  // Only the anchor trail (and the fallback learnedAt reads) matter to the fit check.
+  assertVersionFitsNode(version, { temporalAnchors: JSON.parse(row.temporal_anchors), validFrom: row.valid_from } as MemoryNode);
+  // The six documented fields only (insertVersion writes nothing else).
+  insertVersion(db, {
+    versionId: version.versionId,
+    nodeId: version.nodeId,
+    recordedAt: version.recordedAt,
+    event: version.event,
+    before: version.before,
+    after: version.after,
+  });
 }
 
 export function readNodeVersions(db: Database.Database, nodeId: string): NodeVersion[] {

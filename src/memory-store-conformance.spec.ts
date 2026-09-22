@@ -82,9 +82,10 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
         vi.setSystemTime("2026-04-01T00:00:00.000Z");
         await store.updateNode(fact.nodeId, { validTo: "2026-05-01T00:00:00.000Z" });
 
-        const atT1 = await historyStore().getNodeAsOf(fact.nodeId, "2026-01-01T00:00:00.000Z");
-        const atT2 = await historyStore().getNodeAsOf(fact.nodeId, "2026-02-01T00:00:00.000Z");
-        const atT3 = await historyStore().getNodeAsOf(fact.nodeId, "2026-04-01T00:00:00.000Z");
+        const [t1, t2, t3] = await Promise.all(["2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z"].map((at) => historyStore().getNodeAsOf(fact.nodeId, at)));
+        // Fully recorded history: every read is vouched for.
+        expect([t1?.exact, t2?.exact, t3?.exact]).toEqual([true, true, true]);
+        const [atT1, atT2, atT3] = [t1?.node, t2?.node, t3?.node];
         expect(atT1?.validFrom).toBe("2026-01-01T00:00:00.000Z");
         expect(atT2?.validFrom).toBe("2026-03-01T00:00:00.000Z");
         expect(atT2?.validTo).toBeNull();
@@ -92,6 +93,9 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
         const feb = "2026-02-15T00:00:00.000Z";
         expect(atT1!.validFrom <= feb && (atT1!.validTo === null || atT1!.validTo > feb)).toBe(true);
         expect(atT2!.validFrom <= feb && (atT2!.validTo === null || atT2!.validTo > feb)).toBe(false);
+        // The same question in one call: believed at T1 / T2, true in mid-February.
+        expect((await historyStore().snapshotAsOf("2026-01-01T00:00:00.000Z", { validAt: feb })).nodes.map((n) => n.nodeId)).toEqual([fact.nodeId]);
+        expect((await historyStore().snapshotAsOf("2026-02-01T00:00:00.000Z", { validAt: feb })).nodes).toEqual([]);
       });
 
       it("omits a fact before it was learned", async () => {
@@ -137,7 +141,7 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
         await store.updateNode(fact.nodeId, { confidenceWeight: 0.6 });
         const versions = await historyStore().history(fact.nodeId);
         expect(versions.map((version) => version.after.confidenceWeight)).toEqual([0.8, 0.6]);
-        expect((await historyStore().getNodeAsOf(fact.nodeId, "2026-02-01T00:00:00.000Z"))?.confidenceWeight).toBe(0.6);
+        expect((await historyStore().getNodeAsOf(fact.nodeId, "2026-02-01T00:00:00.000Z"))?.node.confidenceWeight).toBe(0.6);
       });
 
       it("records changed restores once and ignores identical restores", async () => {
@@ -177,11 +181,13 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       it("restores versions idempotently and refuses a conflicting id", async () => {
         const fact = await store.addNode(makeNode());
         const state = mutableState(fact);
-        const version = { versionId: "00000000-0000-4000-8000-000000000099", nodeId: fact.nodeId, recordedAt: "2026-02-01T00:00:00.000Z", event: "restored" as const, before: state, after: { ...state, confidenceWeight: 0.5 } };
+        // A `restored` version carries no anchor, so it only has to come after the fact was learned.
+        const recordedAt = new Date(Date.parse(learnedAt(fact)) + 1).toISOString();
+        const version = { versionId: "00000000-0000-4000-8000-000000000099", nodeId: fact.nodeId, recordedAt, event: "restored" as const, before: state, after: { ...state, confidenceWeight: 0.5 } };
         await historyStore().restoreVersion(version);
         await historyStore().restoreVersion(version);
         expect(await historyStore().history(fact.nodeId)).toHaveLength(1);
-        await expect(historyStore().restoreVersion({ ...version, event: "modified" })).rejects.toThrow(/different/);
+        await expect(historyStore().restoreVersion({ ...version, after: { ...state, confidenceWeight: 0.4 } })).rejects.toThrow(/different/);
         await expect(historyStore().restoreVersion({ ...version, versionId: "00000000-0000-4000-8000-000000000098", nodeId: "missing-node" })).rejects.toThrow(/does not exist/);
       });
     });
