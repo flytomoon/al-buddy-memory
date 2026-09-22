@@ -74,7 +74,7 @@ Nodes have two independent time axes:
 
 The two axes combine: `snapshotAsOf(X, { validAt: Y })` answers "what did the store believe at X about what was true at Y", filtering on the valid-time window the store held at X. Both boundaries are inclusive for changes: a version recorded exactly at `asOf` has happened, just as `validFrom <= validAt`. Validity ends remain exclusive.
 
-Erasure wins over history. `deleteNode` removes the fact and its versions in one transaction, so no past `asOf` can resurrect an erased fact. On a governed handle, access is decided from the fact's current classification and current policy, on the same read of the fact that is served: a fact that is sealed today cannot disclose an older private copy, and a fact a policy redacts today has its history withheld entirely.
+Erasure wins over history. `deleteNode` removes the fact and its versions in one transaction, so no past `asOf` can resurrect an erased fact. (On a governed handle with Recently deleted, erasure happens at the purge, and the versions go then.) On a governed handle, access is decided from the fact's current classification and current policy, on the same read of the fact that is served: a fact that is sealed today cannot disclose an older private copy, and a fact a policy redacts today has its history withheld entirely.
 
 **Editing no longer removes anything.** Before 0.5.0, changing a fact's metadata overwrote the old value. Now the old value stays in the fact's history and is served to anyone who may read the fact today. Content was always immutable; the same is now true of every earlier state. To remove something from the past, erase the fact.
 

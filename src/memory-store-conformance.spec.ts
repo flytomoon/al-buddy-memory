@@ -181,8 +181,9 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       it("restores versions idempotently and refuses a conflicting id", async () => {
         const fact = await store.addNode(makeNode());
         const state = mutableState(fact);
-        // A `restored` version carries no anchor, so it only has to come after the fact was learned.
-        const recordedAt = new Date(Date.parse(learnedAt(fact)) + 1).toISOString();
+        // A `restored` version carries no anchor, so it only has to fall between the
+        // fact being learned and now; the learning instant itself is both.
+        const recordedAt = learnedAt(fact);
         const version = { versionId: "00000000-0000-4000-8000-000000000099", nodeId: fact.nodeId, recordedAt, event: "restored" as const, before: state, after: { ...state, confidenceWeight: 0.5 } };
         await historyStore().restoreVersion(version);
         await historyStore().restoreVersion(version);
