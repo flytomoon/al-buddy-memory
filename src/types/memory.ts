@@ -246,8 +246,15 @@ export interface MemoryQueryOptions {
    * Omit to ignore valid-time (returns nodes regardless of whether superseded).
    */
   validAt?: string; // ISO 8601
+  /** Page size. Not a finite number = no limit; negative = 0; fractions round down. */
   limit?: number;
-  after?: string; // Cursor-based pagination (nodeId)
+  /**
+   * Cursor: the nodeId of the last fact on the previous page. The result is the
+   * facts ranked after it in this same query's order. A cursor that is not in
+   * the list (never existed, deleted, filtered out, or hidden from this actor)
+   * has nothing after it: the answer is `[]`, never a restart from the top.
+   */
+  after?: string;
 }
 
 /** A whole memory graph as one state of a store: every node, every edge. */
