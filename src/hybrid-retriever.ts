@@ -1,6 +1,7 @@
 import { compareBinary, compareRecency, effectiveConfidence } from "./decay.js";
 import { canonicalInstant } from "./instant.js";
 import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
+import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
 import { matchesFilter, type NodeFilter } from "./query-filter.js";
@@ -190,8 +191,9 @@ export class HybridRetriever {
 /**
  * Backfill: embed every node whose vector is missing OR was made by a different
  * version of this model. Best-effort and resumable — safe to run at startup,
- * returns how many were indexed. Retired nodes are embedded too (the browser
- * searches history).
+ * returns how many were indexed. Every node is embedded — retired, Archived,
+ * PendingDeletion and Sealed included (the browser searches history, and a scoped
+ * recall may name any tier).
  *
  * "Missing" used to mean "no row for this model NAME", so an upgrade that kept
  * the name reported nothing to do and left every vector in the old space
@@ -208,11 +210,12 @@ export async function indexMissingEmbeddings(
       .filter((e) => e.modelVersion === embedder.modelVersion && e.dimensions === embedder.dimensions)
       .map((e) => e.nodeId),
   );
-  const all = await store.searchNodes({});
-  const sealed = await store.searchNodes({
-    privacyClassification: ["Sealed"],
-  });
-  const missing = [...all, ...sealed].filter((n) => !existing.has(n.nodeId));
+  // Every tier and classification by name: `{}` alone hides Archived and
+  // PendingDeletion, so a scoped recall that names them had no vectors to find
+  // (review 2026-09-22). What a recall may SEE is still decided at read time.
+  const missing = (await store.searchNodes({ retentionTier: [...RETENTION_TIERS], privacyClassification: [...PRIVACY_CLASSIFICATIONS] })).filter(
+    (n) => !existing.has(n.nodeId),
+  );
 
   let indexed = 0;
   for (let i = 0; i < missing.length; i += batchSize) {

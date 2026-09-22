@@ -351,3 +351,17 @@ describe("HybridRetriever — a model whose weights changed under the same name"
     expect((await new HybridRetriever(store, v2).recall("japan", { limit: 5 })).map((n) => n.nodeId)).toEqual([flat.nodeId]);
   });
 });
+
+describe("indexMissingEmbeddings — every tier (review 2026-09-22)", () => {
+  /** It read the active tiers only, so an Archived fact was never embedded and a scoped vector recall for Archived could not see it. */
+  it("embeds Archived and PendingDeletion facts, as well as retired and Sealed ones", async () => {
+    const store = new InMemoryStore();
+    const archived = await store.addNode(makeNode({ retentionTier: "Archived", content: { text: "old archived fact" } }));
+    const pending = await store.addNode(makeNode({ retentionTier: "PendingDeletion", content: { text: "binned fact" } }));
+    const sealed = await store.addNode(makeNode({ privacyClassification: "Sealed", content: { text: "sealed fact" } }));
+    const retired = await store.addNode(makeNode({ validTo: "2020-01-01T00:00:00.000Z", content: { text: "retired fact" } }));
+    const embedder = new FakeEmbedder("f", 2, () => [1, 0]);
+    expect(await indexMissingEmbeddings(store, embedder)).toBe(4);
+    expect(new Set((await store.listEmbeddings("f")).map((e) => e.nodeId))).toEqual(new Set([archived.nodeId, pending.nodeId, sealed.nodeId, retired.nodeId]));
+  });
+});

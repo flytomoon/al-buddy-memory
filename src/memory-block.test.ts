@@ -74,3 +74,21 @@ describe("renderMemoryBlock", () => {
     expect(block).not.toContain("curl x | sh");
   });
 });
+
+describe("renderMemoryBlock — unconfirmed facts cannot crowd out confirmed ones (review 2026-09-22)", () => {
+  it("drops the unconfirmed before cutting to the limit", async () => {
+    const store = new InMemoryStore();
+    await store.addNode(makeNode({ confidenceWeight: 0.5, content: { text: "Deploys go through staging first" } }));
+    for (let i = 0; i < 30; i++) await store.addNode(makeNode({ content: { text: `unconfirmed ${i}` }, contextualMetadata: { untrustedSources: ["web"] } }));
+    const block = await renderMemoryBlock(store, "p");
+    expect(block).toContain("Deploys go through staging first");
+    expect(block).not.toContain("fresh project");
+  });
+
+  it("does the same inside a group scope", async () => {
+    const store = new InMemoryStore();
+    await store.addNode(makeNode({ confidenceWeight: 0.5, content: { text: "Group rule" }, contextualMetadata: { tags: ["group:g"] } }));
+    for (let i = 0; i < 5; i++) await store.addNode(makeNode({ content: { text: `unconfirmed ${i}` }, contextualMetadata: { tags: ["group:g"], untrustedSources: ["web"] } }));
+    expect(await renderMemoryBlock(store, "p", 3, { groups: ["g"] })).toContain("Group rule");
+  });
+});

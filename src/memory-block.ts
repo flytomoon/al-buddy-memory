@@ -23,21 +23,20 @@ export async function renderMemoryBlock(
   scope: BlockScope = {},
 ): Promise<string> {
   const now = new Date().toISOString();
-  // Group-scoped: fetch all currently-valid nodes for the group tag(s), THEN take
-  // the top `limit` — the store applies its limit before the (post-SQL) tag
-  // filter, so limiting up front would starve the slice.
-  const candidates =
-    scope.groups && scope.groups.length > 0
-      ? (await store.searchNodes({ validAt: now, tags: scope.groups.map((g) => `group:${g}`) })).slice(
-          0,
-          limit,
-        )
-      : await store.searchNodes({ validAt: now, limit });
-
+  // Read every currently-valid candidate, drop what may not stand, THEN take the
+  // top `limit`. Cutting first let unconfirmed facts fill the slice: thirty of
+  // them outranking one confirmed fact rendered "no memories yet" (review
+  // 2026-09-22). The store reads the whole valid set without a query either way
+  // (sqlite-memory-store.ts), so the limit only ever saved the copy.
+  //
   // Anything distilled on a turn that read untrusted content stays OUT of the
   // standing context until confirmed — searchable, never in the system prompt
   // (review 2026-09-01, S2). See MemoryCurator and `al-buddy memory confirm`.
-  const nodes = candidates.filter((n) => !isUntrustedTagged(n));
+  const candidates = await store.searchNodes({
+    validAt: now,
+    ...(scope.groups && scope.groups.length > 0 && { tags: scope.groups.map((g) => `group:${g}`) }),
+  });
+  const nodes = candidates.filter((n) => !isUntrustedTagged(n)).slice(0, limit);
 
   const header = `# Memory block — ${project}`;
   // Data-envelope framing (security): the block is concatenated into the system
