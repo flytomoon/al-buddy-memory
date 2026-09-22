@@ -9,6 +9,67 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.5.1 — 2026-09-22
+
+Fixes from a post-release review of 0.5.0. Every fix started as a test that failed on
+0.5.0; the write-ups are in [docs/RESILIENCE-LEDGER.md](docs/RESILIENCE-LEDGER.md). No
+schema change.
+
+### Fixed
+
+- **A fact derived by consolidation was always written Private**, whatever its sources
+  were, so a restatement of a Sensitive fact reached assistants on recall. A derived fact
+  is now Sensitive if any source is, and Sealed facts are never shown to the model.
+- **The `enterpriseAudit` sample let a non-reviewer export the facts every read hid from
+  them**, with their history. On export a policy's `beforeExport` replaces its own
+  `beforeRead` (as designed); the sample now repeats its hiding rule there, and
+  `policy.ts` and docs/GOVERNANCE.md say plainly that authors must.
+- **`restoreDeleted` could answer with metadata the caller's read policy redacts**, when
+  the restored fact landed in a tier hidden from them. It now returns only what the
+  caller could already see, at the restored tier.
+- **Page 2 was page 1 on SQLite.** `searchNodes({ after })` filtered for facts newer than
+  the cursor while returning newest first. Paging now continues the list on both stores.
+- **"What did we believe then" could be wrong and still say exact**, for a read inside
+  the window before a refresh import. That window is now `exact: false`, as SPEC §8
+  always said ("the join is marked").
+- **An import could stop part-way** when two projects in one artifact were bound for the
+  same store and disagreed about a fact or link. They are now checked against each other
+  before anything is written. The same check stops refusing a valid artifact whose second
+  project links to a node the first one brings.
+- **A clock that stepped back made the store's own export unimportable.** A change is
+  never stamped before its fact's latest recorded moment, and `exportedAt` is never
+  earlier than anything in the export.
+- **Consolidation erased an invalidation that landed while the model was thinking**: it
+  marked each raw fact from metadata read before the model ran. It re-reads the fact
+  first now.
+- **Consolidation compared `since` as text**, so an offset such as `+10:00` skipped facts.
+  It is compared as an instant.
+- **The memory block cut to its limit before dropping unconfirmed facts**, so thirty
+  unconfirmed facts left a block saying the project was empty.
+- **The embedding backfill skipped Archived and PendingDeletion facts**, so a recall that
+  names those tiers had nothing to find. What a recall may see is still decided when it
+  reads.
+- **MCP `remember` never embedded the new fact** when an embedder was wired.
+- **The MCP handshake reported version "0.4.1"** from 0.4.2 on. It reads package.json now.
+
+### Behaviour change
+
+- `consolidate` no longer shows Sensitive facts to the model unless you pass
+  `includeSensitive: true`, which follows the vocabulary's own rule that Sensitive is
+  "excluded from summarization unless the user explicitly opts in". It throws when
+  `since` is not a valid instant.
+- MCP `pin` refuses text that reads like a secret, with a message saying why. Such a pin
+  used to be stored Sensitive, hidden from the assistant that pinned it, reported as
+  pinned, and duplicated on every retry. `PinnedBlocks.pin` throws when a policy hides a
+  pin it just wrote.
+- MCP `invalidate` refuses a `replacedBy` that names no fact the caller can see, or the
+  fact itself.
+- New MCP limits: `invalidate.reason` 500 characters, ids 128, `recall.query` 1,000. A 2 MB
+  reason used to be stored and copied into every later history version.
+- `searchNodes({ after })` with a cursor not in the list returns `[]` on every store (the
+  in-memory store used to start again from the top). A non-finite `limit` means no limit,
+  a negative one means 0, on every store.
+
 ## 0.5.0 — 2026-09-22
 
 The store can now say what it believed at a past moment, not only what was true then. And
