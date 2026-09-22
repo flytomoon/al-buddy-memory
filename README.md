@@ -106,6 +106,11 @@ const store = govern(inner, {
 });
 ```
 
+To make sure nothing is ever erased by accident, add `memoryLock()` to the policies: while it
+is there, erasure is refused for everyone, the owner included, until you take it out (or flip
+the switch it reads). Invalidating a fact still works; that is not erasure. The raw store and
+the database file are outside any policy, so keep backups.
+
 Check the trail with `al-buddy-memory verify-audit brain.db`. It names the first event that
 was edited, removed, inserted or reordered. What it establishes, and the two things it does
 not, are written out in [docs/GOVERNANCE.md](docs/GOVERNANCE.md#what-verification-establishes) —
