@@ -152,14 +152,17 @@ export function enterpriseAudit(opts: { reviewers: string[]; exporters: string[]
   const reviewers = new Set(opts.reviewers);
   const exporters = new Set(opts.exporters);
   const floor = opts.minInferredConfidence ?? 0.5;
+  const hidden = (node: MemoryNode, ctx: PolicyContext) => node.provenance === "AIInferred" && node.confidenceWeight < floor && !reviewers.has(ctx.actor);
   return {
     name: "enterprise-audit",
     beforeRead(node: MemoryNode, ctx: PolicyContext): MemoryNode | null {
-      if (node.provenance === "AIInferred" && node.confidenceWeight < floor && !reviewers.has(ctx.actor)) return null;
-      return node;
+      return hidden(node, ctx) ? null : node;
     },
-    beforeExport(_node: MemoryNode, ctx: PolicyContext): boolean {
-      return exporters.has(ctx.actor);
+    // On export this replaces beforeRead, so the hiding rule is repeated here:
+    // an exporter who is not a reviewer exported the weak facts every read hid
+    // from them, history included (review 2026-09-22).
+    beforeExport(node: MemoryNode, ctx: PolicyContext): boolean {
+      return exporters.has(ctx.actor) && !hidden(node, ctx);
     },
   };
 }
