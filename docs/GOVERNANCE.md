@@ -243,6 +243,23 @@ form and cannot redact the fields its past images carry, so a redacted fact's hi
 entirely, and the read is audited as hidden. Writing history (`restoreVersion`) is judged by the
 update policies, like any other change to that fact. Erasing a fact erases its history.
 
+## Recently deleted (0.5.0, opt-in)
+
+`govern(inner, { ..., recentlyDeleted: { days: 14 } })` turns erasure into a two-step act. A
+`deleteNode` the erase policies allow does not destroy the fact: it moves to the PendingDeletion
+tier, out of recall, with the moment of the request recorded. `listDeleted()` shows what is
+waiting and when each becomes final; `restoreDeleted(id)` puts a fact back in the tier it came
+from, judged by the update policies like any change. `purgeDeleted()` erases, for good, every fact
+whose days are up, and asks the erase policies again at that moment: a memory lock installed in
+the meantime keeps the fact, and the refusal is reported. `purgeDeleted({ nodeIds, immediately:
+true })` empties the bin for those facts at once.
+
+Three things worth knowing. Nothing runs on a timer: the days are a minimum, and a fact is made
+final when something calls `purgeDeleted`, a nightly job say. A fact put in PendingDeletion some
+other way has no recorded request and is never made final on a clock, only by id. And until it
+is purged, a fact in Recently deleted is still in the store, so it is still in an export or a
+backup. Links (`deleteEdge`) are erased at once either way.
+
 ## What the store guarantees without any policy
 
 - Sealed facts never surface unless asked for by classification.
