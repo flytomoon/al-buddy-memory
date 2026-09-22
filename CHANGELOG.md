@@ -5,8 +5,18 @@ Notable changes, newest first. Dates are the release date; versions follow
 existing caller gets back — even when the old answer was a bug — is called out
 under **Behaviour change**, because a version number alone is not a warning.
 
-On npm today: 0.3.0, 0.3.1 and 0.3.3. Numbers marked "never published" were
-staged and superseded before anyone could install them.
+Every version from 0.3.0 on is on npm unless it is marked "never published":
+those were staged and superseded before anyone could install them. 0.2.0 and
+earlier were GitHub releases only.
+
+## 0.4.3 — 2026-09-21
+
+Documentation only. No code, schema or behaviour changes from 0.4.2; this
+release exists so the package page on npm matches the repository.
+
+- The README opens with "A memory that's yours." again.
+- The comparison in the README now also covers the local, keyless projects a
+  reader is most likely to ask about, each cell sourced and dated.
 
 ## 0.4.2 — 2026-09-19
 
