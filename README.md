@@ -371,7 +371,7 @@ a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 - [x] `al-buddy-memory conformance <export>`: score any memory export on provenance, invalidation and portability, with adapters for block-style agent files and flat memory records (v0.2.0)
 - [x] The governance MCP server: a memory server that returns provenance and validity with every fact (v0.2.0)
 - [x] Governance hooks with an audit trail and three sample policies; provenance immutable at runtime; measured limits at 100k facts (v0.3.0)
-- [x] The audit event committed in the same transaction as the fact it describes, as one chain many processes share (2026-09-19, unreleased)
+- [x] The audit event committed in the same transaction as the fact it describes, as one chain many processes share (v0.4.2)
 - [x] A comparison table and a live paste-your-export demo (albuddy.com)
 - [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
