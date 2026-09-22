@@ -98,6 +98,82 @@ worse than no entry, because this file is meant to survive review.
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
 
+### A derived fact was always Private
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** consolidation wrote every derived fact as Private and showed Sensitive facts to the model, so "Sees Dr Lee weekly for therapy", derived from a hand-marked Sensitive fact, reached an MCP client on recall.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/consolidation.test.ts`, "privacy, fresh metadata and instants"; commit e430a00.
+- **Notes:** Sensitive facts now join a pass only with `includeSensitive: true`; a derived fact takes the Sensitive level of any source; Sealed facts are never shown. This follows the rule already written in `types/memory.ts`.
+
+### An export check that switched off the read check beside it
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** on export a policy's `beforeExport` replaces its own `beforeRead`. That is designed, but it was documented only as "defaults to beforeRead", and the shipped `enterpriseAudit` sample relied on both, so an exporter who was not a reviewer exported the weak inferred facts every read hid from them, history included.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/governance/review-0922.test.ts`; commit 75a5298.
+- **Notes:** The contract was kept and the sample fixed; `personalDefaults` already repeated its rule. The doc comment now tells policy authors to repeat hiding rules in `beforeExport`.
+
+### A restore that answered with what the reader was not allowed to see
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** when `restoreDeleted` put a fact back into a tier hidden from the caller, the governed handle returned the patch it had just written, which held the stored, unredacted metadata, not the caller's own input.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/governance/review-0922.test.ts`, both stores; commit 75a5298.
+
+### Page 2 was page 1
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** on SQLite `searchNodes({ after })` filtered `created_at >` the cursor while returning newest first, so page 2 was the facts already on page 1 and nothing past it was reached. An unknown cursor returned `[]` on SQLite and the whole list in memory.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** the "paging with after" cases in `src/memory-store-conformance.spec.ts` and `src/governance/cursor-oracle.test.ts`; commit 06589a6.
+- **Notes:** The paged read now ranks the whole matching set before cutting after the cursor, so a paged read costs a full read of the matching set.
+
+### One `limit`, two meanings
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** `limit: -1` returned nothing on SQLite and all but the last fact in memory; `limit: NaN` returned everything on SQLite and nothing in memory.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `normaliseLimit` in `src/query-filter.ts`, conformance case; commit 06589a6.
+
+### A clock that stepped back broke the store's own backup
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** a clock correction between two changes dated a version before its fact was learned, and the store's own export was then refused on import ("dated before its fact was learned").
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/clock-step-back.test.ts` and the conformance case "a change is never stamped before…"; commit 06589a6.
+- **Notes:** A change is stamped at the fact's latest recorded moment, not past it, so same-instant changes still share one timestamp.
+
+### A refresh import served the other store's past as exact
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** the rule that a `restored` version the chain already reached is redundant (release review 2026-09-21) applied at every `asOf`, so a read inside the window before the import returned the source's newer value marked exact, while the destination's own before-image showed it held the old one.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/review-pass4-history.test.ts`, "a refresh import marks the window before it"; commit 2c601d7.
+
+### Two projects, one store, checked one at a time
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** the import preflight checked each project against the destination as it stood, so two projects routed to one store that disagreed about a fact both passed, the first was written, and the second threw.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/review-pass4-history.test.ts`, "two projects bound for one store are checked against each other"; commit 2c601d7.
+
+### Consolidation erased what changed while the model thought
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** the consolidation mark was merged onto metadata read before `propose()` ran, so an invalidation's receipts disappeared from the fact's current record.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/consolidation.test.ts`; commit e430a00.
+
+### A pin the assistant could never see
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** "Never ask me what my pin is for the garage" matched the secret heuristic, was stored Sensitive and hidden from the assistant that pinned it; `pin` reported success and every retry added another hidden copy.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/mcp/governance-server-review.test.ts`; commit 7cc7a4b.
+
+### Unconfirmed facts crowded confirmed ones out of the block
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** the memory block took the top facts before dropping unconfirmed ones, so thirty unconfirmed facts left a block saying the project was empty.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/memory-block.test.ts`; commit 4d6108d.
+
+### Strings without limits, a successor never checked, a version that was a literal
+- **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
+- **The failure:** a 2 MB `invalidate.reason` was stored and copied into every later history version; `replacedBy` could name nothing or the fact itself; the handshake announced "0.4.1" from 0.4.2 on; `remember` never embedded its fact, and the backfill skipped Archived and PendingDeletion.
+- **Us:** shared it, fixed in 0.5.1
+- **Evidence:** `src/mcp/governance-server-review.test.ts`, `src/hybrid-retriever.test.ts`; commits 7cc7a4b, 4d6108d.
+
 ### A commit that could outlive its own audit event
 - **Reported by:** ourselves at 0.4.0, and again by both 0.4.1 reviews as the
   half of R3 that the 0.4.2 latch does not close. Named by the Fable 5.1 review
