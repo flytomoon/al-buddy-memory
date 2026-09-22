@@ -256,6 +256,46 @@ export interface GraphSnapshot {
   edges: MemoryEdge[];
 }
 
+/** The complete mutable image of a fact. Keep this list aligned with updateNode. */
+export const MUTABLE_NODE_FIELDS = [
+  "memoryType",
+  "privacyClassification",
+  "retentionTier",
+  "contextualMetadata",
+  "validFrom",
+  "validTo",
+  "confidenceWeight",
+  "decayRate",
+] as const;
+export type MutableNodeState = Pick<MemoryNode, (typeof MUTABLE_NODE_FIELDS)[number]>;
+
+/** Transaction-history events. `restored` exists only in version history. */
+export const VERSION_EVENTS = [...ANCHOR_EVENTS, "restored"] as const;
+
+/** One store change, with full images on both sides of it. */
+export interface NodeVersion {
+  readonly versionId: string;
+  readonly nodeId: string;
+  readonly recordedAt: string;
+  readonly event: (typeof VERSION_EVENTS)[number];
+  readonly before: MutableNodeState;
+  readonly after: MutableNodeState;
+}
+
+export interface AsOfSnapshot extends GraphSnapshot {
+  readonly asOf: string;
+  readonly inexact: string[];
+}
+
+/** Optional transaction-history capability. MemoryStore itself stays unchanged. */
+export interface HistoryCapable {
+  history(nodeId: string): Promise<NodeVersion[]>;
+  getNodeAsOf(nodeId: string, asOf: string): Promise<MemoryNode | undefined>;
+  snapshotAsOf(asOf: string): Promise<AsOfSnapshot>;
+  historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }>;
+  restoreVersion(version: NodeVersion): Promise<void>;
+}
+
 /**
  * An optional capability, not part of {@link MemoryStore}: the whole graph read
  * as ONE state, for export and backup. Both shipped stores implement it (SQLite
@@ -288,22 +328,9 @@ export interface MemoryStore {
   listNodes(): Promise<MemoryNode[]>;
   updateNode(
     nodeId: string,
-    patch: Partial<
-      Pick<
-        MemoryNode,
-        // Not content: raw text is immutable (a correction is a new fact).
-        | "contextualMetadata"
-        | "confidenceWeight"
-        | "decayRate"
-        | "privacyClassification"
-        | "retentionTier"
-        | "memoryType"
-        // Valid-time: set `validTo` to invalidate (supersede) a fact without
-        // deleting it; correct `validFrom` if the real-world start was wrong.
-        | "validFrom"
-        | "validTo"
-      >
-    >,
+    // Not content: raw text is immutable. The exported field tuple is the
+    // single source of truth, so history images and patches cannot drift.
+    patch: Partial<MutableNodeState>,
     /** Lifecycle event to record on the appended anchor. Default "modified";
      *  pass "reinforced" when a duplicate observation strengthens the node. */
     anchorEvent?: TemporalAnchor["event"],

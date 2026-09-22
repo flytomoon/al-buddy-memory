@@ -42,6 +42,30 @@ describe("governance MCP tools — every answer carries provenance and validity"
     expect(twice.validTo).toBe(once.validTo);
   });
 
+  it("history returns recorded full-image changes through the governed handle", async () => {
+    const inner = new InMemoryStore();
+    const store = serverStore(inner, { owner: "owner" });
+    const t = governanceTools({ store, now: clock("2026-09-10T12:00:00Z") });
+    const fact = await t.remember({ text: "Lives in London" });
+    await t.invalidate({ id: fact.id, reason: "moved" });
+    const versions = await t.history({ id: fact.id });
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({ event: "modified", before: { validTo: null }, after: { validTo: "2026-09-10T12:00:00.000Z" } });
+    expect(versions[0]).not.toHaveProperty("versionId");
+  });
+
+  it("registers the history tool on the MCP server", async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { server } = await attachGovernanceServer({ store: new InMemoryStore() });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await (server as { connect: (transport: unknown) => Promise<void> }).connect(serverSide);
+    const client = new Client({ name: "test", version: "1" });
+    await client.connect(clientSide);
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("history");
+    await client.close();
+  });
+
   it("pin / pinned / unpin ride the same store", async () => {
     const t = governanceTools({ store: new InMemoryStore() });
     const p = await t.pin({ text: "Al has no gender", label: "identity" });
@@ -346,7 +370,7 @@ describe("the server tells clients how to use it, and records which app wrote ea
     // of the six rules is how a 637-character string passed a green suite while
     // `invalidate` and `pin` fell outside the window (measured 2026-09-18).
     expect(instructions.length).toBeLessThanOrEqual(512);
-    for (const rule of [/recall/, /remember/, /secrets/, /invalidate/, /\bpin\b/]) expect(instructions).toMatch(rule);
+    for (const rule of [/recall/, /remember/, /history/, /secrets/, /invalidate/, /\bpin\b/]) expect(instructions).toMatch(rule);
 
     await client.callTool({ name: "remember", arguments: { text: "prefers Pacific time in reports" } });
     await client.callTool({ name: "pin", arguments: { text: "never a yes-person", label: "tone" } });

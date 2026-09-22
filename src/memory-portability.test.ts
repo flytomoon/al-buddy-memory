@@ -34,7 +34,7 @@ describe("exportPortable", () => {
         ["other", new InMemoryStore()],
       ]),
     );
-    expect(artifact.formatVersion).toBe("1.0.0");
+    expect(artifact.formatVersion).toBe("1.1.0");
     expect(artifact.projects.map((p) => p.project).sort()).toEqual(["al-buddy", "other"]);
     const alBuddy = artifact.projects.find((p) => p.project === "al-buddy")!;
     expect(alBuddy.nodes).toHaveLength(2); // retired nodes included — history is the point
@@ -157,6 +157,17 @@ describe("importPortable — validation + safety", () => {
       expect(await target.listNodes()).toEqual([]);
     });
 
+    it("refuses an invalid version before writing any nodes", async () => {
+      const source = new InMemoryStore();
+      const fact = await source.addNode(makeNode());
+      await source.updateNode(fact.nodeId, { confidenceWeight: 0.5 });
+      const artifact = await exportPortable(new Map([["p", source]]));
+      artifact.projects[0]!.versions![0] = { ...artifact.projects[0]!.versions![0]!, recordedAt: "not-an-instant" };
+      const target = new InMemoryStore();
+      await expect(importPortable(artifact, () => target)).rejects.toThrow(/instant/);
+      expect(await target.listNodes()).toEqual([]);
+    });
+
     it("refuses an artifact that would rewrite a fact the destination already holds", async () => {
       const source = await seededStore();
       const artifact = await exportPortable(new Map([["p", source]]));
@@ -221,6 +232,21 @@ describe("importPortable — round trip", () => {
       expect(await target.getNode(node.nodeId)).toEqual(node);
     }
     expect(originals.length).toBeGreaterThan(0);
+  });
+
+  it("preserves every version and every recorded as-of answer", async () => {
+    const source = new InMemoryStore();
+    const fact = await source.addNode(makeNode({ validFrom: "2020-01-01T00:00:00.000Z" }));
+    await source.updateNode(fact.nodeId, { validFrom: "2021-01-01T00:00:00.000Z", confidenceWeight: 0.8 });
+    await source.updateNode(fact.nodeId, { validTo: "2022-01-01T00:00:00.000Z" });
+    const artifact = await exportPortable(new Map([["p", source]]));
+    const target = new InMemoryStore();
+    await importPortable(artifact, () => target);
+    const exportedAgain = await exportPortable(new Map([["p", target]]));
+    expect(exportedAgain.projects[0]!.versions).toEqual(artifact.projects[0]!.versions);
+    for (const version of artifact.projects[0]!.versions ?? []) {
+      expect(await target.getNodeAsOf(fact.nodeId, version.recordedAt)).toEqual(await source.getNodeAsOf(fact.nodeId, version.recordedAt));
+    }
   });
 });
 

@@ -15,7 +15,8 @@
  */
 import { compareRecency, effectiveConfidence } from "../decay.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
-import type { MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
+import { buildSnapshotAsOf, canonicalJson, isHistoryCapable } from "../history.js";
+import type { HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
 
@@ -238,6 +239,27 @@ async function filterRead(opts: ActiveOptions, nodes: MemoryNode[], ctx: PolicyC
   return out;
 }
 
+/**
+ * The facts whose HISTORY this actor may read: visible today and passed through
+ * the read policies unchanged. Access is decided on the current fact, never on a
+ * past image. And a policy that redacts a fact on read was written for its
+ * present form: the before/after images in its history carry the very fields it
+ * strips, and no rule can redact a past it never sees. So a redacted fact's
+ * history is withheld (fail closed), audited as a hidden read.
+ */
+async function historyReadable(opts: ActiveOptions, nodes: MemoryNode[], ctx: PolicyContext): Promise<Set<string>> {
+  const readable = new Set<string>();
+  const hidden: string[] = [];
+  for (const node of nodes) {
+    const seen = await view(opts, node, ctx);
+    if (seen !== null && canonicalJson(seen) === canonicalJson(node)) readable.add(node.nodeId);
+    else hidden.push(node.nodeId);
+  }
+  if (hidden.length > 0) await record(opts, ctx, "hidden", hidden);
+  await record(opts, ctx, "allowed", [...readable]);
+  return readable;
+}
+
 /** Run a policy step; a refusal is audited, then rethrown. */
 async function guarded<T>(opts: ActiveOptions, ctx: PolicyContext, ids: string[], step: () => Promise<T>): Promise<T> {
   try {
@@ -278,6 +300,7 @@ const snapshot = <T>(value: T): T => (value === undefined ? value : (JSON.parse(
 const snapshotOptions = <T extends object>(options: T): T =>
   Object.fromEntries(Object.entries(options).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v])) as T;
 
+export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable : MemoryStore;
 export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore {
   // Resolved once, here, because it is the only place `inner` and the sink are
   // both in scope; everything below reads it off `opts`.
@@ -317,7 +340,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
   // `governed.db` (SQLite) and `governed.nodes` (in-memory) handed a stranger
   // the raw data (Fable re-review, 2026-09-15). Whoever should close or tune the
   // store holds the inner one.
-  const governed: MemoryStore = {
+  const governed: MemoryStore & Partial<HistoryCapable> = {
     async addNode(input: NewMemoryNode): Promise<MemoryNode> {
       const node = snapshot(input);
       const authorised = authorise(opts, "write");
@@ -586,6 +609,78 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     },
   };
 
+  if (isHistoryCapable(inner)) {
+    governed.history = async (nodeId: string): Promise<NodeVersion[]> => {
+      const current = await inner.getNode(nodeId);
+      if (!current) return [];
+      const readable = await historyReadable(opts, [current], readCtx());
+      return readable.has(nodeId) ? inner.history(nodeId) : [];
+    };
+    governed.getNodeAsOf = async (nodeId: string, asOf: string): Promise<MemoryNode | undefined> => {
+      const current = await inner.getNode(nodeId);
+      if (!current) return undefined;
+      const readable = await historyReadable(opts, [current], readCtx());
+      return readable.has(nodeId) ? inner.getNodeAsOf(nodeId, asOf) : undefined;
+    };
+    governed.historySnapshot = async () => {
+      // The export path. A fact the policies let out but redact leaves redacted,
+      // exactly as it does today, WITHOUT its versions (see historyReadable).
+      const snap = await inner.historySnapshot();
+      const ctx = readCtx();
+      const nodes: MemoryNode[] = [];
+      const hidden: string[] = [];
+      const withHistory = new Set<string>();
+      for (const node of snap.nodes) {
+        const seen = await view(opts, node, ctx);
+        if (seen === null) { hidden.push(node.nodeId); continue; }
+        nodes.push(seen);
+        if (canonicalJson(seen) === canonicalJson(node)) withHistory.add(node.nodeId);
+      }
+      if (hidden.length > 0) await record(opts, ctx, "hidden", hidden);
+      await record(opts, ctx, "allowed", nodes.map((n) => n.nodeId));
+      const included = new Set(nodes.map((node) => node.nodeId));
+      return {
+        nodes,
+        edges: snap.edges.filter((edge) => included.has(edge.sourceNodeId) && included.has(edge.targetNodeId)),
+        versions: snap.versions.filter((version) => withHistory.has(version.nodeId)),
+      };
+    };
+    governed.snapshotAsOf = async (asOf: string) => {
+      const snap = await inner.historySnapshot();
+      const included = await historyReadable(opts, snap.nodes, readCtx());
+      const versions = new Map<string, NodeVersion[]>();
+      for (const version of snap.versions) {
+        if (!included.has(version.nodeId)) continue;
+        const list = versions.get(version.nodeId) ?? [];
+        list.push(version);
+        versions.set(version.nodeId, list);
+      }
+      return buildSnapshotAsOf(
+        snap.nodes.filter((node) => included.has(node.nodeId)),
+        snap.edges.filter((edge) => included.has(edge.sourceNodeId) && included.has(edge.targetNodeId)),
+        versions,
+        asOf,
+      );
+    };
+    governed.restoreVersion = async (input: NodeVersion): Promise<void> => {
+      const version = snapshot(input);
+      const authorised = authorise(opts, "import");
+      return serialise(inner, async () => {
+        assertAuditUsable(opts);
+        const ctx = authorised();
+        const { node: existing } = await visibleOrNotFound(version.nodeId, ctx);
+        // Writing a fact's history is a change to that fact's record, so the
+        // update policies judge it as they judge restoreNode over it. Without
+        // this, an actor the owner's rules refuse could plant history.
+        await guarded(opts, ctx, [version.nodeId], async () => {
+          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, {}, ctx);
+        });
+        assertAuditUsable(opts);
+        await commitAudited(opts, inner, ctx, () => inner.restoreVersion(version), () => ({ ids: [version.nodeId] }));
+      });
+    };
+  }
+
   return Object.freeze(governed);
 }
 
@@ -594,6 +689,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
  * Feed it to exportPortable. Read-only in fact, not just in name — every write
  * method refuses (it deleted, before the final review).
  */
+export function exportView<T extends MemoryStore>(inner: T, opts: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable : MemoryStore;
 export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   const view = govern(inner, { ...opts, readAs: "export" });
   const refuse = async (): Promise<never> => {
@@ -610,5 +706,6 @@ export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore
     deleteEdge: refuse,
     setEmbedding: refuse,
     deleteEmbeddings: refuse,
+    ...(isHistoryCapable(view) ? { restoreVersion: refuse } : {}),
   });
 }

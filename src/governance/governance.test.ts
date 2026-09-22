@@ -239,6 +239,7 @@ describe("the governed handle exposes nothing but governed methods", () => {
   const METHODS = [
     "addNode", "getNode", "searchNodes", "listNodes", "updateNode", "deleteNode", "restoreNode", "restoreEdge",
     "addEdge", "getEdges", "deleteEdge", "setEmbedding", "getEmbeddings", "listEmbeddings", "deleteEmbeddings",
+    "history", "getNodeAsOf", "snapshotAsOf", "historySnapshot", "restoreVersion",
   ].sort();
 
   for (const [label, make] of [

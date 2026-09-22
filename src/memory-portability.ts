@@ -1,6 +1,7 @@
 import { assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { canonicalEdge, canonicalNode } from "./instant.js";
-import type { GraphSnapshot, MemoryEdge, MemoryNode, MemoryStore, SnapshotCapable } from "./types/memory.js";
+import { assertVersion, isHistoryCapable } from "./history.js";
+import type { GraphSnapshot, MemoryEdge, MemoryNode, MemoryStore, NodeVersion, SnapshotCapable } from "./types/memory.js";
 
 /**
  * The portability proof — the artifact that makes "your memory outlives any
@@ -15,7 +16,7 @@ import type { GraphSnapshot, MemoryEdge, MemoryNode, MemoryStore, SnapshotCapabl
  *   load a useful (if shallower) copy today.
  */
 
-export const PORTABLE_FORMAT_VERSION = "1.0.0";
+export const PORTABLE_FORMAT_VERSION = "1.1.0";
 
 export interface McpEntity {
   name: string; // nodeId — stable across runtimes
@@ -33,6 +34,7 @@ export interface PortableProject {
   project: string;
   nodes: MemoryNode[];
   edges: MemoryEdge[];
+  versions?: NodeVersion[];
 }
 
 export interface PortableExport {
@@ -65,7 +67,8 @@ export interface ImportSummary {
  * is one snapshot PER STORE, never one instant across all of them: they are
  * separate databases.
  */
-async function graphOf(store: MemoryStore): Promise<GraphSnapshot> {
+async function graphOf(store: MemoryStore): Promise<GraphSnapshot & { versions?: NodeVersion[] }> {
+  if (isHistoryCapable(store)) return store.historySnapshot();
   const capable = store as Partial<SnapshotCapable>;
   // Called before the first await on purpose: the snapshot is taken while this
   // function still holds the turn, so a caller's next write cannot slip inside.
@@ -98,7 +101,8 @@ export async function exportPortable(
     const edges = snapshot.edges
       .filter((e) => included.has(e.sourceNodeId) && included.has(e.targetNodeId))
       .sort((a, b) => a.edgeId.localeCompare(b.edgeId));
-    projects.push({ project, nodes, edges });
+    const versions = snapshot.versions?.filter((version) => included.has(version.nodeId)) ?? [];
+    projects.push({ project, nodes, edges, versions });
 
     // MCP interop view is loadable into other AI runtimes, so it must NOT carry
     // Sealed content ("AI may not read/reference/summarize"). Sealed stays only
@@ -157,9 +161,9 @@ export async function exportPortable(
  * do about that.
  */
 function validatePortable(artifact: PortableExport): void {
-  if (artifact.formatVersion !== PORTABLE_FORMAT_VERSION) {
+  if (artifact.formatVersion !== "1.0.0" && artifact.formatVersion !== PORTABLE_FORMAT_VERSION) {
     throw new Error(
-      `Unsupported portable format ${artifact.formatVersion} (expected ${PORTABLE_FORMAT_VERSION}).`,
+      `Unsupported portable format ${artifact.formatVersion} (expected 1.0.0 or ${PORTABLE_FORMAT_VERSION}).`,
     );
   }
   if (!Array.isArray(artifact.projects)) throw new Error("Invalid artifact: projects must be an array.");
@@ -197,6 +201,16 @@ function validatePortable(artifact: PortableExport): void {
       if (seenEdges.has(e.edgeId)) throw new Error(`Invalid artifact: ${where} lists edge ${e.edgeId} twice.`);
       seenEdges.add(e.edgeId);
       canonicalEdge(e);
+    }
+    if (project.versions !== undefined && !Array.isArray(project.versions)) {
+      throw new Error(`Invalid artifact: ${where} versions must be an array.`);
+    }
+    const seenVersions = new Set<string>();
+    for (const version of project.versions ?? []) {
+      assertVersion(version);
+      if (seenVersions.has(version.versionId)) throw new Error(`Invalid artifact: ${where} lists version ${version.versionId} twice.`);
+      seenVersions.add(version.versionId);
+      if (!seenNodes.has(version.nodeId)) throw new Error(`Invalid artifact: version ${version.versionId} refers to node ${version.nodeId} outside ${where}.`);
     }
   }
 }
@@ -263,6 +277,9 @@ export async function importPortable(
     for (const edge of project.edges) {
       await store.restoreEdge(edge);
       edges += 1;
+    }
+    if (isHistoryCapable(store)) {
+      for (const version of project.versions ?? []) await store.restoreVersion(version);
     }
   }
   return { nodes, edges };

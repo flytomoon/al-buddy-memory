@@ -17,7 +17,7 @@ Every agent-memory product on the market answers one question well: *what does t
 | Question | This library | Letta | Mem0 | Zep |
 |---|---|---|---|---|
 | **Where did this fact come from, and who asserted it?** | Provenance on every node and edge (`UserInput` / `AIInferred` / `GuardianAdded` / `SystemGenerated`) | Memory-file git history | Metadata field | Graph episodes |
-| **When was it true, and what replaced it?** | `validFrom` / `validTo` (valid time) plus append-only anchors (when the store touched a fact); a `validAt` query answers "what was true at X". It does not yet answer "what did we believe at X": an update records that a change happened, not the prior value | Git history of files, not a fact model | Change history per memory (`history()`: old value, new value, event, timestamps) — transaction history, not valid time | Temporal graph (its real strength): Graphiti edges carry `valid_at` / `invalid_at` alongside `created_at` / `expired_at` |
+| **When was it true, and what replaced it?** | Two queryable axes: `validAt` answers what was true at Y; `getNodeAsOf` / `snapshotAsOf` answer what the store believed at X from full before/after versions. They combine, and erasure removes the history | Git history of files, not a fact model | Change history per memory (`history()`: old value, new value, event, timestamps) — transaction history, not valid time | Temporal graph (its real strength): Graphiti edges carry `valid_at` / `invalid_at` alongside `created_at` / `expired_at` |
 | **Can I take it with me, losslessly, to another runtime?** | One versioned JSON export with a published schema and conformance tests | `.af` (agent state, framework-shaped, archival memory not yet included) | Cloud export | Cloud-only since 2025 |
 | **Does it run with no vendor, no key, no server?** | SQLite on disk, on-device embeddings | Self-host possible; cloud is the product | Self-host possible (Apache-2.0, local vector stores); needs an LLM for extraction; cloud is the product | Zep is cloud; Graphiti self-hosts (graph DB + LLM key required) |
 
@@ -150,6 +150,7 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 | Recall by filters only, top 10 | 0.5–1 ms |
 | Get by id | 0.1 ms |
 | Invalidate a fact | 0.5 ms |
+| Reconstruct `snapshotAsOf` | 2.19 s with 100,001 versions |
 | File size | 69 MB |
 | Audit event into `audit_events`, in the fact's own transaction | +0.04 ms per governed write, +0.5 ms per governed read (a read is audited too, so it takes the write lock briefly) |
 | Checking the chain — `verify-audit <db>` | linear, ~3 µs/event: 83 ms at 20,000 events, 325 ms at 100,000, 1.5 s at 500,000. Each process pays it once, before its first governed write and **outside** the write transaction, so it delays that process and blocks no other. Constant memory (the walk streams) |
@@ -160,6 +161,11 @@ first ten of the full ordered read. When facts have genuinely decayed, the store
 read past its 200-row candidate pool to keep that promise — the worst case is a full read of
 the matching facts (~300 ms at 100k), and it only happens when a decayed fact and a fresher one
 would otherwise trade places.
+
+The transaction-time measurement is one run on the same M1 Pro: 100,000 facts,
+one recorded reinforcement per fact, and one earlier invalidation. Reconstructing all
+100,000 facts from 100,001 versions took 2.19 s. It is an in-memory linear reconstruction,
+not an indexed point lookup.
 
 A governed keyword search is slower on purpose. It reads every match, keeps the ones the
 actor may see, and ranks them with word rarity counted over those visible matches alone: the
@@ -360,7 +366,7 @@ The **first** `recall` of a connection also returns the pinned tier — the pers
 rules — as a second content block, so the tier that claims to be in every prompt gets there
 without spending any of the 512-character handshake.
 
-Tools: `remember`, `recall`, `invalidate`, `pin`, `unpin`, `pinned`. `remember` takes at
+Tools: `remember`, `recall`, `history`, `invalidate`, `pin`, `unpin`, `pinned`. `remember` takes at
 most 4,000 characters and `pin` 500. SQLite on disk, no service, no key. The tool bodies are
 a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 `al-buddy-memory/mcp`), so they run against any backend and test without a transport.
@@ -373,7 +379,7 @@ a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 - [x] Governance hooks with an audit trail and three sample policies; provenance immutable at runtime; measured limits at 100k facts (v0.3.0)
 - [x] The audit event committed in the same transaction as the fact it describes, as one chain many processes share (v0.4.2)
 - [x] A comparison table and a live paste-your-export demo (albuddy.com)
-- [ ] Transaction time, the second half of bi-temporal: "what did we believe at X", so the store can reconstruct its own past state, including a fact it held wrongly and later corrected (valid time, "what was true at X", ships today)
+- [x] Transaction time, the second half of bi-temporal: "what did we believe at X", including a fact held wrongly and later corrected (v0.5.0)
 - [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
 

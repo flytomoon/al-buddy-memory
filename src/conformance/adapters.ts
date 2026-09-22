@@ -25,7 +25,7 @@ export async function proveRoundTrip(artifact: PortableExport): Promise<boolean>
     return s;
   });
   const again = await exportPortable(new Map(stores));
-  const strip = (a: PortableExport) => a.projects.map((p) => ({ project: p.project, nodes: [...p.nodes].sort((x, y) => x.nodeId.localeCompare(y.nodeId)), edges: [...p.edges].sort((x, y) => x.edgeId.localeCompare(y.edgeId)) })).sort((x, y) => x.project.localeCompare(y.project));
+  const strip = (a: PortableExport) => a.projects.map((p) => ({ project: p.project, nodes: [...p.nodes].sort((x, y) => x.nodeId.localeCompare(y.nodeId)), edges: [...p.edges].sort((x, y) => x.edgeId.localeCompare(y.edgeId)), versions: [...(p.versions ?? [])].sort((x, y) => x.versionId.localeCompare(y.versionId)) })).sort((x, y) => x.project.localeCompare(y.project));
   return canonical(strip(artifact)) === canonical(strip(again));
 }
 

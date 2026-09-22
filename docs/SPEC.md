@@ -65,18 +65,22 @@ The original flat `MemoryEntry` type is retained to avoid breaking any code writ
 
 **Why:** Allows existing code to continue compiling during the transition. The `@deprecated` annotation signals to developers (and LSPs) to migrate.
 
-### 8. Valid time, and an event log beside it — invalidate, don't delete (1.1.0)
+### 8. Valid time and transaction time (1.1.0, 0.5.0)
 
-Nodes carry two time-bearing fields, and it matters that only one of them is queryable:
+Nodes have two independent time axes:
 
-- **Valid time** — `validFrom` / `validTo`: when the fact is _true in the world_, independent of when we learned it. A `validAt` query reads the store as of any past instant.
-- **An append-only event log** — `temporalAnchors`: when _the store_ touched a fact (created, recalled, modified…).
+- **Valid time** uses `validFrom` / `validTo` to say when a fact was true in the world. A `validAt` query answers **what was true at Y**.
+- **Transaction time** uses full before and after images recorded by every `updateNode`. An `asOf` read answers **what did the store believe at X**.
 
-When a fact stops being true (the user moves cities, changes jobs), we set `validTo` rather than deleting the node. A `validAt` query then answers **what was true at X**.
+The two axes combine. Reconstruct the store at X, then apply the valid-time window for Y. Both boundaries are inclusive for changes: a version recorded exactly at `asOf` has happened, just as `validFrom <= validAt`. Validity ends remain exclusive.
 
-**What this is not.** It does not yet answer **what did we believe at X**. A full bi-temporal store keeps a transaction axis you can query the same way, so you can reconstruct the store's own past state — including a fact it held wrongly and has since corrected. Here, an update records *that* a change happened, not the value it replaced, so the belief axis is an audit trail rather than a second queryable dimension. The README says the same thing in the comparison table, and the two should not drift apart: this section is the contract, and the contract is one-and-a-bit temporal, not two.
+Erasure wins over history. `deleteNode` removes the fact and its versions in one transaction, so no past `asOf` can resurrect an erased fact. On a governed handle, access is decided from the fact's current classification and current policy. Historical values are returned as data only after that current check, so a fact that is sealed today cannot disclose an older private copy.
 
-**Why:** A lifelong companion's knowledge of a person is a moving target. Deleting superseded facts destroys the history that makes the companion understand _change_ — and change is most of a life. Valid time is the half of the bi-temporal model that buys that, and is the half implemented. `validFrom` defaults to creation time and `validTo` to `null` (open), so existing call sites need no change.
+History cannot invent values that were never recorded. Databases created before 0.5.0 and portable 1.0.0 imports may carry later anchors without versions. An as-of snapshot lists such node ids in `inexact` and returns the earliest state the recorded history supports. Matching is count-based between later non-created anchors and later non-restored versions.
+
+As-of reads reconstruct in memory. This keeps the persistent representation and the verification rule simple, but its cost is linear in the facts and versions read. The measured cost is recorded in the README.
+
+When a fact stops being true, set `validTo` rather than deleting it. Deletion is reserved for erasure.
 
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
@@ -98,7 +102,7 @@ Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId
 | `RetentionTier` field                                         | ✅ Required; informational                                                |
 | `encryptionKeyRef` field                                      | ✅ Required; key management TBD                                           |
 | Valid time (`validFrom`/`validTo`) + `validAt` query          | ✅ Stored, queryable (1.1.0)                                              |
-| Queryable transaction time ("what did we believe at X")       | Deferred — see §8; `temporalAnchors` is an event log, not a second axis   |
+| Queryable transaction time ("what did we believe at X")       | ✅ Full before/after versions and as-of graph reads (0.5.0)               |
 | Model-tagged embedding store (`setEmbedding`/`getEmbeddings`) | ✅ Interface + store (1.1.0); vectors populated when an embedder is wired |
 | Inline `MemoryNode.embedding` field                           | ⚠️ Deprecated (1.1.0) — use the embedding store                           |
 | `MemoryStore` interface                                       | ✅ Full interface defined                                                 |

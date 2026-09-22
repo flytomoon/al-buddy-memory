@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { learnedAt } from "./decay.js";
+import { isHistoryCapable, mutableState } from "./history.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
 
@@ -62,6 +63,127 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
 
     it("returns undefined for an unknown node id", async () => {
       expect(await store.getNode("does-not-exist")).toBeUndefined();
+    });
+
+    describe("transaction time", () => {
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+
+      const historyStore = () => {
+        if (!isHistoryCapable(store)) throw new Error("shipped store must implement HistoryCapable");
+        return store;
+      };
+
+      it("reconstructs corrected beliefs and combines transaction time with valid time", async () => {
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const fact = await store.addNode(makeNode({ validFrom: "2026-01-01T00:00:00.000Z" }));
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        await store.updateNode(fact.nodeId, { validFrom: "2026-03-01T00:00:00.000Z" });
+        vi.setSystemTime("2026-04-01T00:00:00.000Z");
+        await store.updateNode(fact.nodeId, { validTo: "2026-05-01T00:00:00.000Z" });
+
+        const atT1 = await historyStore().getNodeAsOf(fact.nodeId, "2026-01-01T00:00:00.000Z");
+        const atT2 = await historyStore().getNodeAsOf(fact.nodeId, "2026-02-01T00:00:00.000Z");
+        const atT3 = await historyStore().getNodeAsOf(fact.nodeId, "2026-04-01T00:00:00.000Z");
+        expect(atT1?.validFrom).toBe("2026-01-01T00:00:00.000Z");
+        expect(atT2?.validFrom).toBe("2026-03-01T00:00:00.000Z");
+        expect(atT2?.validTo).toBeNull();
+        expect(atT3?.validTo).toBe("2026-05-01T00:00:00.000Z");
+        const feb = "2026-02-15T00:00:00.000Z";
+        expect(atT1!.validFrom <= feb && (atT1!.validTo === null || atT1!.validTo > feb)).toBe(true);
+        expect(atT2!.validFrom <= feb && (atT2!.validTo === null || atT2!.validTo > feb)).toBe(false);
+      });
+
+      it("omits a fact before it was learned", async () => {
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        const fact = await store.addNode(makeNode());
+        expect(await historyStore().getNodeAsOf(fact.nodeId, "2026-01-01T00:00:00Z")).toBeUndefined();
+        expect((await historyStore().snapshotAsOf("2026-01-01T00:00:00Z")).nodes).toEqual([]);
+      });
+
+      it("records one full-image version for every update including an empty patch", async () => {
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const fact = await store.addNode(makeNode());
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        const updated = await store.updateNode(fact.nodeId, { confidenceWeight: 0.7 });
+        vi.setSystemTime("2026-03-01T00:00:00.000Z");
+        const reinforced = await store.updateNode(fact.nodeId, {}, "reinforced");
+        const versions = await historyStore().history(fact.nodeId);
+        expect(versions).toHaveLength(2);
+        expect(versions[0]).toMatchObject({ recordedAt: updated.temporalAnchors[1]!.timestamp, event: "modified", before: mutableState(fact), after: mutableState(updated) });
+        expect(versions[1]).toMatchObject({ recordedAt: reinforced.temporalAnchors[2]!.timestamp, event: "reinforced", before: mutableState(updated), after: mutableState(reinforced) });
+        expect(versions[0]!.after).toEqual(versions[1]!.before);
+      });
+
+      it("erasure removes versions and wins over every past as-of read", async () => {
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const fact = await store.addNode(makeNode());
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        await store.updateNode(fact.nodeId, { confidenceWeight: 0.5 });
+        await store.deleteNode(fact.nodeId);
+        expect(await historyStore().history(fact.nodeId)).toEqual([]);
+        expect(await historyStore().getNodeAsOf(fact.nodeId, "2026-01-15T00:00:00Z")).toBeUndefined();
+        expect((await historyStore().snapshotAsOf("2026-01-15T00:00:00Z")).nodes).toEqual([]);
+        await store.restoreNode(fact);
+        expect(await historyStore().history(fact.nodeId)).toEqual([]);
+        await store.deleteNode(fact.nodeId);
+      });
+
+      it("orders two updates in one millisecond and applies both inclusively", async () => {
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const fact = await store.addNode(makeNode());
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        await store.updateNode(fact.nodeId, { confidenceWeight: 0.8 });
+        await store.updateNode(fact.nodeId, { confidenceWeight: 0.6 });
+        const versions = await historyStore().history(fact.nodeId);
+        expect(versions.map((version) => version.after.confidenceWeight)).toEqual([0.8, 0.6]);
+        expect((await historyStore().getNodeAsOf(fact.nodeId, "2026-02-01T00:00:00.000Z"))?.confidenceWeight).toBe(0.6);
+      });
+
+      it("records changed restores once and ignores identical restores", async () => {
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const fact = await store.addNode(makeNode());
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        await store.restoreNode({ ...fact, confidenceWeight: 0.4 });
+        await store.restoreNode({ ...fact, confidenceWeight: 0.4 });
+        expect(await historyStore().history(fact.nodeId)).toMatchObject([{ event: "restored", before: { confidenceWeight: 1 }, after: { confidenceWeight: 0.4 } }]);
+      });
+
+      it("marks legacy missing versions inexact but fully recorded history exact", async () => {
+        const legacy = { ...(await store.addNode(makeNode())), nodeId: globalThis.crypto.randomUUID() };
+        await store.restoreNode({ ...legacy, temporalAnchors: [
+          { timestamp: "2026-01-01T00:00:00.000Z", event: "created" },
+          { timestamp: "2026-03-01T00:00:00.000Z", event: "modified" },
+        ], validFrom: "2026-01-01T00:00:00.000Z" });
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const exact = await store.addNode(makeNode());
+        vi.setSystemTime("2026-03-01T00:00:00.000Z");
+        await store.updateNode(exact.nodeId, { confidenceWeight: 0.5 });
+        const snap = await historyStore().snapshotAsOf("2026-02-01T00:00:00Z");
+        expect(snap.inexact).toContain(legacy.nodeId);
+        expect(snap.inexact).not.toContain(exact.nodeId);
+      });
+
+      it("omits edges that had not been created yet", async () => {
+        vi.setSystemTime("2026-01-01T00:00:00.000Z");
+        const a = await store.addNode(makeNode());
+        const b = await store.addNode(makeNode());
+        vi.setSystemTime("2026-02-01T00:00:00.000Z");
+        await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Conceptual", strength: 1, provenance: "UserAsserted" });
+        expect((await historyStore().snapshotAsOf("2026-01-01T00:00:00.000Z")).edges).toEqual([]);
+        expect((await historyStore().snapshotAsOf("2026-02-01T00:00:00.000Z")).edges).toHaveLength(1);
+      });
+
+      it("restores versions idempotently and refuses a conflicting id", async () => {
+        const fact = await store.addNode(makeNode());
+        const state = mutableState(fact);
+        const version = { versionId: "00000000-0000-4000-8000-000000000099", nodeId: fact.nodeId, recordedAt: "2026-02-01T00:00:00.000Z", event: "restored" as const, before: state, after: { ...state, confidenceWeight: 0.5 } };
+        await historyStore().restoreVersion(version);
+        await historyStore().restoreVersion(version);
+        expect(await historyStore().history(fact.nodeId)).toHaveLength(1);
+        await expect(historyStore().restoreVersion({ ...version, event: "modified" })).rejects.toThrow(/different/);
+        await expect(historyStore().restoreVersion({ ...version, versionId: "00000000-0000-4000-8000-000000000098", nodeId: "missing-node" })).rejects.toThrow(/does not exist/);
+      });
     });
 
     // --- Bi-temporal valid-time ------------------------------------------
