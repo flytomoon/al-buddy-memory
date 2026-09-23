@@ -33,6 +33,8 @@ export type { ConsolidateOptions, ConsolidationReport, ConsolidatedFact, Consoli
 export { DERIVED_FROM, derivedFromOf, dependentsOf } from "./derived.js";
 export { EVIDENCE, evidenceOf, quoteHolds, verifyDerived } from "./evidence.js";
 export type { EvidenceQuote, VerifyReport } from "./evidence.js";
+export { explainFact } from "./explain.js";
+export type { EvidenceCheck, Explanation } from "./explain.js";
 // The MCP server lives at "al-buddy-memory/mcp": it needs the optional `zod`
 // and `@modelcontextprotocol/sdk`, and the core must import without them.
 export { scoreConformance, formatReport, toConformanceInput, detectFormat, fromPortable, fromBlocks, fromRecords, proveRoundTrip } from "./conformance/index.js";

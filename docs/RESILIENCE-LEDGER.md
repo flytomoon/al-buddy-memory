@@ -98,6 +98,20 @@ worse than no entry, because this file is meant to survive review.
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
 
+### Every reason to believe a fact, and no one place to ask
+- **Reported by:** ourselves — our 2026-09-22 review of the erase path
+- **The failure:** provenance, validity, a conclusion's sources and a fact's history each had
+  their own reader, and nothing put them side by side, so "why do you believe that?" took four
+  calls and a person to assemble them — and on a governed handle there was no rule for how a
+  withheld source should appear.
+- **Us:** shared it, fixed in 0.6.0
+- **Evidence:** `src/explain.test.ts` (both stores: a stated fact, a retired fact, a conclusion
+  with checked evidence and its retraction, a source withheld from the reader and never quoted,
+  the MCP `explain` tool). Code: `src/explain.ts`, `src/mcp/governance-server.ts`.
+- **Notes:** "withheld" covers both a source this reader may not read and one that is no longer
+  held — a governed handle cannot tell them apart without saying which ids exist, and since 0.6.0
+  an erased source takes its conclusions with it, so a live conclusion's missing source is withheld.
+
 ### A conclusion that cited its sources, and nothing checked what they said
 - **Reported by:** ourselves — our 2026-09-22 review of the erase path
 - **The failure:** a derived fact named the raw facts it rested on by id, and that was all;
