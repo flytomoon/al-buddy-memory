@@ -37,6 +37,8 @@
     "check": "npm run typecheck && npm test && npm run build",
     "test": "vitest run",
     "clean": "rm -rf dist",
+    "release": "node scripts/release.mjs",
+    "release:pin": "node scripts/release.mjs --pin",
     "build:demo": "esbuild src/conformance/browser.ts --bundle --format=esm --platform=browser --target=es2022 --minify --outfile=docs/demo/conformance.js"
   },
   "dependencies": {
