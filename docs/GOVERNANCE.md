@@ -306,6 +306,14 @@ handle the policies see all of it first, as ONE decision:
   write one fact after another inside the handle's queue, under one audit event; erasing is one
   store transaction.
 
+## Explaining a fact (0.6.0)
+
+`explainFact` reads through whatever handle it is given, so on a governed handle it is decided like
+a read: a fact the reader may not read is not explained at all (it is "not found", as everywhere
+else), and each source of a conclusion is read the same way — one the reader may not read is
+listed as `withheld`, with no quote, because the quote is that source's own words. The MCP `explain`
+tool does the same through the server's governed handle.
+
 ## What the store guarantees without any policy
 
 - Sealed facts never surface unless asked for by classification.

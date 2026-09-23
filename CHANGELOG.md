@@ -36,6 +36,13 @@ earlier were GitHub releases only.
   unverifiable, not retracted. Evidence travels in the portable export unchanged (it is
   contextual metadata; the format version does not move).
 
+- **`explainFact(store, id)` and the MCP `explain` tool.** Why a fact is believed, in one call: the
+  fact and who asserted it (provenance, origin), when it was true and what ended or replaced it,
+  how a conclusion was withdrawn, a conclusion's evidence with each quote checked against its
+  source now, and a summary of its history. Through a governed handle the fact is explained only
+  to a reader who may read it, and a source the reader may not read is named as withheld, its
+  quote not shown.
+
 ### Behaviour change
 
 - `deleteNode` erases more than the node named: every fact whose `derivedFrom` reaches it goes too,

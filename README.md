@@ -52,6 +52,9 @@ entry before you upgrade.
 - `exportPortable` / `importPortable`: the lossless interchange format, versioned, with a [JSON Schema](docs/portable-format.schema.json).
 - `PinnedBlocks`: a size-capped tier of facts that belong in every prompt, editable by the agent itself, on top of the governed store.
 - `consolidate`: a sleep-time pass that reads recent raw memory and writes **new** derived facts with provenance edges back to their sources; the raw is never rewritten and nothing is summarised away.
+- `verifyDerived`: every conclusion stores the exact words it rests on (`evidence`), checked when it is written; this re-checks them any time, and retracts, never deletes, one whose evidence no longer holds.
+- `explainFact`: why a fact is believed, in one call — provenance and origin, validity and what replaced it, a conclusion's evidence with each quote checked, and its history. Through a governed handle a source the reader may not see is named as withheld, never shown.
+- Conclusions go with their facts: a fact that stops being true retracts what was concluded from it (kept, marked); a fact that is erased takes everything built from it (SPEC §8a).
 - `listConsolidations` / `undoConsolidation`: review what each pass concluded, with the evidence for every fact, and take back one pass's conclusions. Undo retracts (`validTo`) and records who withdrew each fact and why; it never deletes, so the history still shows what was believed, when it was withdrawn, and the reason.
 - `buildSourceProvenance` / `readSourceProvenance`, `renderMemoryBlock`, `exportMemoryMarkdown`, decay helpers.
 
@@ -377,7 +380,9 @@ The **first** `recall` of a connection also returns the pinned tier — the pers
 rules — as a second content block, so the tier that claims to be in every prompt gets there
 without spending any of the 512-character handshake.
 
-Tools: `remember`, `recall`, `history`, `invalidate`, `pin`, `unpin`, `pinned`. `remember` takes at
+Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `pin`, `unpin`, `pinned`. `explain` answers why a
+fact is believed: who asserted it, when it was true, what ended it, and for a conclusion the exact
+words it rests on, each checked now. `remember` takes at
 most 4,000 characters and `pin` 500; a `recall` query 1,000, an `invalidate` reason 500, and
 an id 128. `pin` refuses text that reads like a secret, because the server would store it
 Sensitive and no assistant could see it. `invalidate`'s `replacedBy` must name a fact the

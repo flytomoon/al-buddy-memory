@@ -4,7 +4,7 @@
  * it, with every recall. 217 memory MCP servers hand agents facts; this one
  * hands them facts they can weigh.
  *
- * Tools: remember, recall, history, invalidate, pin, unpin, pinned. Every answer
+ * Tools: remember, recall, history, explain, invalidate, pin, unpin, pinned. Every answer
  * carries provenance, validFrom, validTo, confidence, and — for a superseded
  * fact — the id of what replaced it. There is no erase tool; invalidation keeps
  * the record. The shipped server serves `serverStore(...)`, a governed handle.
@@ -12,6 +12,7 @@
  * The server body is a plain function over a MemoryStore so it is testable
  * without a transport; `bin/al-buddy-memory-mcp.js` wires stdio.
  */
+import { explainFact, type Explanation } from "../explain.js";
 import { readFileSync } from "node:fs";
 
 import { z } from "zod";
@@ -295,6 +296,16 @@ export function governanceTools(deps: GovernanceDeps) {
       if (!isHistoryCapable(deps.store)) return [];
       return (await deps.store.history(input.id)).map(({ recordedAt, event, before, after }) => ({ recordedAt, event, before, after }));
     },
+    /**
+     * Why it believes a fact: who asserted it, when it was true and what ended
+     * it, and for a conclusion the exact words it rests on, each checked now
+     * (explain.ts). A source this caller may not read is named as withheld.
+     */
+    async explain(input: { id: string }): Promise<Explanation> {
+      const e = await explainFact(deps.store, input.id, { now });
+      if (!e) throw new Error(`explain: no fact ${input.id}`);
+      return e;
+    },
     /** Close a fact's validity. Never deletes; optionally names the replacement. */
     async invalidate(input: { id: string; replacedBy?: string | undefined; reason?: string | undefined }): Promise<GovernedFact> {
       const node = await deps.store.getNode(input.id);
@@ -373,6 +384,9 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   server.tool("history", "Show the recorded changes to one fact, including each change time and the full mutable state before and after it.", {
     id: z.string().max(ID_MAX_CHARS),
   }, async (a) => json(await tools.history(a)));
+  server.tool("explain", "Why a fact is believed: who asserted it, when it was true and what ended or replaced it, and for a conclusion the exact words it rests on, each checked against its source now.", {
+    id: z.string().max(ID_MAX_CHARS),
+  }, async (a) => json(await tools.explain(a)));
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string().max(ID_MAX_CHARS), replacedBy: z.string().max(ID_MAX_CHARS).optional(), reason: z.string().max(REASON_MAX_CHARS).optional(),
   }, async (a) => json(await tools.invalidate(a)));
