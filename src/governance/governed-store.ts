@@ -16,9 +16,11 @@
 import { compareRecency, effectiveConfidence } from "../decay.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
 import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
-import { RETENTION_TIERS } from "../types/memory.js";
 import type { AsOfFact, AsOfOptions, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
+import { closureOf, judgeErase, judgeInvalidation } from "./cascade.js";
+import { DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type DeletionRequest, type RecentlyDeletedCapable } from "./recently-deleted.js";
+export { DELETION_REQUEST, isRecentlyDeletedCapable, type DeletedFact, type RecentlyDeletedCapable } from "./recently-deleted.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
 
 export interface GovernOptions {
@@ -41,54 +43,7 @@ export interface GovernOptions {
   recentlyDeleted?: { days: number } | undefined;
 }
 
-/** The contextualMetadata key a pending deletion is recorded under. */
-export const DELETION_REQUEST = "deletionRequested";
 
-/** What `listDeleted` returns for each fact waiting in Recently deleted. */
-export interface DeletedFact {
-  node: MemoryNode;
-  /** null when the fact was put in PendingDeletion by some other path, with no recorded request. */
-  requestedAt: string | null;
-  /** null for the same reason: such a fact is never made final automatically. */
-  finalAfter: string | null;
-}
-
-/** The governed handle's extra methods when `recentlyDeleted` is set. */
-export interface RecentlyDeletedCapable {
-  listDeleted(): Promise<DeletedFact[]>;
-  restoreDeleted(nodeId: string): Promise<MemoryNode>;
-  /**
-   * Erase, for good, every fact whose days are up (or only `nodeIds`;
-   * `immediately` skips the wait for those). Each erasure is asked of the erase
-   * policies again; a refusal leaves the fact where it is and is reported.
-   */
-  purgeDeleted(options?: { nodeIds?: string[]; immediately?: boolean }): Promise<{ purged: string[]; waiting: string[]; refused: string[] }>;
-}
-
-export function isRecentlyDeletedCapable(store: unknown): store is RecentlyDeletedCapable {
-  if (store === null || typeof store !== "object") return false;
-  const s = store as Partial<RecentlyDeletedCapable>;
-  return typeof s.listDeleted === "function" && typeof s.restoreDeleted === "function" && typeof s.purgeDeleted === "function";
-}
-
-interface DeletionRequest { at: string | null; from: MemoryNode["retentionTier"] }
-
-/**
- * The request behind a PendingDeletion fact. A fact put in that tier some other
- * way has no recorded moment (`at: null`), and a clock that was never started
- * never runs out: it waits until someone purges it by id, `immediately`.
- */
-function deletionRequest(node: MemoryNode): DeletionRequest | null {
-  if (node.retentionTier !== "PendingDeletion") return null;
-  const raw = node.contextualMetadata[DELETION_REQUEST] as Partial<DeletionRequest> | undefined;
-  // An unknown tier would make the fact unrestorable (the vocabulary check
-  // refuses it), so anything that is not a real tier comes back as FullRetention.
-  const from = typeof raw?.from === "string" && (RETENTION_TIERS as readonly string[]).includes(raw.from) && raw.from !== "PendingDeletion" ? raw.from : "FullRetention";
-  const at = typeof raw?.at === "string" && Number.isFinite(Date.parse(raw.at)) ? raw.at : null;
-  return { at, from };
-}
-
-const DAY_MS = 86_400_000;
 
 /**
  * Whether a write would put a fact into Recently deleted, take it out, or
@@ -407,6 +362,10 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     return current;
   }
 
+  async function updatePolicies(existing: MemoryNode, patch: NodePatch, ctx: PolicyContext): Promise<void> {
+    for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
+  }
+
   async function erasePolicies(subject: ErasureSubject, ctx: PolicyContext): Promise<void> {
     let allowed = false;
     for (const p of opts.policies) if (p.beforeErase && (await p.beforeErase(subject, ctx)) === true) allowed = true;
@@ -451,9 +410,14 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         // node unfiltered, so `updateNode(secretId, {})` returned the secret and
         // `{ privacyClassification: "Private" }` made it readable for good.
         const { node: existing, seen } = await visibleOrNotFound(nodeId, ctx);
+        let retracted: string[] = [];
         await guarded(opts, ctx, [nodeId], async () => {
           for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
           if (touchesDeletion(existing, { ...existing, ...patch })) await erasePolicies({ node: existing }, ctx);
+          // A fact that stops being true retracts what was concluded from it (the
+          // store does that in the same transaction): the policies see each of
+          // those retractions now, as part of this one decision (cascade.ts).
+          retracted = await judgeInvalidation(inner, existing, patch, ctx, updatePolicies);
         });
         assertAuditUsable(opts);
         const updated = await commitAudited(
@@ -461,7 +425,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
           inner,
           ctx,
           () => (anchorEvent === undefined ? inner.updateNode(nodeId, patch) : inner.updateNode(nodeId, patch, anchorEvent)),
-          () => ({ ids: [nodeId] }),
+          () => ({ ids: [nodeId, ...retracted] }),
         );
         // What they could already see, plus what they themselves wrote. Safe to
         // fall back on `seen` only because nothing else could commit between
@@ -511,11 +475,14 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         assertAuditUsable(opts);
         const ctx = authorised();
         const { node } = await visibleOrNotFound(nodeId, ctx);
-        await guarded(opts, ctx, [nodeId], () => erasePolicies({ node }, ctx));
+        // The fact goes with everything concluded from it, so every one of them
+        // is asked about now — one decision, before anything changes (cascade.ts).
+        const closure = await closureOf(inner, nodeId);
+        await guarded(opts, ctx, [nodeId], () => judgeErase(node, closure, ctx, erasePolicies));
         assertAuditUsable(opts);
         const grace = opts.recentlyDeleted;
         if (grace === undefined) {
-          await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids: [nodeId] }));
+          await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids: [nodeId, ...closure.map((n) => n.nodeId)] }));
           return;
         }
         // Already waiting: a second delete is not "delete harder". It keeps the
@@ -529,12 +496,22 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         // In PendingDeletion with no recorded request (put there some other way):
         // this request starts the clock, instead of leaving it waiting for ever.
         const request: DeletionRequest = { at: ctx.now.toISOString(), from: pending?.from ?? node.retentionTier };
+        // Its conclusions wait in the bin with it, marked with the fact they rest
+        // on, so they come back — and go — together. One after another in this
+        // queue; the first write carries the event naming them all.
+        const joining = closure.filter((n) => n.retentionTier !== "PendingDeletion");
         await commitAudited(
           opts,
           inner,
           ctx,
-          () => inner.updateNode(nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...node.contextualMetadata, [DELETION_REQUEST]: request } }, "archived"),
-          () => ({ ids: [nodeId], reason: `moved to Recently deleted; final after ${grace.days} days` }),
+          async () => {
+            await inner.updateNode(nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...node.contextualMetadata, [DELETION_REQUEST]: request } }, "archived");
+            for (const n of joining) {
+              const withRoot: DeletionRequest = { at: request.at, from: n.retentionTier, with: nodeId };
+              await inner.updateNode(n.nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...n.contextualMetadata, [DELETION_REQUEST]: withRoot } }, "archived");
+            }
+          },
+          () => ({ ids: [nodeId, ...joining.map((n) => n.nodeId)], reason: `moved to Recently deleted; final after ${grace.days} days` }),
         );
       });
     },
@@ -819,80 +796,24 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
   const grace = opts.recentlyDeleted;
   if (grace !== undefined) {
     if (!(Number.isFinite(grace.days) && grace.days >= 0)) throw new Error("recentlyDeleted.days must be a number of days, 0 or more");
-    const finalAfter = (r: DeletionRequest): string | null => (r.at === null ? null : new Date(Date.parse(r.at) + grace.days * DAY_MS).toISOString());
-    const extra = governed as MemoryStore & Partial<RecentlyDeletedCapable>;
-
-    extra.listDeleted = async (): Promise<DeletedFact[]> => {
-      const pending = (await inner.listNodes()).filter((n) => n.retentionTier === "PendingDeletion");
-      const visible = await filterRead(opts, pending, readCtx());
-      const byId = new Map(pending.map((n) => [n.nodeId, n]));
-      return visible.map((node) => {
-        const request = deletionRequest(byId.get(node.nodeId) ?? node)!;
-        return { node, requestedAt: request.at, finalAfter: finalAfter(request) };
-      });
-    };
-
-    extra.restoreDeleted = async (nodeId: string): Promise<MemoryNode> => {
-      const authorised = authorise(opts, "write");
-      return serialise(inner, async () => {
-        assertAuditUsable(opts);
-        const ctx = authorised();
-        const { node: existing, seen } = await visibleOrNotFound(nodeId, ctx);
-        const request = deletionRequest(existing);
-        if (request === null) throw new Error(`Memory node ${nodeId} is not in Recently deleted`);
-        const { [DELETION_REQUEST]: _dropped, ...metadata } = existing.contextualMetadata;
-        const patch = { retentionTier: request.from, contextualMetadata: metadata };
-        await guarded(opts, ctx, [nodeId], async () => {
-          for (const p of opts.policies) if (p.beforeUpdate) await p.beforeUpdate(existing, patch, ctx);
-        });
-        assertAuditUsable(opts);
-        const restored = await commitAudited(opts, inner, ctx, () => inner.updateNode(nodeId, patch), () => ({ ids: [nodeId], reason: "restored from Recently deleted" }));
-        // Unlike updateNode's fallback, `patch` is not the caller's own input: its
-        // metadata is the stored, unredacted copy. So the fallback is what they
-        // could already see, minus the request, at the restored tier — never
-        // the patch's metadata (review 2026-09-22).
-        const { [DELETION_REQUEST]: _seenRequest, ...seenMetadata } = seen.contextualMetadata;
-        return (
-          (await view(opts, restored, { ...ctx, purpose: "recall" })) ?? {
-            ...seen,
-            retentionTier: patch.retentionTier,
-            contextualMetadata: seenMetadata,
-            temporalAnchors: restored.temporalAnchors,
-          }
-        );
-      });
-    };
-
-    extra.purgeDeleted = async (options = {}) => {
-      const authorised = authorise(opts, "erase");
-      return serialise(inner, async () => {
-        assertAuditUsable(opts);
-        const ctx = authorised();
-        const only = options.nodeIds === undefined ? null : new Set(options.nodeIds);
-        const purged: string[] = [];
-        const waiting: string[] = [];
-        const refused: string[] = [];
-        for (const node of await inner.listNodes()) {
-          const request = deletionRequest(node);
-          if (request === null || (only !== null && !only.has(node.nodeId))) continue;
-          // A fact this actor cannot read is not theirs to erase, and not theirs to learn about.
-          if (!(await view(opts, node, { ...ctx, purpose: "recall" }))) continue;
-          const final = finalAfter(request);
-          const due = (only !== null && options.immediately === true) || (final !== null && Date.parse(final) <= ctx.now.getTime());
-          if (!due) { waiting.push(node.nodeId); continue; }
-          try {
-            await guarded(opts, ctx, [node.nodeId], () => erasePolicies({ node }, ctx));
-          } catch (err) {
-            if (err instanceof PolicyDenied) { refused.push(node.nodeId); continue; }
-            throw err;
-          }
-          assertAuditUsable(opts);
-          await commitAudited(opts, inner, ctx, () => inner.deleteNode(node.nodeId), () => ({ ids: [node.nodeId], reason: "Recently deleted: made final" }));
-          purged.push(node.nodeId);
-        }
-        return { purged, waiting, refused };
-      });
-    };
+    Object.assign(
+      governed,
+      recentlyDeletedMethods({
+        inner,
+        grace,
+        authorise: (purpose) => authorise(opts, purpose),
+        serialise: (step) => serialise(inner, step),
+        assertAuditUsable: () => assertAuditUsable(opts),
+        visibleOrNotFound,
+        guarded: (ctx, ids, step) => guarded(opts, ctx, ids, step),
+        commit: (ctx, mutate, describe) => commitAudited(opts, inner, ctx, mutate, describe),
+        view: (node, ctx) => view(opts, node, ctx),
+        filterRead: (nodes, ctx) => filterRead(opts, nodes, ctx),
+        readCtx,
+        updatePolicies,
+        erasePolicies,
+      }),
+    );
   }
 
   return Object.freeze(governed);

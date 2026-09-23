@@ -399,3 +399,28 @@ describe("consolidate — privacy, fresh metadata and instants (review 2026-09-2
     expect(report.read).toBe(1);
   });
 });
+
+describe.each([
+  ["InMemoryStore", () => new InMemoryStore()],
+  ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+] as [string, () => MemoryStore][])("consolidate — an erased source cannot come back through a conclusion (%s)", (_label, make) => {
+  it("erasing the raw erases what the pass concluded, and the next pass never sees it again", async () => {
+    const store = make();
+    const raw = await store.addNode(makeNode({ content: { text: "The alarm code is 2468" } }));
+    const since = "2000-01-01T00:00:00.000Z";
+    const first = await consolidate(store, {
+      since,
+      model: "m",
+      propose: async (ex) => [{ text: "Has a home alarm", sourceNodeIds: [ex[0]!.nodeId], evidence: [{ nodeId: ex[0]!.nodeId, quote: "The alarm code" }] }],
+    });
+    expect(first.written).toBe(1);
+
+    await store.deleteNode(raw.nodeId);
+    expect(await store.getNode(first.derivedNodeIds[0]!)).toBeUndefined();
+
+    const seen: string[] = [];
+    await consolidate(store, { since, model: "m", propose: async (ex) => { seen.push(...ex.map((e) => e.text)); return []; } });
+    expect(seen.join(" ")).not.toContain("2468");
+    expect((await store.listNodes()).map((n) => n.content.text).join(" ")).not.toContain("alarm");
+  });
+});
