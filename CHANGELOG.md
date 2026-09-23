@@ -9,6 +9,35 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.6.0 — unreleased
+
+### Added
+
+- **Conclusions go with their facts.** A fact that stops being true (`validTo` set) retracts every
+  conclusion drawn from it, transitively — kept, with its text and history, and a `retraction`
+  naming the source — so as-of reads still show what was believed and when it stopped. A fact that
+  is erased takes every conclusion built from it with it, transitively, histories included, in the
+  same transaction, so what was erased cannot be read back in a conclusion's words or rebuilt by
+  the next pass. SPEC §8a has the two paths side by side; `src/derived-conformance.spec.ts` holds
+  every store to them.
+- **Governed: one decision for the whole closure.** Erasing asks the erase policies about the fact
+  and every conclusion built on it; if any may not go (`memoryLock()`, a protecting policy) nothing
+  changes and the refusal names the conclusion. Invalidating asks the update policies about each
+  retraction. Audit events list every id. Recently deleted bins, restores and purges a fact and its
+  conclusions together (`DeletedFact.with`); a conclusion cannot be restored on its own while its
+  fact waits.
+
+### Behaviour change
+
+- `deleteNode` erases more than the node named: every fact whose `derivedFrom` reaches it goes too,
+  including one that also rests on a fact that survives. A host that deleted a source and expected
+  its conclusions to stay will find them gone.
+- `updateNode` that sets `validTo` on a fact with none retracts the live conclusions drawn from it,
+  with a version recorded for each. Clearing `validTo` afterwards does not bring them back.
+  `restoreNode` (import) never cascades.
+- On a governed handle, an erase or an invalidation can now be refused because of a conclusion,
+  not only because of the fact named.
+
 ## 0.5.1 — 2026-09-22
 
 Fixes from a post-release review of 0.5.0. Every fix started as a test that failed on

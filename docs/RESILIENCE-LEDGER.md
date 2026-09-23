@@ -98,6 +98,22 @@ worse than no entry, because this file is meant to survive review.
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
 
+### A conclusion that outlived the fact it was drawn from
+- **Reported by:** ourselves — our 2026-09-22 review of the erase path
+- **The failure:** erasing a fact left standing every conclusion the consolidation pass had
+  drawn from it, so what was erased could still be read back in a conclusion's words; and
+  invalidating a fact left its conclusions current, so a retired belief kept propping up others.
+- **Us:** shared it, fixed in 0.6.0
+- **Evidence:** `src/derived-conformance.spec.ts` (both stores: transitive erasure with
+  histories, retraction kept and versioned, no quiet un-retraction, import never cascades);
+  `src/governance/derived-cascade.test.ts` (one decision under `memoryLock()` and a protecting
+  policy, audit ids, Recently deleted together, the MCP `invalidate` tool); `src/consolidation.test.ts`
+  "an erased source cannot come back through a conclusion". Code: `src/derived.ts`,
+  `src/governance/cascade.ts`, `src/governance/recently-deleted.ts`.
+- **Notes:** a conclusion that also rests on a surviving fact is erased too — its words may carry
+  the erased one; the survivor is re-derivable. Binning and restoring a closure are sequential
+  writes under one audit event, not one transaction; erasure is one transaction.
+
 ### A derived fact was always Private
 - **Reported by:** post-release review of 0.5.0 (Opus 5.5), 2026-09-22
 - **The failure:** consolidation wrote every derived fact as Private and showed Sensitive facts to the model, so "Sees Dr Lee weekly for therapy", derived from a hand-marked Sensitive fact, reached an MCP client on recall.

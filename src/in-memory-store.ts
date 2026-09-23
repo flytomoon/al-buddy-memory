@@ -1,3 +1,4 @@
+import { dependentsOf, isInvalidation, retractionsFor, sourceRetraction } from "./derived.js";
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, stampAfter } from "./instant.js";
@@ -210,9 +211,24 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     if (!existing) throw new Error(`Memory node not found: ${nodeId}`);
     assertPatchMutable(patch);
     assertAnchorEvent(anchorEvent);
+    const updated = this.applyUpdate(existing, canonicalPatch(patch), anchorEvent);
+    // A source that stops being true retracts what was concluded from it, in
+    // the same step (derived.ts). No await in here, so nothing interleaves.
+    if (isInvalidation(existing, updated)) {
+      const at = updated.temporalAnchors[updated.temporalAnchors.length - 1]!.timestamp;
+      for (const r of retractionsFor(nodeId, updated.validTo!, [...this.nodes.values()])) {
+        const d = this.nodes.get(r.nodeId)!;
+        this.applyUpdate(d, { validTo: updated.validTo, contextualMetadata: { ...d.contextualMetadata, retraction: sourceRetraction(r.because, at) } }, "modified");
+      }
+    }
+    return copy(updated);
+  }
+
+  /** One recorded change: anchor, version and the new state, no checks. */
+  private applyUpdate(existing: MemoryNode, patch: Parameters<MemoryStore["updateNode"]>[1], anchorEvent: NonNullable<Parameters<MemoryStore["updateNode"]>[2]>): MemoryNode {
     const updated: MemoryNode = {
       ...copy(existing),
-      ...copy(canonicalPatch(patch)),
+      ...copy(patch),
       temporalAnchors: [
         ...existing.temporalAnchors,
         { timestamp: this.stampFor(existing), event: anchorEvent },
@@ -221,14 +237,14 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     const recordedAt = updated.temporalAnchors[updated.temporalAnchors.length - 1]!.timestamp;
     this.recordVersion({
       versionId: globalThis.crypto.randomUUID(),
-      nodeId,
+      nodeId: existing.nodeId,
       recordedAt,
       event: anchorEvent,
       before: mutableState(existing),
       after: mutableState(updated),
     });
-    this.nodes.set(nodeId, updated);
-    return copy(updated);
+    this.nodes.set(existing.nodeId, updated);
+    return updated;
   }
 
   async restoreNode(input: MemoryNode): Promise<void> {
@@ -285,6 +301,11 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
   }
 
   async deleteNode(nodeId: string): Promise<void> {
+    // Erased with everything concluded from it (derived.ts), in one step.
+    for (const id of [nodeId, ...dependentsOf([nodeId], this.nodes.values())]) this.eraseOne(id);
+  }
+
+  private eraseOne(nodeId: string): void {
     this.nodes.delete(nodeId);
     for (const version of this.versions.get(nodeId) ?? []) this.versionIds.delete(version.versionId);
     this.versions.delete(nodeId);

@@ -88,6 +88,24 @@ As-of reads reconstruct in memory. This keeps the persistent representation and 
 
 When a fact stops being true, set `validTo` rather than deleting it. Deletion is reserved for erasure.
 
+### 8a. When a fact a conclusion rests on goes (0.6.0)
+
+A derived fact names its sources in `contextualMetadata.derivedFrom`. A source can go two ways,
+and the store treats them differently on purpose:
+
+| The source… | What happens to what was concluded from it |
+|---|---|
+| **stopped being true** (`updateNode` sets `validTo` where there was none) | Every conclusion still in force at that instant is **retracted, and kept**: its `validTo` becomes the source's, its text and history stay, and `contextualMetadata.retraction` records `{ at, by: "invalidation", reason: "a source stopped being true: <id>" }`. As-of reads still show what was believed and when it stopped. Transitive: a conclusion drawn from a retracted conclusion is retracted too. |
+| **must not exist** (`deleteNode`) | The fact is **erased with everything built from it**, transitively, histories included, in one transaction. A conclusion that also cites a source that survives is still erased: its words may carry the erased fact, and what survives can be concluded again by the next pass, which reads only raw that exists. |
+
+In short: stopped being true → kept, marked; must not exist → removed with everything built from it.
+
+Two rules follow. Clearing the source's `validTo` later does **not** bring a retracted conclusion
+back: it was withdrawn for a reason that has not been undone for it, and the next pass re-derives
+what still holds. And `restoreNode` never cascades: an import restores a store's state as it was
+written, conclusions and retractions included. Every `MemoryStore` must behave this way; the
+conformance cases are in `src/derived-conformance.spec.ts`.
+
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
 Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.

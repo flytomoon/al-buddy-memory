@@ -1,3 +1,4 @@
+import { dependentsOf, isInvalidation, retractionsFor, sourceRetraction } from "./derived.js";
 import { randomUUID } from "node:crypto";
 
 import { compareRecency, effectiveConfidence, learnedAt } from "./decay.js";
@@ -1075,88 +1076,116 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       if (existingRow === undefined) {
         throw new Error(`MemoryNode not found: ${nodeId}`);
       }
-
       const existing = rowToNode(existingRow);
-      const now = this.stampFor(existing);
-      const newAnchors: TemporalAnchor[] = [
-        ...existing.temporalAnchors,
-        { timestamp: now, event: anchorEvent },
-      ];
-
-      const updated: MemoryNode = {
-        ...existing,
-        ...patch,
-        nodeId,
-        temporalAnchors: newAnchors,
-      };
-
-      insertVersion(this.db, {
-        versionId: randomUUID(),
-        nodeId,
-        recordedAt: now,
-        event: anchorEvent,
-        before: mutableState(existing),
-        after: mutableState(updated),
-      });
-
-      // No full-text update: content is immutable (assertPatchMutable above), so
-      // the indexed text can never drift from the row.
-
-      this.db
-        .prepare(
-          `UPDATE memory_nodes SET
-            memory_type             = @memoryType,
-            privacy_classification  = @privacyClassification,
-            retention_tier          = @retentionTier,
-            content_text            = @contentText,
-            content_structured_data = @contentStructuredData,
-            content_attachment_refs = @contentAttachmentRefs,
-            contextual_metadata     = @contextualMetadata,
-            temporal_anchors        = @temporalAnchors,
-            valid_from              = @validFrom,
-            valid_to                = @validTo,
-            confidence_weight       = @confidenceWeight,
-            decay_rate              = @decayRate,
-            embedding               = @embedding
-          WHERE node_id = @nodeId`,
-        )
-        .run({
-          nodeId,
-          memoryType: updated.memoryType,
-          privacyClassification: updated.privacyClassification,
-          retentionTier: updated.retentionTier,
-          contentText: updated.content.text,
-          contentStructuredData: updated.content.structuredData
-            ? JSON.stringify(updated.content.structuredData)
-            : null,
-          contentAttachmentRefs: updated.content.attachmentRefs
-            ? JSON.stringify(updated.content.attachmentRefs)
-            : null,
-          contextualMetadata: JSON.stringify(updated.contextualMetadata),
-          temporalAnchors: JSON.stringify(newAnchors),
-          validFrom: updated.validFrom,
-          validTo: updated.validTo,
-          confidenceWeight: updated.confidenceWeight,
-          decayRate: updated.decayRate,
-          embedding: updated.embedding ? JSON.stringify(updated.embedding) : null,
-        });
-
+      const updated = this.applyUpdate(existing, patch, anchorEvent);
+      // A source that stops being true retracts what was concluded from it,
+      // inside this same transaction (derived.ts).
+      if (isInvalidation(existing, updated)) {
+        const at = updated.temporalAnchors[updated.temporalAnchors.length - 1]!.timestamp;
+        for (const r of retractionsFor(nodeId, updated.validTo!, this.derivedCandidates())) {
+          const d = rowToNode(this.db.prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`).get(r.nodeId) as NodeRow);
+          this.applyUpdate(d, { validTo: updated.validTo, contextualMetadata: { ...d.contextualMetadata, retraction: sourceRetraction(r.because, at) } }, "modified");
+        }
+      }
       return updated;
     });
   }
 
+  /**
+   * Every fact that names sources — the only ones a cascade can reach. Read
+   * inside the caller's transaction.
+   */
+  private derivedCandidates(): MemoryNode[] {
+    return (this.db
+      .prepare(`SELECT * FROM memory_nodes WHERE json_type(contextual_metadata, '$.derivedFrom') = 'array'`)
+      .all() as NodeRow[]).map(rowToNode);
+  }
+
+  /** One recorded change — anchor, version, row — for a caller already inside mutation(). */
+  private applyUpdate(existing: MemoryNode, patch: Parameters<MemoryStore["updateNode"]>[1], anchorEvent: NonNullable<Parameters<MemoryStore["updateNode"]>[2]>): MemoryNode {
+    const nodeId = existing.nodeId;
+    const now = this.stampFor(existing);
+    const newAnchors: TemporalAnchor[] = [
+      ...existing.temporalAnchors,
+      { timestamp: now, event: anchorEvent },
+    ];
+
+    const updated: MemoryNode = {
+      ...existing,
+      ...patch,
+      nodeId,
+      temporalAnchors: newAnchors,
+    };
+
+    insertVersion(this.db, {
+      versionId: randomUUID(),
+      nodeId,
+      recordedAt: now,
+      event: anchorEvent,
+      before: mutableState(existing),
+      after: mutableState(updated),
+    });
+
+    // No full-text update: content is immutable (assertPatchMutable above), so
+    // the indexed text can never drift from the row.
+
+    this.db
+      .prepare(
+        `UPDATE memory_nodes SET
+          memory_type             = @memoryType,
+          privacy_classification  = @privacyClassification,
+          retention_tier          = @retentionTier,
+          content_text            = @contentText,
+          content_structured_data = @contentStructuredData,
+          content_attachment_refs = @contentAttachmentRefs,
+          contextual_metadata     = @contextualMetadata,
+          temporal_anchors        = @temporalAnchors,
+          valid_from              = @validFrom,
+          valid_to                = @validTo,
+          confidence_weight       = @confidenceWeight,
+          decay_rate              = @decayRate,
+          embedding               = @embedding
+        WHERE node_id = @nodeId`,
+      )
+      .run({
+        nodeId,
+        memoryType: updated.memoryType,
+        privacyClassification: updated.privacyClassification,
+        retentionTier: updated.retentionTier,
+        contentText: updated.content.text,
+        contentStructuredData: updated.content.structuredData
+          ? JSON.stringify(updated.content.structuredData)
+          : null,
+        contentAttachmentRefs: updated.content.attachmentRefs
+          ? JSON.stringify(updated.content.attachmentRefs)
+          : null,
+        contextualMetadata: JSON.stringify(updated.contextualMetadata),
+        temporalAnchors: JSON.stringify(newAnchors),
+        validFrom: updated.validFrom,
+        validTo: updated.validTo,
+        confidenceWeight: updated.confidenceWeight,
+        decayRate: updated.decayRate,
+        embedding: updated.embedding ? JSON.stringify(updated.embedding) : null,
+      });
+
+    return updated;
+  }
+
   async deleteNode(nodeId: string): Promise<void> {
     // One transaction: a crash between the two deletes used to leave a readable
-    // fact that keyword search could never find again.
+    // fact that keyword search could never find again. And the fact goes with
+    // everything concluded from it (derived.ts), in that same transaction.
     this.mutation(() => {
-      const row = this.db
-        .prepare(`SELECT fts_rowid FROM memory_nodes WHERE node_id = ?`)
-        .get(nodeId) as Pick<NodeRow, "fts_rowid"> | undefined;
-      if (row !== undefined) {
-        this.db.prepare(`DELETE FROM memory_fts WHERE rowid = ?`).run(row.fts_rowid);
+      for (const id of [nodeId, ...dependentsOf([nodeId], this.derivedCandidates())]) {
+        const row = this.db
+          .prepare(`SELECT fts_rowid FROM memory_nodes WHERE node_id = ?`)
+          .get(id) as Pick<NodeRow, "fts_rowid"> | undefined;
+        if (row !== undefined) {
+          this.db.prepare(`DELETE FROM memory_fts WHERE rowid = ?`).run(row.fts_rowid);
+        }
+        // ON DELETE CASCADE clears memory_edges, memory_embeddings and node_versions.
+        this.db.prepare(`DELETE FROM memory_nodes WHERE node_id = ?`).run(id);
       }
-      // ON DELETE CASCADE clears memory_edges and memory_embeddings.
-      this.db.prepare(`DELETE FROM memory_nodes WHERE node_id = ?`).run(nodeId);
     });
   }
 

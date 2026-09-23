@@ -286,6 +286,26 @@ Worth knowing:
   fact in the bin can only erase itself.
 - Links (`deleteEdge`) are erased at once either way.
 
+## Conclusions go with their facts (0.6.0)
+
+What happens to a derived fact when its source goes is a store rule (SPEC §8a): an invalidated
+source retracts its conclusions and keeps them; an erased source takes them with it. On a governed
+handle the policies see all of it first, as ONE decision:
+
+- **Erasing** a fact asks the erase policies about the fact AND every conclusion built on it. If
+  any one may not go — `memoryLock()`, a policy that protects it — the whole erase is refused
+  before anything changes, and the refusal names the conclusion that stood in the way. The audit
+  event lists every id erased.
+- **Invalidating** a fact asks the update policies about each retraction it will cause, and the
+  audit event lists the fact and every conclusion retracted. The MCP `invalidate` tool goes
+  through the same path.
+- **Recently deleted** holds a fact and its conclusions together: binning the fact bins them
+  (each records the fact it rests on, `deletionRequested.with`), `restoreDeleted` of the fact
+  brings them back with it, a conclusion cannot be restored on its own while its fact waits,
+  and a purge makes them final together — never a conclusion on its own. Binning and restoring
+  write one fact after another inside the handle's queue, under one audit event; erasing is one
+  store transaction.
+
 ## What the store guarantees without any policy
 
 - Sealed facts never surface unless asked for by classification.
