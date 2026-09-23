@@ -69,9 +69,9 @@ export async function explainFact(store: MemoryStore, id: string, opts: { now?: 
   const node = await store.getNode(id);
   if (!node) return undefined;
   const now = (opts.now ?? (() => new Date()))().getTime();
-  const meta = node.contextualMetadata;
+  const about = node.contextualMetadata;
 
-  const r = meta["retraction"] as { at?: unknown; by?: unknown; reason?: unknown } | undefined;
+  const r = about["retraction"] as { at?: unknown; by?: unknown; reason?: unknown } | undefined;
   const retraction = r && typeof r.at === "string" && typeof r.by === "string" && typeof r.reason === "string" ? { at: r.at, by: r.by, reason: r.reason } : null;
 
   let derived: Explanation["derived"] = null;
@@ -89,7 +89,7 @@ export async function explainFact(store: MemoryStore, id: string, opts: { now?: 
       if (mine.length === 0) evidence.push({ nodeId: sourceId, quote: null, source: "available", holds: null });
       for (const q of mine) evidence.push({ nodeId: sourceId, quote: q.quote, source: "available", holds: quoteHolds(q.quote, source.content.text) });
     }
-    derived = { derivedFrom: sources, model: str(meta["consolidatedBy"]), consolidatedAt: str(meta["consolidatedAt"]), evidence };
+    derived = { derivedFrom: sources, model: str(about["consolidatedBy"]), consolidatedAt: str(about["consolidatedAt"]), evidence };
   }
 
   let history: Explanation["history"] = null;
@@ -103,7 +103,7 @@ export async function explainFact(store: MemoryStore, id: string, opts: { now?: 
       id: node.nodeId,
       text: node.content.text,
       provenance: node.provenance,
-      origin: readOrigin(meta),
+      origin: readOrigin(about),
       memoryType: node.memoryType,
       privacyClassification: node.privacyClassification,
       confidence: node.confidenceWeight,
@@ -113,8 +113,8 @@ export async function explainFact(store: MemoryStore, id: string, opts: { now?: 
       validFrom: node.validFrom,
       validTo: node.validTo,
       current: node.validTo === null || Date.parse(node.validTo) > now,
-      supersededBy: str(meta["supersededBy"]),
-      reason: str(meta["invalidatedBecause"]),
+      supersededBy: str(about["supersededBy"]),
+      reason: str(about["invalidatedBecause"]),
       retraction,
     },
     derived,
