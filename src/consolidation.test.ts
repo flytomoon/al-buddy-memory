@@ -1,12 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
+import { consolidate as consolidateChecked, listConsolidations, undoConsolidation, type ConsolidateOptions, type DerivedFact, type RawExcerpt } from "./consolidation.js";
 import { MemoryAudit, type AuditSink } from "./governance/audit.js";
 import { govern } from "./governance/governed-store.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import type { MemoryStore } from "./types/memory.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
+
+/**
+ * Since 0.6.0 a conclusion must quote each source it cites (evidence.test.ts
+ * covers that rule). These tests are about everything else a pass does, so a
+ * proposal without evidence is given the opening words of each cited source it
+ * can see; one that brings its own evidence keeps it.
+ */
+function consolidate(store: MemoryStore, opts: ConsolidateOptions) {
+  return consolidateChecked(store, {
+    ...opts,
+    propose: async (raw: readonly RawExcerpt[]): Promise<DerivedFact[]> =>
+      (await opts.propose(raw)).map((p) =>
+        p.evidence
+          ? p
+          : { ...p, evidence: (p.sourceNodeIds ?? []).filter((id) => raw.some((r) => r.nodeId === id)).map((id) => ({ nodeId: id, quote: raw.find((r) => r.nodeId === id)!.text.trim().slice(0, 8) })) },
+      ),
+  });
+}
 
 /**
  * Facts captured in one millisecond, restored into an empty store. (Rewriting

@@ -61,11 +61,23 @@ Sensitive facts are not shown to the model at all unless you pass `includeSensit
 and a fact derived from one is written Sensitive. Sealed facts are never shown. Since 0.5.1, then,
 that password turn — classified Sensitive by the policy on `governed` — never reaches the model.
 
+Since 0.6.0 each conclusion must quote the words it rests on: `evidence` holds at least one
+exact passage from every source it cites, and a conclusion whose quotes are not in its sources is
+refused as unsupported. Ask your model for the quotes alongside the fact:
+
 ```ts
 import { consolidate } from "al-buddy-memory";
 
-await consolidate(governed, { since: yesterday, model: "your-model", propose: async (excerpts) => yourModel(excerpts) });
+await consolidate(governed, {
+  since: yesterday,
+  model: "your-model",
+  // Each proposal: { text, sourceNodeIds, evidence: [{ nodeId, quote }] }, quotes copied verbatim.
+  propose: async (excerpts) => yourModel(excerpts),
+});
 ```
+
+Run `verifyDerived(governed)` whenever you import memory from elsewhere: it re-checks every
+conclusion's quotes against its sources and retracts, never deletes, any that no longer hold.
 
 Show the person what was learned about them once a week, in a sentence they can correct.
 That is the whole loop: pin the spine, enforce the rules, derive the rest, keep everything.

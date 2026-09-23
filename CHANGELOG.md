@@ -27,6 +27,15 @@ earlier were GitHub releases only.
   conclusions together (`DeletedFact.with`); a conclusion cannot be restored on its own while its
   fact waits.
 
+- **Evidence on every conclusion, checked.** `consolidate()` stores, for each derived fact, the
+  exact passage(s) of each source it rests on (`contextualMetadata.evidence: [{ nodeId, quote }]`),
+  and refuses one whose quotes are not in its sources ("unsupported: quote not found in source
+  <id>", "unsupported: no quote from source <id>"). `verifyDerived(store)` re-checks every live
+  conclusion's quotes any time — after an import, say — and retracts (never deletes) any whose
+  evidence no longer holds; conclusions written before 0.6.0 carry no evidence and are named as
+  unverifiable, not retracted. Evidence travels in the portable export unchanged (it is
+  contextual metadata; the format version does not move).
+
 ### Behaviour change
 
 - `deleteNode` erases more than the node named: every fact whose `derivedFrom` reaches it goes too,
@@ -37,6 +46,9 @@ earlier were GitHub releases only.
   `restoreNode` (import) never cascades.
 - On a governed handle, an erase or an invalidation can now be refused because of a conclusion,
   not only because of the fact named.
+- **`propose()` must return evidence.** A `DerivedFact` without `evidence` quoting every source it
+  cites is refused. A host's consolidation prompt needs to ask its model for the quotes — see
+  docs/STARTER.md.
 
 ## 0.5.1 — 2026-09-22
 
