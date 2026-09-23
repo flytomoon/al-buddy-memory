@@ -106,6 +106,16 @@ what still holds. And `restoreNode` never cascades: an import restores a store's
 written, conclusions and retractions included. Every `MemoryStore` must behave this way; the
 conformance cases are in `src/derived-conformance.spec.ts`.
 
+### 8b. A conclusion carries its evidence (0.6.0)
+
+A derived fact records the words it rests on: `contextualMetadata.evidence` is an array of
+`{ nodeId, quote }`, with at least one entry for every id in `derivedFrom`, and each `quote` must
+appear in that source's `content.text` once line breaks and runs of whitespace are read as one
+space. `consolidate()` refuses a conclusion that does not meet this, so a derived fact can always
+be shown beside what it was drawn from. Raw text is immutable, so evidence that held when written
+holds while the source exists; `verifyDerived()` re-checks it for what arrived by import or from
+an older library, and retracts — never deletes — a conclusion whose evidence no longer holds.
+
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
 Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.

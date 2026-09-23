@@ -11,6 +11,7 @@
  * model-agnostic and calls nothing itself.
  */
 import { compareBinary, compareRecency, learnedAt } from "./decay.js";
+import { EVIDENCE, evidenceProblem, type EvidenceQuote } from "./evidence.js";
 import { canonicalInstant, instantMs } from "./instant.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "./types/memory.js";
@@ -26,6 +27,12 @@ export interface DerivedFact {
   text: string;
   /** Which raw excerpts this fact rests on — at least one, or it is not written. */
   sourceNodeIds: string[];
+  /**
+   * The exact passage(s) of each source that support it — at least one per
+   * source, each found in that source's text (whitespace-normalised), or the
+   * fact is refused as unsupported (0.6.0; see evidence.ts).
+   */
+  evidence?: EvidenceQuote[];
   /** 0–1; default 0.7. A derived fact never claims more certainty than raw testimony. */
   confidence?: number;
   memoryType?: MemoryNode["memoryType"];
@@ -57,7 +64,7 @@ export interface ConsolidationReport {
   read: number;
   proposed: number;
   written: number;
-  /** Proposals refused, with why (no sources, empty text, unknown source id). */
+  /** Proposals refused, with why (no sources, empty text, unknown source id, unsupported by its evidence). */
   refused: { text: string; why: string }[];
   derivedNodeIds: string[];
 }
@@ -132,6 +139,12 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
       report.refused.push({ text, why: `source not in this pass: ${unknown.join(", ")}` });
       continue;
     }
+    const evidence = (p.evidence ?? []).map((e) => ({ nodeId: e.nodeId, quote: String(e.quote ?? "").trim() }));
+    const problem = evidenceProblem(sources, evidence, (id) => known.get(id)?.content.text);
+    if (problem !== null) {
+      report.refused.push({ text, why: `unsupported: ${problem}` });
+      continue;
+    }
     if (opts.dryRun) {
       report.written++;
       continue;
@@ -144,7 +157,7 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
       privacyClassification: sources.some((id) => known.get(id)!.privacyClassification === "Sensitive") ? "Sensitive" : "Private",
       retentionTier: "FullRetention",
       content: { text },
-      contextualMetadata: { derivedFrom: sources, [CONSOLIDATED_MARK]: opts.model, consolidatedAt: now, tags: ["derived"] },
+      contextualMetadata: { derivedFrom: sources, [EVIDENCE]: evidence, [CONSOLIDATED_MARK]: opts.model, consolidatedAt: now, tags: ["derived"] },
       confidenceWeight: Math.max(0, Math.min(1, p.confidence ?? 0.7)),
       decayRate: 0,
     };

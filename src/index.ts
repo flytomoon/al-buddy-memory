@@ -30,6 +30,9 @@ export { PinnedBlocks, PINNED_TAG, PINNED_HEADER, DEFAULT_PINNED_BUDGET } from "
 export type { PinInput, PinnedBlock } from "./pinned.js";
 export { consolidate, listConsolidations, undoConsolidation } from "./consolidation.js";
 export type { ConsolidateOptions, ConsolidationReport, ConsolidatedFact, ConsolidationRun, DerivedFact, RawExcerpt, Retraction, UndoConsolidationReport } from "./consolidation.js";
+export { DERIVED_FROM, derivedFromOf, dependentsOf } from "./derived.js";
+export { EVIDENCE, evidenceOf, quoteHolds, verifyDerived } from "./evidence.js";
+export type { EvidenceQuote, VerifyReport } from "./evidence.js";
 // The MCP server lives at "al-buddy-memory/mcp": it needs the optional `zod`
 // and `@modelcontextprotocol/sdk`, and the core must import without them.
 export { scoreConformance, formatReport, toConformanceInput, detectFormat, fromPortable, fromBlocks, fromRecords, proveRoundTrip } from "./conformance/index.js";

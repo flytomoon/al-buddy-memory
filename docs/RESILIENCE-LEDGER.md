@@ -98,6 +98,20 @@ worse than no entry, because this file is meant to survive review.
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
 
+### A conclusion that cited its sources, and nothing checked what they said
+- **Reported by:** ourselves — our 2026-09-22 review of the erase path
+- **The failure:** a derived fact named the raw facts it rested on by id, and that was all;
+  a conclusion the sources did not actually say was stored, cited and served with the same
+  standing as one they did.
+- **Us:** shared it, fixed in 0.6.0
+- **Evidence:** `src/evidence.test.ts` (both stores: quotes stored, a missing quote and a quote
+  not in its source refused with the reason, evidence from an uncited fact refused,
+  `verifyDerived` retracting and naming what it could not check, evidence surviving export and
+  import). Code: `src/evidence.ts`, `src/consolidation.ts`.
+- **Notes:** the check is verbatim-after-whitespace, not semantic: a quote that is in the source
+  but does not support the conclusion passes. It proves the words exist, and puts them where a
+  person can judge them (`explainFact`).
+
 ### A conclusion that outlived the fact it was drawn from
 - **Reported by:** ourselves — our 2026-09-22 review of the erase path
 - **The failure:** erasing a fact left standing every conclusion the consolidation pass had
