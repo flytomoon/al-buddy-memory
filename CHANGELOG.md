@@ -9,7 +9,7 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
-## 0.6.0 — unreleased
+## 0.6.0 — 2026-09-23
 
 ### Added
 
