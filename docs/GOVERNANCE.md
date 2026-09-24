@@ -314,6 +314,17 @@ else), and each source of a conclusion is read the same way — one the reader m
 listed as `withheld`, with no quote, because the quote is that source's own words. The MCP `explain`
 tool does the same through the server's governed handle.
 
+## Mental models, on a governed handle (0.7.0)
+
+Every read in a mental model is a store read, so a governed handle decides it like any other: an
+answer this reader may not read is not shown (`withheld`), and each piece of evidence is read the
+same way — a source this reader may not read is listed as withheld with no quote. An answer is
+written at the privacy class of the most restricted fact it rests on, so a policy that hides
+Sensitive facts from an assistant hides a Sensitive answer from it too. Sealed facts are never shown
+to the judgement that writes answers, whoever runs the refresh. Refresh writes go through the
+handle's write policies like any other derived fact. The MCP `mental_model` and
+`define_mental_model` tools go through the server's governed handle.
+
 ## What the store guarantees without any policy
 
 - Sealed facts never surface unless asked for by classification.

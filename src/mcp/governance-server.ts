@@ -13,6 +13,7 @@
  * without a transport; `bin/al-buddy-memory-mcp.js` wires stdio.
  */
 import { explainFact, type Explanation } from "../explain.js";
+import { defineMentalModel, getMentalModel, listMentalModels, QUESTION_MAX_CHARS, type MentalModel } from "../mental-models.js";
 import { readFileSync } from "node:fs";
 
 import { z } from "zod";
@@ -306,6 +307,22 @@ export function governanceTools(deps: GovernanceDeps) {
       if (!e) throw new Error(`explain: no fact ${input.id}`);
       return e;
     },
+    /**
+     * A standing question's pre-written answer, with how fresh it is and the
+     * words it rests on — no model call. With no id, every model. Answers are
+     * refreshed by the host (refreshMentalModels), not by this call.
+     */
+    async mentalModel(input: { id?: string | undefined }): Promise<MentalModel | MentalModel[]> {
+      if (input.id === undefined || input.id.trim() === "") return listMentalModels(deps.store, { now });
+      const m = await getMentalModel(deps.store, input.id, { now });
+      if (!m) throw new Error(`mental_model: no mental model ${input.id}`);
+      return m;
+    },
+    /** Define a standing question for the host's next refresh to answer. */
+    async defineMentalModel(input: { question: string; tags?: string[] | undefined }): Promise<{ id: string; question: string }> {
+      const id = await defineMentalModel(deps.store, { question: input.question, ...(input.tags && input.tags.length > 0 ? { scope: { tags: input.tags } } : {}) });
+      return { id, question: input.question.replace(/\s+/g, " ").trim() };
+    },
     /** Close a fact's validity. Never deletes; optionally names the replacement. */
     async invalidate(input: { id: string; replacedBy?: string | undefined; reason?: string | undefined }): Promise<GovernedFact> {
       const node = await deps.store.getNode(input.id);
@@ -387,6 +404,12 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   server.tool("explain", "Why a fact is believed: who asserted it, when it was true and what ended or replaced it, and for a conclusion the exact words it rests on, each checked against its source now.", {
     id: z.string().max(ID_MAX_CHARS),
   }, async (a) => json(await tools.explain(a)));
+  server.tool("mental_model", "Read a standing question's pre-written answer (no model call): the answer, whether it is fresh or stale and why, and the exact words it rests on. Omit id to list every mental model.", {
+    id: z.string().max(ID_MAX_CHARS).optional(),
+  }, async (a) => json(await tools.mentalModel(a)));
+  server.tool("define_mental_model", "Define a standing question to keep answered (e.g. \"What does the user care about when choosing tools?\"), optionally limited to facts carrying some tags. The host's scheduled refresh writes the answer.", {
+    question: z.string().min(1).max(QUESTION_MAX_CHARS), tags: z.array(z.string().max(ID_MAX_CHARS)).max(10).optional(),
+  }, async (a) => json(await tools.defineMentalModel(a)));
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string().max(ID_MAX_CHARS), replacedBy: z.string().max(ID_MAX_CHARS).optional(), reason: z.string().max(REASON_MAX_CHARS).optional(),
   }, async (a) => json(await tools.invalidate(a)));

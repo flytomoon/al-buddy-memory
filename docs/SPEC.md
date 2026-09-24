@@ -116,6 +116,32 @@ be shown beside what it was drawn from. Raw text is immutable, so evidence that 
 holds while the source exists; `verifyDerived()` re-checks it for what arrived by import or from
 an older library, and retracts — never deletes — a conclusion whose evidence no longer holds.
 
+### 8c. Mental models: standing questions with answers kept current (0.7.0)
+
+A mental model is a question asked often enough that its answer should be ready before anyone asks.
+It is stored as ordinary nodes, so nothing about it escapes the rules above:
+
+- The **definition** is a node whose `contextualMetadata.mentalModel` holds `{ question, scope }`
+  (scope: the tags and memory types of the facts that feed it). Its id is the model's id.
+- Each refresh writes a new **answer** node: `provenance: "AIInferred"`, `mentalModelAnswer` naming
+  the definition, `derivedFrom` and `evidence` exactly as for any conclusion (§8a, §8b). An answer
+  whose quotes are not found in its sources is refused and the previous answer stays. The previous
+  answer is closed (`validTo` = the refresh, `supersededBy` = the new one), never overwritten, so the
+  model's valid-time history answers "what did we think then" (`mentalModelAsOf`).
+- An answer is as restricted as the most restricted fact it rests on, never less than Private.
+  Sealed facts are never shown to the judgement; Sensitive ones only when the host opts in.
+- Because an answer is an ordinary conclusion, a fact that stops being true retracts the answer
+  resting on it, and an erased fact erases it (§8a). The definition is never touched by either: the
+  model reads as **stale** and the next refresh answers it again.
+- Freshness is decided on read, with no model call: not answered yet; its newest answer retracted,
+  or not available to this reader (a governed read cannot tell erased from withheld, so it names
+  both); or facts in scope that the answer was never shown. A stale model still returns its last
+  readable answer, marked.
+- Mental-model nodes are never fed to consolidation or to another model's refresh.
+
+Refresh is host-driven: `refreshMentalModels(store, { propose })` batches every stale model into
+one judgement call; schedule it beside consolidation (nightly) or run it on demand.
+
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
 Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.

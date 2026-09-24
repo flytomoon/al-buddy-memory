@@ -34,6 +34,8 @@ export { DERIVED_FROM, derivedFromOf, dependentsOf } from "./derived.js";
 export { EVIDENCE, evidenceOf, quoteHolds, verifyDerived } from "./evidence.js";
 export type { EvidenceQuote, VerifyReport } from "./evidence.js";
 export { explainFact } from "./explain.js";
+export { defineMentalModel, deleteMentalModel, getMentalModel, listMentalModels, mentalModelAsOf, mentalModelHistory, refreshMentalModels, isMentalModelNode, MENTAL_MODEL, MODEL_ANSWER, MENTAL_MODEL_TAG } from "./mental-models.js";
+export type { AnswerVersion, MentalModel, MentalModelEvidence, MentalModelScope, ModelFact, ModelProposal, ModelRequest, RefreshOptions, RefreshReport, Staleness } from "./mental-models.js";
 export type { EvidenceCheck, Explanation } from "./explain.js";
 // The MCP server lives at "al-buddy-memory/mcp": it needs the optional `zod`
 // and `@modelcontextprotocol/sdk`, and the core must import without them.
