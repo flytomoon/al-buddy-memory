@@ -9,6 +9,30 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.7.0 — unreleased
+
+### Added
+
+- **Mental models.** A standing question ("what does the user care about when choosing tools?")
+  with a pre-written answer kept current in the background, so reading it costs no model call.
+  `defineMentalModel(store, { question, scope })` defines one; `refreshMentalModels(store,
+  { propose })` asks one batched judgement about every stale model and writes each answer as a new
+  conclusion node that quotes the facts it rests on (checked verbatim; an unsupported answer is
+  refused and the previous one stays); `getMentalModel` / `listMentalModels` read the answer, its
+  freshness and its evidence; `mentalModelHistory` / `mentalModelAsOf` show every earlier answer and
+  what the model said on a given date; `deleteMentalModel` removes one. A model reads as stale when
+  a fact it rests on stops being true (its answer is retracted, kept) or is erased (its answer is
+  erased with it — an erased fact cannot survive in a summary), or when facts in its scope arrive
+  that its answer was never shown. An answer is as restricted as its most restricted source; Sealed
+  facts are never shown to the judgement; Sensitive ones only with `includeSensitive`. SPEC §8c.
+- MCP tools `mental_model` (read one, or list) and `define_mental_model`. Answers are refreshed by
+  the host on its own schedule.
+
+### Behaviour change
+
+- `consolidate()` no longer reads mental-model definitions as raw facts (a standing question is not
+  something that happened).
+
 ## 0.6.0 — 2026-09-23
 
 ### Added
