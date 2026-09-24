@@ -323,12 +323,12 @@ transaction as the fact.
 
 ```json
 { "mcpServers": { "memory": { "command": "npx",
-    "args": ["-y", "--package=al-buddy-memory@0.6.0", "al-buddy-memory-mcp"] } } }
+    "args": ["-y", "--package=al-buddy-memory@0.7.0", "al-buddy-memory-mcp"] } } }
 ```
 
 `al-buddy-memory-mcp` is an executable *inside* the `al-buddy-memory` package, not a
 package of its own, so `--package=` is what tells npx where to find it — `npx
-al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.6.0`
+al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.7.0`
 to track the latest release instead of the one you tested.
 
 > **Releasing?** This pin is a documented version and goes stale the moment a new one
