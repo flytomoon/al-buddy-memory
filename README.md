@@ -57,6 +57,7 @@ entry before you upgrade.
 - Conclusions go with their facts: a fact that stops being true retracts what was concluded from it (kept, marked); a fact that is erased takes everything built from it (SPEC §8a).
 - `listConsolidations` / `undoConsolidation`: review what each pass concluded, with the evidence for every fact, and take back one pass's conclusions. Undo retracts (`validTo`) and records who withdrew each fact and why; it never deletes, so the history still shows what was believed, when it was withdrawn, and the reason.
 - `buildSourceProvenance` / `readSourceProvenance`, `renderMemoryBlock`, `exportMemoryMarkdown`, decay helpers.
+- Integrations: `al-buddy-memory/ai-sdk` (Vercel AI SDK tools + middleware), `al-buddy-memory/langchain` (a LangGraph long-term memory store + LangChain tools), `al-buddy-memory/mastra` (an input processor + tools). The frameworks are optional peer dependencies; every write is governed and records which agent made it. Guides in [docs/integrations](docs/integrations/).
 
 Node ≥ 20. One runtime dependency (`better-sqlite3`); transformers.js is optional.
 

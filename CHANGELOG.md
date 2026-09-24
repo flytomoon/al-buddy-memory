@@ -9,6 +9,26 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.7.0 — unreleased
+
+### Added
+
+- **Framework integrations**, as subpath exports with the frameworks as optional peer dependencies
+  (nothing loads unless you import the subpath). Each is a thin shape over the same governed tools
+  the MCP server uses, so a write from a framework is the same policy-checked, provenance-stamped
+  write, with `origin.agent` set to your agent and `origin.via` to the integration.
+  - `al-buddy-memory/ai-sdk` — `alBuddyMemoryTools` (remember, recall, invalidate, explain as AI SDK
+    tools) and `alBuddyMemoryMiddleware`, which puts the pinned rules and the facts recalled for the
+    turn in front of the model, fenced as data. Tested with `ai` 7.
+  - `al-buddy-memory/langchain` — `AlBuddyMemoryStore`, a LangGraph `BaseStore` for
+    `compile({ store })`: a second put to the same key retires the old value (kept in history), a
+    delete invalidates rather than erases. Plus the four tools as LangChain tools. Tested with
+    `@langchain/langgraph` 1.4 and `@langchain/core` 1.2.
+  - `al-buddy-memory/mastra` — `alBuddyMemoryProcessor`, an input processor, and the four tools via
+    `createTool`. Tested with `@mastra/core` 1.70 inside a real `Agent`.
+  - `openAgentMemory(path)` in each: a governed SQLite store with the personal-default policies.
+  - Guides: [docs/integrations](docs/integrations/).
+
 ## 0.6.0 — 2026-09-23
 
 ### Added
