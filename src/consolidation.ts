@@ -10,6 +10,7 @@
  * the pass never re-reads it. The model is injected — this library is
  * model-agnostic and calls nothing itself.
  */
+import { isMentalModelNode } from "./mental-models.js";
 import { compareBinary, compareRecency, learnedAt } from "./decay.js";
 import { EVIDENCE, evidenceProblem, type EvidenceQuote } from "./evidence.js";
 import { canonicalInstant, instantMs } from "./instant.js";
@@ -110,6 +111,7 @@ export async function consolidate(store: MemoryStore, opts: ConsolidateOptions):
   const sinceMs = instantMs(canonicalInstant(opts.since, "since"));
   const raw = all
     .filter((n) => n.provenance !== "AIInferred") // derived facts are never re-derived
+    .filter((n) => !isMentalModelNode(n)) // a standing question is not something that happened
     .filter((n) => n.privacyClassification !== "Sealed")
     .filter((n) => instantMs(createdAt(n)) >= sinceMs)
     .filter((n) => !alreadyConsolidated(n))
