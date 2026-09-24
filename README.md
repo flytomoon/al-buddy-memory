@@ -1,5 +1,7 @@
 # al-buddy-memory
 
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/flytomoon/al-buddy-memory)
+
 > **Al Buddy** — that's *Al*, a name, said like "pal". Not A.I.
 
 ### A memory that's yours.
