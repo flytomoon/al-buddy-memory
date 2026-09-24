@@ -227,15 +227,15 @@ function factsFor(nodes: readonly MemoryNode[], scope: MentalModelScope, at: num
 }
 
 /** How fresh a model is, from what the store already holds — no model call. */
-function staleness(def: MemoryNode, meta: DefinitionMeta, latest: MemoryNode | undefined, nodes: readonly MemoryNode[], at: number): Staleness | null {
+function staleness(def: MemoryNode, spec: DefinitionMeta, latest: MemoryNode | undefined, nodes: readonly MemoryNode[], at: number): Staleness | null {
   // Through a governed handle an erased answer and a withheld one both read as
   // absent, so neither is claimed: the message names both.
   if (!latest) {
-    if (meta.lastAnswerId) return { since: meta.lastAnswerAt ?? def.validFrom, because: UNAVAILABLE };
+    if (spec.lastAnswerId) return { since: spec.lastAnswerAt ?? def.validFrom, because: UNAVAILABLE };
     return { since: def.validFrom, because: "not answered yet" };
   }
-  if (meta.lastAnswerId && latest.nodeId !== meta.lastAnswerId) {
-    return { since: meta.lastAnswerAt ?? learnedAt(latest), because: `${UNAVAILABLE}; this is the one before it` };
+  if (spec.lastAnswerId && latest.nodeId !== spec.lastAnswerId) {
+    return { since: spec.lastAnswerAt ?? learnedAt(latest), because: `${UNAVAILABLE}; this is the one before it` };
   }
   if (latest.validTo !== null && Date.parse(latest.validTo) <= at) {
     const r = latest.contextualMetadata["retraction"] as { reason?: string } | undefined;
@@ -247,7 +247,7 @@ function staleness(def: MemoryNode, meta: DefinitionMeta, latest: MemoryNode | u
   const shown = latest.contextualMetadata[SHOWN] as { newestAt?: string; ids?: string[] } | undefined;
   const newestMs = shown?.newestAt ? Date.parse(shown.newestAt) : Date.parse(learnedAt(latest));
   const shownIds = new Set(Array.isArray(shown?.ids) ? shown!.ids : []);
-  const newer = factsFor(nodes, meta.scope, at, true).filter((n) => {
+  const newer = factsFor(nodes, spec.scope, at, true).filter((n) => {
     const ms = Date.parse(learnedAt(n));
     return ms > newestMs || (ms === newestMs && !shownIds.has(n.nodeId));
   });
@@ -258,13 +258,13 @@ function staleness(def: MemoryNode, meta: DefinitionMeta, latest: MemoryNode | u
 }
 
 async function readModel(store: MemoryStore, def: MemoryNode, nodes: readonly MemoryNode[], at: number): Promise<MentalModel | null> {
-  const meta = definitionOf(def);
-  if (!meta) return null;
+  const spec = definitionOf(def);
+  if (!spec) return null;
   const answers = answersFor(nodes, def.nodeId);
   const latest = answers[answers.length - 1];
-  const stale = staleness(def, meta, latest, nodes, at);
-  const base = { id: def.nodeId, question: meta.question, scope: meta.scope, definedAt: def.validFrom, fresh: stale === null, stale };
-  if (!latest) return { ...base, answer: null, answerId: null, answeredAt: null, privacyClassification: null, evidence: [], withheld: meta.lastAnswerId !== undefined };
+  const stale = staleness(def, spec, latest, nodes, at);
+  const base = { id: def.nodeId, question: spec.question, scope: spec.scope, definedAt: def.validFrom, fresh: stale === null, stale };
+  if (!latest) return { ...base, answer: null, answerId: null, answeredAt: null, privacyClassification: null, evidence: [], withheld: spec.lastAnswerId !== undefined };
   // The answer is read through the store, so a governed handle's read policy decides.
   const visible = await store.getNode(latest.nodeId);
   if (!visible) return { ...base, answer: null, answerId: null, answeredAt: null, privacyClassification: null, evidence: [], withheld: true };
@@ -328,19 +328,19 @@ export async function refreshMentalModels(store: MemoryStore, opts: RefreshOptio
   const factsById = new Map<string, Map<string, MemoryNode>>();
   const latestById = new Map<string, MemoryNode | undefined>();
   for (const def of nodes) {
-    const meta = definitionOf(def);
-    if (!meta || def.validTo !== null) continue;
+    const spec = definitionOf(def);
+    if (!spec || def.validTo !== null) continue;
     const answers = answersFor(nodes, def.nodeId);
     const latest = answers[answers.length - 1];
-    if (opts.onlyStale !== false && staleness(def, meta, latest, nodes, at) === null) continue;
-    const facts = factsFor(nodes, meta.scope, at, opts.includeSensitive === true).slice(0, opts.maxFactsPerModel ?? 60);
+    if (opts.onlyStale !== false && staleness(def, spec, latest, nodes, at) === null) continue;
+    const facts = factsFor(nodes, spec.scope, at, opts.includeSensitive === true).slice(0, opts.maxFactsPerModel ?? 60);
     if (facts.length === 0) {
       report.empty.push(def.nodeId);
       continue;
     }
     factsById.set(def.nodeId, new Map(facts.map((f) => [f.nodeId, f])));
     latestById.set(def.nodeId, latest && latest.validTo === null ? latest : undefined);
-    requests.push({ modelId: def.nodeId, question: meta.question, facts: facts.map((f) => ({ nodeId: f.nodeId, text: f.content.text, memoryType: f.memoryType, learnedAt: learnedAt(f) })) });
+    requests.push({ modelId: def.nodeId, question: spec.question, facts: facts.map((f) => ({ nodeId: f.nodeId, text: f.content.text, memoryType: f.memoryType, learnedAt: learnedAt(f) })) });
     if (requests.length >= (opts.maxModels ?? 20)) break;
   }
   report.asked = requests.length;
@@ -406,8 +406,8 @@ export async function refreshMentalModels(store: MemoryStore, opts: RefreshOptio
     }
     const def = await store.getNode(p.modelId);
     if (def) {
-      const meta = definitionOf(def)!;
-      await store.updateNode(p.modelId, { contextualMetadata: { ...def.contextualMetadata, [MENTAL_MODEL]: { ...meta, lastAnswerId: saved.nodeId, lastAnswerAt: now } } });
+      const spec = definitionOf(def)!;
+      await store.updateNode(p.modelId, { contextualMetadata: { ...def.contextualMetadata, [MENTAL_MODEL]: { ...spec, lastAnswerId: saved.nodeId, lastAnswerAt: now } } });
     }
     report.written.push({ modelId: p.modelId, answerId: saved.nodeId });
   }
