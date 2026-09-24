@@ -6,10 +6,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import { SqliteMemoryStore, SCHEMA_VERSION } from "./sqlite-memory-store.js";
 import { makeNode, runMemoryStoreConformance } from "./memory-store-conformance.spec.js";
 import { runDerivedConformance } from "./derived-conformance.spec.js";
+import { runMentalModelConformance } from "./mental-models-conformance.spec.js";
 
 // Conformance: run the shared suite against an isolated in-memory database.
 runMemoryStoreConformance("SqliteMemoryStore", () => new SqliteMemoryStore(":memory:"));
 runDerivedConformance("SqliteMemoryStore", () => new SqliteMemoryStore(":memory:"));
+runMentalModelConformance("SqliteMemoryStore", () => new SqliteMemoryStore(":memory:"));
 
 // SQLite-specific: FTS5 must survive real natural-language queries. FTS5 MATCH
 // treats commas, quotes, etc. as query syntax, so a raw user sentence would
