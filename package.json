@@ -84,7 +84,15 @@
     "provenance",
     "portable",
     "local-first",
-    "mcp"
+    "mcp",
+    "mcp-server",
+    "agent-memory",
+    "long-term-memory",
+    "ai-sdk",
+    "vercel-ai",
+    "langchain",
+    "langgraph",
+    "mastra"
   ],
   "license": "Apache-2.0",
   "repository": {
