@@ -20,6 +20,14 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
   limit?: number;
   /** Bi-temporal instant; defaults to now (only currently-valid facts). */
   validAt?: string;
+  /**
+   * How much being recently learned counts, as a third ranked list fused with
+   * the keyword and vector lists (0 = off, the default; 1 = as much as either
+   * of them). Only facts the query already matched are reordered — freshness
+   * never brings in a fact on its own. For "where do things stand" questions,
+   * where the newest of several matching notes is usually the true one.
+   */
+  freshness?: number;
 }
 
 const CANDIDATE_POOL = 50;
@@ -58,12 +66,14 @@ export class HybridRetriever {
 
   async recall(query: string, options: RecallOptions = {}): Promise<MemoryNode[]> {
     const limit = options.limit ?? 5;
+    const freshness = options.freshness ?? 0;
+    if (!Number.isFinite(freshness) || freshness < 0) throw new Error(`recall: freshness must be a finite number >= 0 (got ${options.freshness})`);
     const validAt = options.validAt === undefined ? new Date().toISOString() : canonicalInstant(options.validAt, "validAt");
 
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, ...scope } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
 
     // Keyword list — BM25-ordered by the store.
@@ -83,6 +93,16 @@ export class HybridRetriever {
     };
     addList(keywordHits);
     addList(vectorHits.map((v) => v.node));
+
+    // Recency as a third list over the facts already matched, weighted.
+    if (freshness > 0) {
+      [...scores.values()]
+        .map((e) => e.node)
+        .sort(compareRecency)
+        .forEach((node, index) => {
+          scores.get(node.nodeId)!.score += freshness / (RRF_K + index + 1);
+        });
+    }
 
     // The same order as the stores: fused rank, then EFFECTIVE confidence (it
     // compared stored confidence, so a fact decayed to half its weight still won
