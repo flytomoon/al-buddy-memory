@@ -9,6 +9,16 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.8.1 — unreleased
+
+### Changed
+
+- **Vectors are stored as float32 bytes**, not JSON text. Measured on a real 6,819-vector store:
+  the embeddings column shrinks from 55 MB to 10.5 MB, and loading it for a recall no longer parses
+  text — 3 ms instead of 190–270 ms. A vector that 32 bits cannot hold exactly stays JSON, so no
+  recall result changes. Existing stores are converted on open (schema v9); `compact()` returns the
+  freed space to the disk when nothing else has the file open.
+
 ## 0.8.0 — 2026-09-25
 
 ### Added
