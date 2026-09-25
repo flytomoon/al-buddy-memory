@@ -14,7 +14,7 @@ import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import type { MemoryStore } from "./types/memory.js";
-import { currentStates, recordState, STATE_TAG, stateHistory, stateKey, statesMentionedIn } from "./state.js";
+import { currentStates, recordState, STATE_TAG, stateHistory, stateKey, statesMentionedIn, supersedeState } from "./state.js";
 
 const at = (d: string) => `2026-09-${d}:00.000Z`;
 
@@ -172,5 +172,44 @@ describe.each([
     expect((await currentStates(store)).map((s) => s.text)).toEqual(["0.7.0 live."]);
     expect((await currentStates(store, { at: at("23T00:00") })).map((s) => s.text)).toEqual(["0.5.1 staged."]);
     expect((await stateHistory(store, { subject: "al-buddy-memory", aspect: "latest release" })).map((h) => h.text)).toEqual(["0.7.0 live.", "0.6.0 live.", "0.5.1 staged."]);
+  });
+});
+
+describe("replacing a state filed under another name (the Graphiti-style check, 2026-09-25)", () => {
+  // The extraction pass named one thing two ways — "version Al runs on" and
+  // "memory library version" — and the stale one stayed current beside the new.
+  it("recordState closes the live states it names in `replaces`, whatever their key", async () => {
+    const store = new InMemoryStore();
+    const old = await recordState(store, { subject: "Al", aspect: "version Al runs on", text: "Al runs on 0.5.0.", at: at("22T05:16") });
+    const now = await recordState(store, { subject: "Al", aspect: "memory library version", text: "Al runs on 0.6.0.", at: at("23T06:44"), replaces: [old.node.nodeId] });
+    expect(now.superseded.map((n) => n.nodeId)).toEqual([old.node.nodeId]);
+    expect((await store.getNode(old.node.nodeId))?.contextualMetadata["supersededBy"]).toBe(now.node.nodeId);
+    expect((await currentStates(store)).map((s) => s.text)).toEqual(["Al runs on 0.6.0."]);
+  });
+
+  it("`replaces` never closes an ordinary fact, a state newer than this one, or one already closed", async () => {
+    const store = new InMemoryStore();
+    const plain = await store.addNode(makeNode({ content: { text: "not a state" } }));
+    const newer = await recordState(store, { subject: "x", aspect: "a", text: "newer", at: at("24T10:00") });
+    const closed = await recordState(store, { subject: "y", text: "one", at: at("20T10:00") });
+    await recordState(store, { subject: "y", text: "two", at: at("21T10:00") });
+    const r = await recordState(store, { subject: "x", aspect: "b", text: "older", at: at("22T10:00"), replaces: [plain.nodeId, newer.node.nodeId, closed.node.nodeId, "no-such-id"] });
+    expect(r.superseded).toEqual([]);
+    expect((await store.getNode(plain.nodeId))?.validTo).toBeNull();
+    expect((await store.getNode(newer.node.nodeId))?.validTo).toBeNull();
+  });
+
+  it("supersedeState closes one state in favour of another, for a tidy pass that finds duplicates later", async () => {
+    const store = new InMemoryStore();
+    const a = await recordState(store, { subject: "Al", aspect: "version running", text: "Al runs on 0.5.0.", at: at("22T04:48") });
+    const b = await recordState(store, { subject: "Al", aspect: "memory library version", text: "Al runs on 0.6.0.", at: at("23T06:44") });
+    const closed = await supersedeState(store, a.node.nodeId, b.node.nodeId, { reason: "same aspect, older" });
+    expect(closed?.validTo).toBe(at("23T06:44"));
+    expect(closed?.contextualMetadata["supersededBy"]).toBe(b.node.nodeId);
+    expect(closed?.contextualMetadata["supersededBecause"]).toBe("same aspect, older");
+    expect((await currentStates(store)).map((s) => s.text)).toEqual(["Al runs on 0.6.0."]);
+    // Never the newer one in favour of the older, never a non-state, never twice.
+    expect(await supersedeState(store, b.node.nodeId, a.node.nodeId)).toBeNull();
+    expect(await supersedeState(store, a.node.nodeId, b.node.nodeId)).toBeNull();
   });
 });

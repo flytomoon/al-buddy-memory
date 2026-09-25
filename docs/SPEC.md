@@ -157,8 +157,12 @@ happily repeat the oldest one. A **state** memory declares what it is the state 
 - A state that arrives late — its `at` is earlier than a live state already recorded — is stored
   already closed by that newer state. Late news never overturns newer news.
 - Recording the text the newest state already holds changes nothing.
-- Only state memories are ever closed by this. Supersession is by declared key, never inferred
-  from wording.
+- Only state memories are ever closed by this. Supersession is by declared key, or by the caller
+  naming the states it replaces (`replaces`: live states that began at or before the new one, under
+  any key). A caller usually gets those ids by showing a model the subject's current states and
+  asking which the new one replaces, the same check graph memories run against existing facts.
+- `supersedeState(old, by)` closes one live state in favour of a later live one, for a tidy pass
+  that finds two names for one thing after the fact. The old state ends when its replacement began.
 
 `statesMentionedIn(states, text)` returns the states whose subject or alias the text names, as
 whole words in order ("the total" does not name "Al"). Hosts put these in front of the model,

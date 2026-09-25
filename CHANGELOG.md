@@ -19,7 +19,9 @@ earlier were GitHub releases only.
   and never overturns a newer one; repeating the current state is a no-op; ordinary facts are never
   touched. `currentStates` lists what is current (at any instant), `stateHistory` shows what a
   subject has been, and `statesMentionedIn(states, text)` finds the states a question is about, by
-  subject or alias as whole words. SPEC §8d.
+  subject or alias as whole words. `replaces` closes live states filed under another name that the
+  caller (usually a model shown the subject's states) says the new one replaces, and
+  `supersedeState` closes a duplicate found later. SPEC §8d.
 - **`freshness` on recall.** A weight (default 0, off) that fuses a recency ranking with the keyword
   and vector lists, so the newest of several matching notes comes first. It only reorders facts the
   query matched.

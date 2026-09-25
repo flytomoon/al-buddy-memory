@@ -36,7 +36,7 @@ export type { EvidenceQuote, VerifyReport } from "./evidence.js";
 export { explainFact } from "./explain.js";
 export { defineMentalModel, deleteMentalModel, getMentalModel, listMentalModels, mentalModelAsOf, mentalModelHistory, refreshMentalModels, isMentalModelNode, MENTAL_MODEL, MODEL_ANSWER, MENTAL_MODEL_TAG } from "./mental-models.js";
 export type { AnswerVersion, MentalModel, MentalModelEvidence, MentalModelScope, ModelFact, ModelProposal, ModelRequest, RefreshOptions, RefreshReport, Staleness } from "./mental-models.js";
-export { currentStates, isStateNode, recordState, stateHistory, stateKey, statesMentionedIn, STATE, STATE_TAG } from "./state.js";
+export { currentStates, isStateNode, recordState, stateHistory, stateKey, statesMentionedIn, supersedeState, STATE, STATE_TAG } from "./state.js";
 export type { RecordStateInput, RecordStateResult, StateRecord, StateSubject } from "./state.js";
 export type { EvidenceCheck, Explanation } from "./explain.js";
 // The MCP server lives at "al-buddy-memory/mcp": it needs the optional `zod`

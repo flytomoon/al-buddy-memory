@@ -110,7 +110,9 @@ reality rather than described.*
   stored closed; repeats are no-ops); `src/state.test.ts` on both stores; `freshness` in
   `src/hybrid-retriever.ts` with "freshness never brings in a fact the query did not match".
 - **Notes:** supersession needs a declared subject — a host (or its capture pass) has to say what
-  a status is the status OF. Notes written before a host does that remain open; `freshness` is
+  a status is the status OF. A model names one aspect two ways ("version it runs on", "library
+  version"), which leaves the older state current under the other name; `replaces` and
+  `supersedeState` exist for exactly that, and the host has to use them. Notes written before a host does that remain open; `freshness` is
   the mitigation for them, not a cure. The subject match is lexical (whole words, or an alias);
   a subject never named in the question is not surfaced by `statesMentionedIn`.
 
