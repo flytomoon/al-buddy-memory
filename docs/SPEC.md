@@ -173,7 +173,7 @@ only facts the query already matched and is off by default.
 
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
-Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.
+Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Since 0.8.1 a vector is stored as little-endian float32 bytes when that is exact, and as JSON text otherwise; readers accept both. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.
 
 **Why:** Embedding models change; two models' vectors are not comparable. Keeping vectors inline welds the memory to one model and one moment. As a separate, per-model cache, upgrading the embedding model is a re-index (`setEmbedding` again), never a data-loss migration — the memory itself is untouched. This is the portability insurance called out in the [decision record](./DECISION-2026-07-07.md).
 
