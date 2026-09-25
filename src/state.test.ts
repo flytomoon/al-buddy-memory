@@ -175,7 +175,7 @@ describe.each([
   });
 });
 
-describe("replacing a state filed under another name (the Graphiti-style check, 2026-09-25)", () => {
+describe("replacing a state filed under another name (the replace check, 2026-09-25)", () => {
   // The extraction pass named one thing two ways — "version Al runs on" and
   // "memory library version" — and the stale one stayed current beside the new.
   it("recordState closes the live states it names in `replaces`, whatever their key", async () => {
