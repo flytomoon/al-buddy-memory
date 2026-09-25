@@ -26,6 +26,11 @@ earlier were GitHub releases only.
   and vector lists, so the newest of several matching notes comes first. It only reorders facts the
   query matched.
 
+### Changed
+
+- npm keywords name the frameworks it plugs into (ai-sdk, langchain, langgraph, mastra) and what it
+  is (agent-memory, long-term-memory, mcp-server).
+
 ## 0.7.0 — 2026-09-24
 
 ### Added
