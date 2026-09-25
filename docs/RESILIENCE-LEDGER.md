@@ -98,6 +98,24 @@ worse than no entry, because this file is meant to survive review.
 *These are the load-bearing entries. They show the system was tested against
 reality rather than described.*
 
+### The newest status lost to the best-worded one
+- **Reported by:** ourselves — our own assistant, 2026-09-25, asked by voice about the library's release
+- **The failure:** every status note about something that changes stays valid forever, and recall
+  ranks by wording, with recency only as a tie-break. Asked about the release, the assistant
+  recalled "0.5.1 is out; npm is holding it for approval" two releases after 0.7.0 had gone live.
+  The note that said 0.7.0 was live did not name the library at all, so it never reached the
+  candidate pool. Nothing had ever closed the older notes.
+- **Us:** shared it, fixed in 0.8.0
+- **Evidence:** `src/state.ts` (`recordState` closes the prior state by declared key; late arrivals
+  stored closed; repeats are no-ops); `src/state.test.ts` on both stores; `freshness` in
+  `src/hybrid-retriever.ts` with "freshness never brings in a fact the query did not match".
+- **Notes:** supersession needs a declared subject — a host (or its capture pass) has to say what
+  a status is the status OF. A model names one aspect two ways ("version it runs on", "library
+  version"), which leaves the older state current under the other name; `replaces` and
+  `supersedeState` exist for exactly that, and the host has to use them. Notes written before a host does that remain open; `freshness` is
+  the mitigation for them, not a cure. The subject match is lexical (whole words, or an alias);
+  a subject never named in the question is not surfaced by `statesMentionedIn`.
+
 ### Every reason to believe a fact, and no one place to ask
 - **Reported by:** ourselves — our 2026-09-22 review of the erase path
 - **The failure:** provenance, validity, a conclusion's sources and a fact's history each had

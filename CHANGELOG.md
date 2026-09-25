@@ -9,6 +9,23 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.8.0 — unreleased
+
+### Added
+
+- **Current state.** `recordState(store, { subject, aspect?, text, at?, aliases? })` records "where
+  X stands now" as one live memory per subject and aspect. A newer state closes the one it replaces
+  (`validTo`, `supersededBy`), kept as history; a state that arrives late is stored already closed
+  and never overturns a newer one; repeating the current state is a no-op; ordinary facts are never
+  touched. `currentStates` lists what is current (at any instant), `stateHistory` shows what a
+  subject has been, and `statesMentionedIn(states, text)` finds the states a question is about, by
+  subject or alias as whole words. `replaces` closes live states filed under another name that the
+  caller (usually a model shown the subject's states) says the new one replaces, and
+  `supersedeState` closes a duplicate found later. SPEC §8d.
+- **`freshness` on recall.** A weight (default 0, off) that fuses a recency ranking with the keyword
+  and vector lists, so the newest of several matching notes comes first. It only reorders facts the
+  query matched.
+
 ## 0.7.0 — 2026-09-24
 
 ### Added

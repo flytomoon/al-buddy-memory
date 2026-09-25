@@ -142,6 +142,35 @@ It is stored as ordinary nodes, so nothing about it escapes the rules above:
 Refresh is host-driven: `refreshMentalModels(store, { propose })` batches every stale model into
 one judgement call; schedule it beside consolidation (nightly) or run it on demand.
 
+### 8d. Current state: one live memory per subject (0.8.0)
+
+Much of what an assistant is asked about changes: a release, a launch date, where something is
+hosted. As ordinary facts every status note stays valid forever, and recall ranked by wording will
+happily repeat the oldest one. A **state** memory declares what it is the state of:
+
+- `contextualMetadata.stateOf = { subject, aspect?, aliases?, key }`, plus the tag `state`. The
+  `key` is the subject and aspect with case, spacing and punctuation removed, so "Al Buddy Memory"
+  and "al-buddy-memory" are one subject.
+- `recordState` closes every live state with the same key that began at or before the new one
+  (`validTo` = the new state's `validFrom`, `supersededBy` = its id). Nothing is deleted; a
+  valid-time read at any instant returns the state that held then.
+- A state that arrives late — its `at` is earlier than a live state already recorded — is stored
+  already closed by that newer state. Late news never overturns newer news.
+- Recording the text the newest state already holds changes nothing.
+- Only state memories are ever closed by this. Supersession is by declared key, or by the caller
+  naming the states it replaces (`replaces`: live states that began at or before the new one, under
+  any key). A caller usually gets those ids by showing a model the subject's current states and
+  asking which the new one replaces, the same check graph memories run against existing facts.
+- `supersedeState(old, by)` closes one live state in favour of a later live one, for a tidy pass
+  that finds two names for one thing after the fact. The old state ends when its replacement began.
+
+`statesMentionedIn(states, text)` returns the states whose subject or alias the text names, as
+whole words in order ("the total" does not name "Al"). Hosts put these in front of the model,
+ahead of older notes, as "where things stand now".
+
+Recall's `freshness` weight fuses a recency ranking into the keyword and vector lists. It reorders
+only facts the query already matched and is off by default.
+
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
 Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.
