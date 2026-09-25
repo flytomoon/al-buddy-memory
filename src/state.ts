@@ -55,6 +55,14 @@ export interface RecordStateInput extends StateSubject {
   /** Extra metadata, kept alongside the state's own. */
   contextualMetadata?: Record<string, unknown>;
   encryptionKeyRef?: string;
+  /**
+   * Live states this one replaces although they are filed under another name
+   * ("version Al runs on" vs "memory library version"). The caller — usually a
+   * model shown the subject's current states — names them. Only live state
+   * memories that began at or before this one are closed; anything else named
+   * is ignored.
+   */
+  replaces?: readonly string[];
 }
 
 export interface RecordStateResult {
@@ -168,12 +176,35 @@ export async function recordState(store: MemoryStore, input: RecordStateInput): 
   });
   if (later) return { node, superseded: [], unchanged: false };
 
+  const named: MemoryNode[] = [];
+  for (const id of new Set(input.replaces ?? [])) {
+    const other = await store.getNode(id);
+    if (other && other.validTo === null && isStateNode(other) && other.validFrom <= when && !live.some((n) => n.nodeId === id)) named.push(other);
+  }
   const superseded: MemoryNode[] = [];
-  for (const old of live) {
+  for (const old of [...live, ...named]) {
     if (old.validFrom > when) continue;
     superseded.push(await store.updateNode(old.nodeId, { validTo: when, contextualMetadata: { ...old.contextualMetadata, supersededBy: node.nodeId } }));
   }
   return { node, superseded, unchanged: false };
+}
+
+/**
+ * Close one live state in favour of another that replaces it — for a tidy pass
+ * that finds, after the fact, two states of one thing filed under different
+ * names. The replacement must be a live state that began at or after the one it
+ * closes; the old one ends when the replacement began. Returns the closed
+ * state, or null when nothing was closed.
+ */
+export async function supersedeState(store: MemoryStore, oldId: string, byId: string, opts: { reason?: string } = {}): Promise<MemoryNode | null> {
+  if (oldId === byId) return null;
+  const [old, by] = [await store.getNode(oldId), await store.getNode(byId)];
+  if (!old || !by || !isStateNode(old) || !isStateNode(by)) return null;
+  if (old.validTo !== null || by.validTo !== null || by.validFrom < old.validFrom) return null;
+  return store.updateNode(oldId, {
+    validTo: by.validFrom,
+    contextualMetadata: { ...old.contextualMetadata, supersededBy: byId, ...(opts.reason ? { supersededBecause: opts.reason } : {}) },
+  });
 }
 
 /** Every state that is current at `at` (default now), newest first. */
