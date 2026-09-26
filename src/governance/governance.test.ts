@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
 import { SqliteMemoryStore } from "../sqlite-memory-store.js";
+import { makeNode } from "../memory-store-conformance.spec.js";
 import { governanceTools, serverStore } from "../mcp/governance-server.js";
 import { exportPortable } from "../memory-portability.js";
 import { MemoryAudit } from "./audit.js";
@@ -254,10 +255,28 @@ describe("the governed handle exposes nothing but governed methods", () => {
         expect(loose[prop], prop).toBeUndefined();
       }
       expect(loose["constructor"]).not.toBe(inner.constructor); // a plain object, not the store's class
-      expect(Object.keys(g).sort()).toEqual(METHODS);
+      // The fast vector read (0.8.3) is offered only when the inner store has one, and is governed like listEmbeddings.
+      const expected = inner.listEmbeddingVectors ? [...METHODS, "listEmbeddingVectors"].sort() : METHODS;
+      expect(Object.keys(g).sort()).toEqual(expected);
       (inner as { close?: () => void }).close?.();
     });
   }
+});
+
+describe("the fast vector read is governed like the slow one (0.8.3)", () => {
+  it("a vector of a fact the reader may not see is not handed to the scan", async () => {
+    const inner = new SqliteMemoryStore(":memory:");
+    const owner = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "o" }) });
+    const open = await owner.addNode(makeNode({ content: { text: "likes tea" } }));
+    const sealed = await owner.addNode(makeNode({ content: { text: "bank pin" }, privacyClassification: "Sealed" }));
+    for (const id of [open.nodeId, sealed.nodeId]) await inner.setEmbedding({ nodeId: id, model: "m", modelVersion: "1", dimensions: 2, metric: "cosine", vector: [0.5, 0.25] });
+    const stranger = govern(inner, { policies: [personalDefaults({ owner: "o" })], context: () => ({ actor: "stranger" }) });
+    const slow = (await stranger.listEmbeddings("m")).map((e) => e.nodeId).sort();
+    const fast = (await stranger.listEmbeddingVectors!("m")).map((e) => e.nodeId).sort();
+    expect(fast).toEqual(slow);
+    expect(fast).not.toContain(sealed.nodeId);
+    inner.close();
+  });
 });
 
 /**

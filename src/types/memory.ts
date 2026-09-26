@@ -343,6 +343,14 @@ export interface SnapshotCapable {
  * Implementations may be local SQLite, Neptune, Neo4j, or an in-memory store —
  * the API surface does not change.
  */
+/** One vector for the scan: what recall needs, and nothing it has to copy. */
+export interface EmbeddingVector {
+  nodeId: string;
+  modelVersion: string;
+  dimensions: number;
+  vector: ArrayLike<number>;
+}
+
 export interface MemoryStore {
   // Node operations
   addNode(node: NewMemoryNode): Promise<MemoryNode>;
@@ -385,6 +393,13 @@ export interface MemoryStore {
   getEmbeddings(nodeId: string): Promise<MemoryEmbedding[]>;
   /** All embeddings for one model across the whole store (vector-scan input). */
   listEmbeddings(model: string): Promise<MemoryEmbedding[]>;
+  /**
+   * Optional fast path for the vector scan (0.8.3): the same rows as
+   * `listEmbeddings`, with each vector as a read-only numeric view instead of a
+   * fresh array. Stores that keep vectors as bytes implement it; recall uses it
+   * when present, and results are identical either way.
+   */
+  listEmbeddingVectors?(model: string): Promise<EmbeddingVector[]>;
   /** Drop a node's embeddings — all of them, or just one model's. */
   deleteEmbeddings(nodeId: string, model?: string): Promise<void>;
 }

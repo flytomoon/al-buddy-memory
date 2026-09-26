@@ -212,8 +212,9 @@ the width and number type of the default on-device model), on the same laptop, s
 | Semantic recall, top 10 — first of a session | 488 ms (765 ms) | 1,619 ms (3,200 ms) |
 | Semantic recall, top 10 — thereafter | 22 ms median (36 ms) | 113 ms median (187 ms) |
 
-On a real personal store (7,356 memories, 2026-09-26): 57 MB, first lookup 117 ms,
-repeated lookups 33 ms median and 61 ms at the 95th percentile. `gaugeStore` measures
+On a real personal store (7,357 memories, 2026-09-26): 42 MB and a 50 ms first lookup since
+0.8.3 (57 MB and 117 ms on 0.8.1, when the keyword index still kept its own copy of the text
+and every vector was copied into an array before the scan); repeated lookups 33 ms median. `gaugeStore` measures
 any store file this way and `checkBudgets` says which numbers are over budget.
 
 The history of this section is worth keeping: on 2026-09-19 it measured the JSON cost,
