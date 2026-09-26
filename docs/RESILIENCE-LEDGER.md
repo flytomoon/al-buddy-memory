@@ -1186,6 +1186,15 @@ reality rather than described.*
   why the README quotes ranges.
 *These come out of the section-B fixes above. Each one is the part of a fix that
 was not finished, kept here so nobody has to re-derive it from the code.*
+- **Fixed in 0.8.1, 2026-09-25** (rule 4: recorded here, not deleted): vectors are stored
+  as float32 bytes when that is exact, JSON otherwise. `src/binary-vectors.test.ts`; on a
+  real 6,819-vector store 102 MB → 53 MB and identical top-10 for 20 of 20 lookups;
+  `bench/bench-vectors.mjs` at 100,000 facts: 864 MB → 277 MB, first recall 3.2 s → 1.6 s.
+- **What this entry teaches, 2026-09-26:** it was measured, the fix was named, and it was
+  filed as open for six days until an unrelated question surfaced it. Publishing a limit
+  is not handling it. `src/gauge.ts` (`gaugeStore`, `checkBudgets`) gives every such
+  number a budget so a host can raise a breach until someone decides.
+
 
 ### The commit-before-event window, wherever the trail is not in the database
 - **Reported by:** ourselves, 0.4.0; raised again by both 0.4.1 reviews as the
