@@ -41,11 +41,13 @@ describe("docs — the claims a reader will check", () => {
    */
   it("the README's semantic-path section blames the read and the parse, not the scan", () => {
     const readme = read("README.md");
-    for (const number of [/978–1,182 ms/, /1,418–1,744 ms/, /85–127 ms/, /3,650–4,170 ms/, /8,003 bytes/]) {
+    // The 2026-09-19 stage timings stay as history: they are why float32 storage was the fix.
+    for (const number of [/978–1,182 ms/, /1,418–1,744 ms/, /85–127 ms/]) {
       expect(readme).toMatch(number);
     }
-    // The BLOB rewrite is not built. Saying what it "would" give is fine; saying it does is not.
-    expect(readme).toMatch(/projection/i);
+    // Float32 storage shipped in 0.8.1; the README reports what was measured, not a projection of it.
+    for (const number of [/1,536 bytes/, /277 MB/, /1,619 ms/]) expect(readme).toMatch(number);
+    expect(readme).not.toMatch(/neither is built/);
     expect(readme).not.toMatch(/sqlite-vec.*is the obvious next move/);
   });
 

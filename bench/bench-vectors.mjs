@@ -31,7 +31,9 @@ function vectorFor(seed) {
   }
   norm = Math.sqrt(norm);
   for (let i = 0; i < DIMS; i++) v[i] = v[i] / norm;
-  return v;
+  // A real on-device model returns float32 values; model that, so the store's
+  // float32 storage (0.8.1) is measured as it is used.
+  return Array.from(new Float32Array(v));
 }
 
 const words = ["lisbon","sourdough","diving","azores","metric","berlin","tokyo","london","piano","chess","garden","marathon","sailing","kubernetes","typescript","espresso","violin","surfing","pottery","astronomy"];
@@ -55,7 +57,7 @@ for (let i = 0; i < N; i++) {
 const embedStoreMs = performance.now() - t;
 const withVectorsMb = statSync(path).size / 1048576;
 
-// What one vector actually costs: the store keeps it as a JSON array in a TEXT column.
+// What one vector actually costs on disk (float32 bytes since 0.8.1; JSON text before).
 const db = writer.db ?? null;
 let vectorBytes = null, rowCount = null;
 if (db) {
@@ -64,7 +66,7 @@ if (db) {
 }
 
 // Cold: a newly opened store, so the retriever's 60 s vector cache is empty and
-// listEmbeddings has to read and JSON.parse every row. The file itself is in the
+// listEmbeddings has to read and decode every row. The file itself is in the
 // OS page cache — this is "first query of a session", not a cold disk.
 const embedder = new FakeEmbedder(MODEL, DIMS, (text) => vectorFor(text));
 const reader = new SqliteMemoryStore(path);
