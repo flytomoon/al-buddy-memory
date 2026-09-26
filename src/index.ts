@@ -49,3 +49,7 @@ export { expandHome } from "./home-path.js";
 export { IMMUTABLE_NODE_FIELDS, assertRestorable } from "./immutable.js";
 export { canonicalInstant } from "./instant.js";
 export { assertVersion, buildSnapshotAsOf, isHistoryCapable, mutableState, nodeAsOf } from "./history.js";
+export { checkBudgets, DEFAULT_BUDGETS, gaugeStore } from "./gauge.js";
+export type { Breach, GaugeBudgets, GaugeResult } from "./gauge.js";
+export { compareStores } from "./no-loss.js";
+export type { NoLossReport } from "./no-loss.js";

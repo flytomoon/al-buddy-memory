@@ -197,57 +197,45 @@ What that means: a personal assistant or a single-tenant service will not notice
 store; a multi-tenant SaaS needs the Postgres backend on the roadmap. Node/TypeScript
 only for now; the optional on-device embedder is a 25 MB model download.
 
-### The semantic path costs more, and it is the honest weak spot
+### The semantic path costs more
 
 Everything above is the keyword path. Recall with an embedder wired goes through a
-**brute-force linear scan**: every stored vector is read, parsed and scored against the
-query. Measured the same way (`bench/bench-vectors.mjs`, 384-dimension vectors, the width
-of the default on-device model), on the same laptop:
+**brute-force linear scan**: every stored vector is read, decoded and scored against the
+query. Measured the same way (`bench/bench-vectors.mjs`, 384-dimension float32 vectors,
+the width and number type of the default on-device model), on the same laptop, since
+0.8.1 stores vectors as float32 bytes (the 0.8.0 JSON-text figures in brackets):
 
 | With an embedder wired | 20,000 facts | 100,000 facts |
 |---|---|---|
-| File size (facts + vectors) | 172 MB | 864 MB |
-| Of which vectors | 160 MB | 800 MB |
-| Per vector, on disk | ~8.0 KB | ~8.0 KB |
-| Semantic recall, top 10 — first of a session | 765 ms | 3,200 ms |
-| Semantic recall, top 10 — thereafter | 36 ms median | 187 ms median |
+| File size (facts + vectors) | 55 MB (172 MB) | 277 MB (864 MB) |
+| Per vector, on disk | 1,536 bytes (~8,000) | 1,536 bytes (~8,000) |
+| Semantic recall, top 10 — first of a session | 488 ms (765 ms) | 1,619 ms (3,200 ms) |
+| Semantic recall, top 10 — thereafter | 22 ms median (36 ms) | 113 ms median (187 ms) |
 
-Read that as a ceiling, not a benchmark win.
+On a real personal store (7,356 memories, 2026-09-26): 57 MB, first lookup 117 ms,
+repeated lookups 33 ms median and 61 ms at the 95th percentile. `gaugeStore` measures
+any store file this way and `checkBudgets` says which numbers are over budget.
 
-**And the brute-force scan is not what costs.** That is worth stating plainly, because it
-is the obvious suspect and it is wrong. Timing a cold call stage by stage at 100,000 facts,
-two runs on the same laptop (the second 2026-09-19):
+The history of this section is worth keeping: on 2026-09-19 it measured the JSON cost,
+named float32 storage as the fix, and filed it here as a weak spot. It was built six days
+later, when a question about backups surfaced it. A measurement with no budget is a fact
+nobody owns; that is why the gauge exists.
 
-| Stage of one cold semantic recall, 100,000 facts | Measured |
-|---|---|
-| SQL read of the vector table | 978–1,182 ms |
-| `JSON.parse` of those rows | 1,418–1,744 ms |
-| Cosine scan of all 100,000 vectors | 85–127 ms |
-| The whole call, cold, end to end | 3,650–4,170 ms |
-| Per vector, stored as JSON text | 8,003 bytes |
+**Where the time goes, 0.8.0 → 0.8.1.** On 2026-09-19, one cold call at 100,000 facts
+spent 978–1,182 ms reading the vector table and 1,418–1,744 ms in `JSON.parse`, against
+85–127 ms for the cosine scan itself: reading and parsing 8 KB text rows was 95% of the
+cost, and the scan everyone suspects was 4%. Storing float32 bytes shrank the read about
+5× and removed the parse; what remains of the 1.6-second first call is reading 154 MB and
+turning it into JavaScript arrays. Two consequences:
 
-Reading the rows and parsing them is **95–96%** of those three stages; the scan everyone
-assumes is the bottleneck is about 4%. Three things follow:
-
-- **Vectors are stored as JSON text**, so one 384-float vector costs 8,003 bytes instead
-  of the ~1.5 KB the same floats occupy as binary. That is where the file size goes — the
-  same 100,000 facts are 69 MB without vectors and 864 MB with them — and, per the table,
-  it is also where the *time* goes, because those 8 KB rows have to be read and parsed.
-- **So BLOB storage is the move, and `sqlite-vec` is not — at this size.** Storing the
-  vector as a `Float32Array` BLOB removes the parse entirely and shrinks the read by
-  roughly 5×, which is where 95% of the cost sits. Handing the search to `sqlite-vec`
-  would attack the 85–127 ms scan, which is not the problem yet. Both those figures are a
-  **projection from the table above, not an achieved result**: neither is built, and no
-  number in this README comes from a BLOB implementation.
-- **The cache is disposable and model-tagged.** Vectors live in their own table keyed by
-  `(nodeId, model)`; deleting them loses nothing but time, and a vector from a different
-  model is skipped rather than compared. Upgrading the embedder is a re-index, never a
-  migration. The facts-only sizes above are what the memory actually weighs.
+- **`sqlite-vec` is still not the next move at this size**; the scan is not the cost.
+- **The vector cache is disposable and model-tagged.** Vectors live in their own table
+  keyed by `(nodeId, model)`; deleting them loses nothing but time, and a vector from a
+  different model is skipped rather than compared. Upgrading the embedder is a re-index,
+  never a migration.
 
 The scan is still linear in the number of facts, and a session's first call pays for the
-whole vector table; later calls reuse a 60-second in-process cache and still score every
-vector. If you are wiring an embedder over tens of thousands of facts, size the machine for
-the table above, or keep to the keyword path until the BLOB work lands.
+whole vector table; later calls reuse a 60-second in-process cache.
 
 ### Backups, restores and synced folders
 
