@@ -9,6 +9,25 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.8.2 — unreleased
+
+### Added
+
+- **The gauge.** `gaugeStore(path, { embedder })` measures a store file read-only: size and bytes
+  per memory, bytes per vector and any vectors still stored as JSON, history and audit rows,
+  memories not yet indexed for meaning search, current states, first-lookup and repeated-lookup
+  times (median and 95th percentile) and keyword-lookup times. `checkBudgets(result)` returns each
+  number over its budget with the reason it matters. A 3,000-memory store is held inside the
+  default budgets in the test suite.
+- **The no-loss gate.** `compareStores(before, after, { queries, embedder })` checks that a changed
+  copy of a store holds exactly the same memories, edges and history, and returns the same top-10
+  results for the same lookups — the check to run before any storage or search change ships.
+
+### Changed
+
+- `bench/bench-vectors.mjs` measures float32 vectors, as an on-device model produces them; README
+  "Limits, measured" carries the 0.8.1 numbers.
+
 ## 0.8.1 — 2026-09-25
 
 ### Changed
