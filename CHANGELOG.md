@@ -9,6 +9,21 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.8.3 — unreleased
+
+### Changed
+
+- **Recall reads vectors as views.** Stores that keep float32 vectors (SQLite since 0.8.1) now hand
+  the scan a read-only numeric view instead of building an array per vector (optional
+  `listEmbeddingVectors`, governed like `listEmbeddings`). On a copy of a real 7,357-memory store
+  the first lookup went from 103 ms to 50 ms, with identical results.
+- **The keyword index keeps no copy of the text** (schema v10, contentless FTS5 with deletes).
+  SQLite stored every memory's text a second time inside the index; search only ever reads the
+  rowid and the rank. Same store: 64 MB → 42 MB after `compact()`. A redundant embeddings index
+  is dropped with it.
+- Proven with `compareStores` on that copy before release: every memory, edge and history row
+  identical, and 36 of 36 lookups (meaning and keyword) returned the same top 10.
+
 ## 0.8.2 — 2026-09-26
 
 ### Added

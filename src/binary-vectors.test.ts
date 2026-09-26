@@ -68,7 +68,7 @@ describe("binary vectors", () => {
     const put = raw.prepare("INSERT INTO memory_embeddings (node_id, model, model_version, dimensions, metric, vector, created_at) VALUES (?, 'm', '1', ?, 'cosine', ?, '2026-09-01T00:00:00.000Z')");
     put.run(a.nodeId, va.length, JSON.stringify(va));
     put.run(b.nodeId, vb.length, JSON.stringify(vb));
-    raw.pragma(`user_version = ${SCHEMA_VERSION - 1}`);
+    raw.pragma("user_version = 8"); // before v9, the float32 conversion
     raw.close();
 
     const reopened = new SqliteMemoryStore(path);
@@ -96,7 +96,7 @@ describe("binary vectors", () => {
       const f = new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4);
       raw.prepare("UPDATE memory_embeddings SET vector = ? WHERE node_id = ?").run(JSON.stringify(Array.from(f)), r.node_id);
     }
-    raw.pragma(`user_version = ${SCHEMA_VERSION - 1}`);
+    raw.pragma("user_version = 8"); // before v9, the float32 conversion
     raw.pragma("wal_checkpoint(TRUNCATE)");
     raw.prepare("VACUUM").run();
     raw.close();

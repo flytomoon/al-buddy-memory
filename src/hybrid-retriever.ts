@@ -1,6 +1,6 @@
 import { compareBinary, compareRecency, effectiveConfidence } from "./decay.js";
 import { canonicalInstant } from "./instant.js";
-import type { MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
+import type { EmbeddingVector, MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
@@ -46,7 +46,7 @@ export class HybridRetriever {
    * embeddings is seen within the TTL, and this retriever's own writes
    * clear it at once.
    */
-  private vectorCache: { model: string; at: number; rows: MemoryEmbedding[] } | null = null;
+  private vectorCache: { model: string; at: number; rows: EmbeddingVector[] } | null = null;
 
   constructor(
     private readonly store: MemoryStore,
@@ -54,12 +54,16 @@ export class HybridRetriever {
     private readonly opts: { cacheTtlMs?: number; now?: () => number } = {},
   ) {}
 
-  private async embeddingsFor(model: string): Promise<MemoryEmbedding[]> {
+  private async embeddingsFor(model: string): Promise<EmbeddingVector[]> {
     const now = (this.opts.now ?? Date.now)();
     const ttl = this.opts.cacheTtlMs ?? 60_000;
     const c = this.vectorCache;
     if (c && c.model === model && now - c.at < ttl) return c.rows;
-    const rows = await this.store.listEmbeddings(model);
+    // Views when the store offers them (0.8.3): building an array per vector
+    // was most of a cold lookup; the numbers, and so the results, are the same.
+    const rows: EmbeddingVector[] = this.store.listEmbeddingVectors
+      ? await this.store.listEmbeddingVectors(model)
+      : await this.store.listEmbeddings(model);
     this.vectorCache = { model, at: now, rows };
     return rows;
   }

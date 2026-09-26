@@ -17,6 +17,7 @@ import { retryWhileBusy } from "./sqlite-busy.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs, stampAfter } from "./instant.js";
 import type {
+  EmbeddingVector,
   AsOfFact,
   AsOfOptions,
   AsOfSnapshot,
@@ -143,6 +144,14 @@ export function encodeVector(vector: readonly number[]): string | Buffer {
   const f = new Float32Array(vector);
   for (let i = 0; i < vector.length; i++) if (f[i] !== vector[i]) return JSON.stringify(vector);
   return Buffer.from(f.buffer, f.byteOffset, f.byteLength);
+}
+
+/** A read-only view for the scan: no array is built. JSON rows still parse. */
+export function vectorView(stored: string | Buffer): ArrayLike<number> {
+  if (typeof stored === "string") return JSON.parse(stored) as number[];
+  const bytes = new Uint8Array(stored.byteLength);
+  bytes.set(stored);
+  return new Float32Array(bytes.buffer);
 }
 
 export function decodeVector(stored: string | Buffer): number[] {
@@ -357,6 +366,23 @@ const MIGRATION_V9 = (db: Database.Database): void => {
 };
 
 /**
+ * v10 — the keyword index keeps no copy of the text (0.8.3). FTS5 stored every
+ * memory's text a second time beside memory_nodes (13 MB of a 57 MB real
+ * store); nothing ever read it back — search takes the rowid and the rank. A
+ * contentless table with deletes enabled holds the same index, so ranking is
+ * unchanged. Space returns to the disk with `compact()`.
+ */
+const MIGRATION_V10 = (db: Database.Database): void => {
+  const sql = (db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'memory_fts'`).get() as { sql: string } | undefined)?.sql ?? "";
+  if (/content\s*=\s*''/.test(sql)) return;
+  db.prepare(`CREATE VIRTUAL TABLE memory_fts_lean USING fts5(content_text, tokenize = 'unicode61', content = '', contentless_delete = 1)`).run();
+  db.prepare(`INSERT INTO memory_fts_lean (rowid, content_text) SELECT rowid, content_text FROM memory_fts`).run();
+  db.prepare(`DROP TABLE memory_fts`).run();
+  db.prepare(`ALTER TABLE memory_fts_lean RENAME TO memory_fts`).run();
+  db.prepare(`DROP INDEX IF EXISTS idx_embeddings_node`).run();
+};
+
+/**
  * One migration statement, tolerating the one way a replayed migration can
  * fail on a schema that is already correct.
  *
@@ -385,7 +411,7 @@ function runMigrationStep(db: Database.Database, stmt: string): void {
   }
 }
 
-const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9];
+const MIGRATIONS: (string[] | ((db: Database.Database) => void))[] = [MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10];
 
 /** The `user_version` a store is brought up to on open. */
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -1321,6 +1347,13 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       .prepare(`SELECT * FROM memory_embeddings WHERE model = ?`)
       .all(model) as EmbeddingRow[];
     return rows.map(rowToEmbedding);
+  }
+
+  async listEmbeddingVectors(model: string): Promise<EmbeddingVector[]> {
+    const rows = this.db
+      .prepare(`SELECT node_id, model_version, dimensions, vector FROM memory_embeddings WHERE model = ?`)
+      .all(model) as Pick<EmbeddingRow, "node_id" | "model_version" | "dimensions" | "vector">[];
+    return rows.map((r) => ({ nodeId: r.node_id, modelVersion: r.model_version, dimensions: r.dimensions, vector: vectorView(r.vector) }));
   }
 
   async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {

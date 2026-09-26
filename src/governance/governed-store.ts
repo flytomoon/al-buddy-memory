@@ -16,7 +16,7 @@
 import { compareRecency, effectiveConfidence } from "../decay.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
 import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
-import type { AsOfFact, AsOfOptions, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
+import type { AsOfFact, AsOfOptions, EmbeddingVector, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { closureOf, judgeErase, judgeInvalidation } from "./cascade.js";
 import { DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type DeletionRequest, type RecentlyDeletedCapable } from "./recently-deleted.js";
@@ -595,6 +595,17 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
       for (const node of await inner.listNodes()) if (await view(opts, node, ctx)) visible.add(node.nodeId);
       return (await inner.listEmbeddings(model)).filter((e) => visible.has(e.nodeId));
     },
+    // The fast scan path (0.8.3) under exactly the same visibility rule.
+    ...(inner.listEmbeddingVectors
+      ? {
+          async listEmbeddingVectors(model: string): Promise<EmbeddingVector[]> {
+            const ctx = readCtx();
+            const visible = new Set<string>();
+            for (const node of await inner.listNodes()) if (await view(opts, node, ctx)) visible.add(node.nodeId);
+            return (await inner.listEmbeddingVectors!(model)).filter((e) => visible.has(e.nodeId));
+          },
+        }
+      : {}),
 
     async getNode(nodeId: string): Promise<MemoryNode | undefined> {
       const node = await inner.getNode(nodeId);

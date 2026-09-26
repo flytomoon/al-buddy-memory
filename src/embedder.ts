@@ -30,7 +30,7 @@ export interface Embedder {
 }
 
 /** Cosine similarity of two equal-length vectors ([-1, 1]; 1 = same direction). */
-export function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
   let dot = 0;
   let na = 0;
   let nb = 0;
