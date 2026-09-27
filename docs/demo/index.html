@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Al Buddy — a memory that's yours</title>
-<meta name="description" content="Al Buddy is an open memory for AI assistants. A fact that stops being true gets an end date instead of being overwritten, every fact says where it came from, and it all leaves with you.">
+<title>Al Buddy — a private assistant that remembers you</title>
+<meta name="description" content="Al Buddy is a private assistant that remembers you. Your memory lives on your phone, and we never see it. The memory underneath is open source.">
 <link rel="icon" href="al-icon.png"><link rel="apple-touch-icon" href="al-icon.png">
-<meta property="og:title" content="Al Buddy — a memory that's yours"><meta property="og:description" content="An open memory for AI assistants: facts are invalidated, never overwritten; every fact says where it came from; it leaves with you."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
+<meta property="og:title" content="Al Buddy — a private assistant that remembers you"><meta property="og:description" content="Your memory lives on your phone, and we never see it. Coming to iPhone. The memory underneath is open source."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
 <style>
   :root { color-scheme: light dark;
     --paper:#f4efe5; --panel:#fffdf8; --panel-2:#faf6ec; --fg:#26231d; --fg-dim:#57534a; --fg-faint:#6e6a5f; --line:rgba(38,35,29,.10);
@@ -67,6 +67,14 @@
   .notes { color:var(--fg-dim); font-size:14px; margin-top:12px }
   pre { margin:0; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--code); overflow-x:auto; font-size:13.5px; line-height:1.5 }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  /* the iPhone signup (2026-09-27) — every press answers: busy on press, outcome after */
+  .signup { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; max-width:520px; margin:0 auto }
+  .signup input[type=email] { flex:1 1 240px; min-height:46px; padding:0 14px; font:inherit; font-size:16px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--fg) }
+  .signup button { min-height:46px }
+  .signup .hp { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden }
+  #signup-status { min-height:22px; margin:12px 0 0; font-size:15px; color:var(--fg-dim) }
+  #signup-status.ok { color:var(--sage) } #signup-status.err { color:var(--ember) }
+  .hero .more { display:inline-block; margin-top:18px; color:var(--fg-dim); font-size:15px }
   footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
   footer a { color:var(--fg-dim) }
   @media (max-width:520px) { .bar { gap:8px; flex-wrap:wrap; padding:8px 0 } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav { width:100%; justify-content:flex-start; margin-left:0 } .bar nav a { padding:6px 8px; font-size:14px } .hero { padding:36px 0 28px } }
@@ -74,15 +82,28 @@
 </head>
 <body>
 <header><div class="wrap bar"><img src="al-icon.png" alt=""><b>Al Buddy</b>
-  <nav><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
+  <nav><a href="#iphone">iPhone</a><a href="#memory">Memory</a><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
 <main class="wrap">
-  <section class="hero">
+  <section class="hero" id="iphone">
     <img src="al-icon.png" alt="The Al Buddy mark: a lowercase al">
-    <h1>A memory that's yours.</h1>
-    <p class="lead">Al Buddy is an open memory for AI assistants. Nothing is dropped to make room, it knows where every fact came from, and it leaves with you.</p>
-    <p class="say"><strong>Al</strong> — a name, said like "pal". Not A.I.</p>
-    <div class="cta"><a class="btn primary" href="#try">Score your assistant's memory</a><a class="btn" href="https://github.com/flytomoon/al-buddy-memory">Read the code</a></div>
+    <h1>A private assistant that remembers you.</h1>
+    <p class="lead">Your memory lives on your phone — we never see it. Al learns how you think and what you care about, and can always tell you where it learned something.</p>
+    <p class="say"><strong>Al</strong> — a name, said like "pal". Not A.I. Coming to iPhone.</p>
+    <form class="signup" id="signup" novalidate>
+      <input type="email" name="email" id="signup-email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email">
+      <label class="hp" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      <button class="primary" type="submit" id="signup-go">Tell me when it's ready</button>
+    </form>
+    <p id="signup-status" role="status"></p>
+    <a class="more" href="#memory">The memory underneath is open source ↓</a>
+  </section>
+
+  <section class="block" id="memory">
+    <h2>A memory that's yours — open source</h2>
+    <p class="sub">Al's memory is a library anyone can use in their own assistant. Nothing is dropped to make room, it knows where every fact came from, and it leaves with you. One SQLite file, Apache-2.0, no account.</p>
+    <div class="cta" style="justify-content:flex-start"><a class="btn primary" href="https://github.com/flytomoon/al-buddy-memory">Star it on GitHub</a><a class="btn" href="#try">Score your assistant's memory</a><a class="btn" href="#install">Install</a></div>
+    <pre style="margin-top:16px"><code>npm install al-buddy-memory</code></pre>
   </section>
 
   <section class="block" id="why">
@@ -197,6 +218,30 @@
   </section>
 </main>
 <footer><div class="wrap">Al Buddy · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · Apache-2.0</div></footer>
+<script>
+  // The iPhone signup: acknowledge on press, refuse a second press while it runs, say the outcome.
+  (function () {
+    var form = document.getElementById("signup"), go = document.getElementById("signup-go"), status = document.getElementById("signup-status");
+    var say = function (text, kind) { status.textContent = text; status.className = kind || ""; };
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (go.disabled) return;
+      var email = form.email.value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { say("That doesn't look like an email address.", "err"); form.email.focus(); return; }
+      go.disabled = true; go.textContent = "Adding you…"; say("");
+      fetch("https://pxcfvyh7jt5ufcw2telmflacve0mccsu.lambda-url.us-west-2.on.aws/", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: email, website: form.website.value })
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (res.ok) { say(res.j.already ? "You're already on the list — we'll write when it's ready." : "You're on the list. One email when it's ready, nothing else.", "ok"); form.email.value = ""; }
+          else say(res.j.error || "That didn't go through. Try again?", "err");
+        })
+        .catch(function () { say("Couldn't reach us just now. Check your connection and try again.", "err"); })
+        .finally(function () { go.disabled = false; go.textContent = "Tell me when it's ready"; });
+    });
+  })();
+</script>
 <script type="module">
   import { scoreConformance, toConformanceInput, demoInput, realisticInput } from "./conformance.js";
   const $ = (s) => document.querySelector(s);
