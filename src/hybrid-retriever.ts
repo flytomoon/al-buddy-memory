@@ -4,7 +4,7 @@ import type { EmbeddingVector, MemoryNode, MemoryStore, MemoryEmbedding } from "
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
-import { matchesFilter, type NodeFilter } from "./query-filter.js";
+import { matchesFilter, MAX_QUERY_TOKENS, type NodeFilter } from "./query-filter.js";
 import { analyzeQuery, inWindows, keywordsOf, type QueryCues } from "./query-cues.js";
 import { rerankTexts, type Reranker } from "./reranker.js";
 
@@ -32,10 +32,11 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
   freshness?: number;
   /**
    * Read the query for time and counting cues (`analyzeQuery`) and recall
-   * accordingly. Off by default; recall without it is unchanged. With it:
+   * accordingly. Off by default; recall without it is unchanged. With it,
+   * the query is searched as it always is, and besides:
    *
-   * - The keyword side searches the query's content words, not its first
-   *   sixteen words, so the end of a long question counts.
+   * - A query longer than the keyword search reads (sixteen words) is also
+   *   searched by its content words, so the end of a long question counts.
    * - A query naming a period ("in April", "the past two weeks", "last
    *   Thursday") is also searched without those words, and facts valid from a
    *   time inside the period (their `validFrom`) are favoured as one more
@@ -169,10 +170,17 @@ export class HybridRetriever {
         addList(nodes);
       };
       for (const [i, q] of queries.entries()) {
-        addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(q) || q, limit: pool }));
+        // The query itself is searched exactly as recall without `expand` searches
+        // it, so expanding can only add to what plain recall finds; what it reads
+        // out of the query is searched by content words alone.
+        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? q : keywordsOf(q), limit: pool }));
         const vector = vectors[i];
         if (vector) addRelevance((await this.vectorCandidatesFor(vector, filter, pool)).map((v) => v.node));
       }
+      // A question longer than the keyword search reads is searched once more by
+      // its content words, so the things it names last are searched at all.
+      const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
+      if (long && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
       relevanceWeight = Math.max(1, lists);
     }
 

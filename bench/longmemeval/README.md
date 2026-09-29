@@ -136,9 +136,11 @@ the raw text):
    its multi-session score from 21% to 80%.
 2. **`--expand`** — the library reads the question (`analyzeQuery`, rules, no model call): a
    period ("in April", "the past two weeks", "last Thursday") resolved against the question date
-   favours sessions from then and is dropped from the search words; a counting question searches
-   each thing it names ("jogging *and* yoga") from a pool twice as deep, on content words rather
-   than the first sixteen words; "currently" / "initially" nudge the latest / earliest session up.
+   favours sessions from then, and the question is searched again without it; a counting question
+   searches each thing it names ("jogging *and* yoga") from a pool twice as deep; a question longer
+   than the sixteen words keyword search reads is searched again by its content words; "currently"
+   / "initially" nudge the latest / earliest session up. The question itself is always searched as
+   it is without `--expand`, so expanding only adds candidates.
    A counting question also gets 40 rounds instead of 20 (`--aggregate-top-k`).
 3. **`--chain-of-note`** — a counting question gets a reader prompt that asks for one dated note per
    relevant session before any arithmetic, then the answer, in the same single call. Not an
