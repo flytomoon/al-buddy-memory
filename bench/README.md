@@ -36,7 +36,9 @@ from. `stale@1` is the share of questions whose first result is another statemen
 subject — the answer an assistant would most likely repeat. `current@k`, `stale@k` and `clean@k`
 (the true statement in the first k and no other statement of its subject there) look at the first
 k. Run it with `npm run build && node bench/stale-facts/run.mjs`; it calls no model unless you pass
-`--embedder local`, and it is deterministic.
+`--embedder local`, and it is deterministic. The committed run's numbers, and what they do and do
+not say, are in the [README's Benchmarks section](../README.md#benchmarks); every question's
+ranking is in its result file.
 
 What it does not show, said plainly:
 
