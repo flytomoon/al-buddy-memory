@@ -171,6 +171,14 @@ ahead of older notes, as "where things stand now".
 Recall's `freshness` weight fuses a recency ranking into the keyword and vector lists. It reorders
 only facts the query already matched and is off by default.
 
+Two more read-time aids are off by default (0.9.0, unreleased). A `reranker` (a cross-encoder) rereads
+the question with each fused candidate and puts them in its order; `expand` reads the question's
+time and counting cues with rules (`analyzeQuery`), searches each thing a counting question names,
+and favours facts whose `validFrom` falls in a period the question names. Neither writes anything:
+no score, rewrite or sub-query is stored, no fact is created, changed or invalidated, and what
+either returns is facts the store already holds, within the same scope and validity as any recall.
+The raw text stays the only thing either reads.
+
 ### 9. Embeddings are a model-tagged, disposable cache — not node state (1.1.0)
 
 Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Since 0.8.1 a vector is stored as little-endian float32 bytes when that is exact, and as JSON text otherwise; readers accept both. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.

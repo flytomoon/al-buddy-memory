@@ -52,7 +52,7 @@ entry before you upgrade.
 
 - `MemoryStore`: a storage-agnostic interface; `SqliteMemoryStore` and `InMemoryStore` ship, with a **conformance suite** any backend can run against itself.
 - `ProjectMemory`: one brain scoped by project or person, each in its own SQLite file.
-- `HybridRetriever`: lexical + semantic recall with decay-aware confidence; embeddings on-device via transformers.js (no API key). Recall can be scoped (memory type, tags, minimum confidence, privacy and retention tiers), and the scope applies to the keyword and the vector side alike.
+- `HybridRetriever`: lexical + semantic recall with decay-aware confidence; embeddings on-device via transformers.js (no API key). Recall can be scoped (memory type, tags, minimum confidence, privacy and retention tiers), and the scope applies to the keyword and the vector side alike. Two opt-in aids for questions whose answer is spread across conversations, both computed at read time and never stored: a `reranker` (`LocalReranker`, an on-device cross-encoder) that rereads the question with each candidate and reorders them, and `expand`, which reads a question's time and counting cues (`analyzeQuery`: "in April", "the past two weeks", "how many", "A and B") and recalls for each.
 - `exportPortable` / `importPortable`: the lossless interchange format, versioned, with a [JSON Schema](docs/portable-format.schema.json).
 - `PinnedBlocks`: a size-capped tier of facts that belong in every prompt, editable by the agent itself, on top of the governed store.
 - `consolidate`: a sleep-time pass that reads recent raw memory and writes **new** derived facts with provenance edges back to their sources; the raw is never rewritten and nothing is summarised away.

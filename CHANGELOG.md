@@ -9,6 +9,31 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.9.0 — unreleased
+
+### Added
+
+- **Reranking.** `new HybridRetriever(store, embedder, { reranker })` rereads the question with each
+  fused candidate through a cross-encoder and returns them in its order; `rerank: false` skips it
+  for one recall, `rerankDepth` bounds how many it reads (default the larger of the limit and 50).
+  `LocalReranker` runs one on-device through transformers.js — `Xenova/ms-marco-MiniLM-L-6-v2` by
+  default, `Xenova/bge-reranker-base` or any cross-encoder by name — downloaded once to the same
+  cache as the embedder, loaded only when first used. Long memories are scored in 1,000-character
+  windows (`passageWindows`); a memory scores its best window. `FakeReranker` for tests.
+- **Time- and count-aware recall.** `recall(query, { expand: true | { now } })` reads the query with
+  `analyzeQuery` (rules, no model call): a period it names ("in April", "the past two weeks", "last
+  Thursday", "from July to October"), resolved against `now`, favours facts whose `validFrom` falls
+  in it and is taken out of the search words; a question that counts or compares across memories
+  ("how many", "total", "A and B", "which came first") searches each thing it names, from a deeper
+  pool; the keyword side searches content words, so a long question's last words count; "currently"
+  and "initially" nudge the latest and earliest facts up. Facts outside a period are never dropped.
+- Neither writes anything or changes a fact: scores, sub-queries and periods live for one recall.
+  Recall without either is unchanged.
+- LongMemEval harness: `--rerank`, `--expand`, `--aggregate-top-k`, `--chain-of-note` (a reader
+  prompt for counting questions that is not an official template, and is recorded as such), a
+  shown-evidence diagnostic beside the official retrieval metrics, `compare.mjs` for A/B runs, and
+  `--types` now refuses a type that does not exist.
+
 ## 0.8.3 — 2026-09-26
 
 ### Changed

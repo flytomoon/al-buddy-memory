@@ -72,9 +72,12 @@ export function parseSessionDate(text) {
  * Which instances a run covers. With a limit, a stratified slice: one of each
  * question type in turn, in file order within a type, so `--limit 50` exercises
  * every type instead of the first 50 of whichever comes first in the file.
- * Deterministic; returned in file order.
+ * Deterministic; returned in file order. A type that is not one of the six is
+ * refused rather than silently selecting nothing for it.
  */
 export function selectInstances(instances, { limit, types } = {}) {
+  const unknown = (types ?? []).filter((t) => !QUESTION_TYPES.includes(t));
+  if (unknown.length) throw new Error(`Unknown question type ${unknown.map((t) => JSON.stringify(t)).join(", ")} (have: ${QUESTION_TYPES.join(", ")})`);
   const wanted = types?.length ? instances.filter((x) => types.includes(x.question_type)) : instances;
   if (limit === undefined || limit >= wanted.length) return wanted;
   const byType = new Map();
