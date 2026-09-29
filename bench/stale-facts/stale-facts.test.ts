@@ -43,6 +43,29 @@ describe("stale-facts dataset", () => {
     expect(readme).toContain(`${late} of the changes include an old fact told late`);
   });
 
+  it("the README's table is the committed result it links to, from a clean tree and this dataset", () => {
+    const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8").replace(/\s+/g, " ");
+    const file = readme.match(/\]\((bench\/results\/\d{4}-\d{2}-\d{2}-stale-facts(?:-\d+)?\.json)\)/)?.[1];
+    expect(file).toBeDefined();
+    const result = JSON.parse(readFileSync(join(REPO_ROOT, file!), "utf8"));
+    const cases = loadCases(join(REPO_ROOT, "bench", "stale-facts", "cases.json"));
+    expect(result).toMatchObject({ dirty: false, settings: { k: 5, retrieval: "keyword" }, dataset: { version: cases.version, subjects: cases.subjects.length, distractors: cases.distractors.length } });
+    const { now, asOf } = result.summary["current-state"];
+    expect(readme).toContain(`${now.n} questions about now, ${asOf.n} about a past instant; keyword recall, no embedder; first 5 results`);
+    const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+    const row = (label: string, slice: string, metric: string) =>
+      `| ${label} | ${["append-only", "append-only+freshness", "current-state"].map((s) => pct(result.summary[s][slice][metric])).join(" | ")} |`;
+    for (const [label, slice, metric] of [
+      ["Now: an outdated value comes first", "now", "staleAt1"],
+      ["Now: an outdated value in the first 5", "now", "staleInTopK"],
+      ["Now: the current value comes first", "now", "currentAt1"],
+      ["Then: a value not true then in the first 5", "asOf", "staleInTopK"],
+      ["Then: the value true then comes first", "asOf", "currentAt1"],
+    ] as const) {
+      expect(readme).toContain(row(label, slice, metric));
+    }
+  });
+
   it("refuses duplicate ids, dates after now, and a question asked before its subject had any value", () => {
     const dup = tiny();
     dup.subjects[0]!.statements[1]!.id = "lisbon";
