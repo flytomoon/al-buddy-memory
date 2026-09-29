@@ -58,6 +58,7 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | `--variant s\|oracle` | `s` | `oracle` holds only the evidence sessions — a ceiling for the reader, not a memory test. |
 | `--retrieval hybrid\|keyword` | `hybrid` | `hybrid` is the library's recall: FTS5 keywords and on-device vectors, fused. `keyword` needs no model. |
 | `--top-k N` | `20` | How many recalled rounds the reader sees. The official scripts default to 50. |
+| `--recall-pool N` | `100` | How many messages recall returns (half from the keyword list, half from the vector list). 100 gives about 60 rounds; more gives `--rerank` more to choose from. |
 | `--freshness X` | `0` | `HybridRetriever`'s recency weight. It orders by when a memory was *recorded*, which here is ingestion order, not session date: 211 of the 500 histories are not in date order, so this flag measures little on LongMemEval. `--expand` orders by session date instead. |
 | `--rerank none\|minilm\|bge\|<model>` | `none` | Rerank recall with an on-device cross-encoder (`LocalReranker`): `minilm` is `Xenova/ms-marco-MiniLM-L-6-v2` (~23 M parameters), `bge` is `Xenova/bge-reranker-base` (278 M, about ten times slower), or any Hugging Face cross-encoder id. Downloaded once to the transformers.js cache, like the embedder. About 200 question–passage pairs per question (100 messages, long ones in windows); a MiniLM-L6 forward pass managed 12 pairs a second on a machine at load 160, so expect seconds per question on an idle one with `minilm`, and about ten times that with `bge`. |
 | `--rerank-dtype fp32\|q8\|…` | `fp32` | The cross-encoder's weights. `q8` is a quarter of the download and faster, at some cost in accuracy. |
@@ -142,10 +143,27 @@ time over the raw text):
    / "initially" nudge the latest / earliest session up. The question itself is always searched as
    it is without `--expand`, so expanding only adds candidates.
 3. **`--aggregate-top-k 40`** — a counting question is shown 40 rounds instead of 20 (the official
-   scripts show 50). Its own arm, because it is the one lever measured so far (below).
+   scripts show 50). Its own arm, because it is the one lever measured so far:
 4. **`--chain-of-note`** — a counting question gets a reader prompt that asks for one dated note per
    relevant session before any arithmetic, then the answer, in the same single call. Not an
    official template, and the result says so.
+
+Measured without a model (retrieval only, 2026-09-29, every multi-session question the official
+retrieval metrics count — 121 of 133): the share of questions where the reader would see **every**
+evidence turn, by how many rounds it is shown.
+
+| Rounds shown | 20 | 30 | 40 | 50 |
+|---|---|---|---|---|
+| Recall as it is (hybrid, 100 messages) | 73.6% | 85.1% | 88.4% | 90.1% |
+| An earlier revision of `expand` | 74.4% | 83.5% | 88.4% | 90.1% |
+
+The first row is this code's recall exactly (recall without `expand` is unchanged). The second is
+not the committed `expand`: it searched the question by its content words only, and the fix has
+not been measured this way yet. Read the table for what it says: 20 rounds leave a
+quarter of multi-session questions without all their evidence, and 40 recover most of them;
+`expand` has not yet shown a gain at equal rounds, and 100 messages cap everything near 90%
+(`--recall-pool` lifts the cap; `--rerank` is what decides whether the extra candidates rise). The
+reranker could not be measured here — its model is a download away.
 
 They need the Claude CLI and, for `--rerank`, a one-time download from huggingface.co. Each
 multi-session + knowledge-update run is 211 questions, about 420 subscription calls; each full run
@@ -161,6 +179,8 @@ node bench/longmemeval/run.mjs --types $T --aggregate-top-k 40 --out $R/$D-lme-m
 node bench/longmemeval/run.mjs --types $T --chain-of-note      --out $R/$D-lme-ms-ku-notes.json
 node bench/longmemeval/run.mjs --types $T --rerank minilm --expand --aggregate-top-k 40 --chain-of-note --out $R/$D-lme-ms-ku-all.json
 node bench/longmemeval/compare.mjs $R/$D-lme-ms-ku-{baseline,rerank,expand,top40,notes,all}.json
+# optional: the reranker over twice the candidates
+node bench/longmemeval/run.mjs --types $T --rerank minilm --recall-pool 200 --aggregate-top-k 40 --out $R/$D-lme-ms-ku-rerank200.json
 
 node bench/longmemeval/run.mjs --out $R/$D-lme-full-baseline.json
 node bench/longmemeval/run.mjs --rerank minilm --expand --aggregate-top-k 40 --chain-of-note --out $R/$D-lme-full-all.json

@@ -33,6 +33,7 @@ const { values: args } = parseArgs({
     types: { type: "string" },
     retrieval: { type: "string", default: "hybrid" },
     "top-k": { type: "string", default: "20" },
+    "recall-pool": { type: "string", default: "100" },
     freshness: { type: "string", default: "0" },
     rerank: { type: "string", default: "none" },
     "rerank-dtype": { type: "string", default: "fp32" },
@@ -120,6 +121,7 @@ if (reranker) {
   }
 }
 const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top-k", 1) : null;
+const recallPool = int("recall-pool", 1);
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
@@ -139,8 +141,8 @@ const settings = {
   ingestion: "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
-  recall: `HybridRetriever.recall(question, { limit: 100${args.expand ? ", expand: { now: question_date }" : ""} })${reranker ? ", reranked by the cross-encoder" : ""}, hits grouped into rounds (a user turn and the turn after it)`,
-  reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: "all recalled (100)" } : null,
+  recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""} })${reranker ? ", reranked by the cross-encoder" : ""}, hits grouped into rounds (a user turn and the turn after it)`,
+  reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: `all recalled (${recallPool})` } : null,
   expand: args.expand,
   freshness,
   topK,
@@ -192,7 +194,7 @@ try {
   await runInstances(
     lib,
     todo,
-    { embedder, reranker, topK, aggregateTopK, freshness, expand: args.expand, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
+    { embedder, reranker, topK, aggregateTopK, freshness, expand: args.expand, recallPool, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
     { concurrency, onRow },
   );
 } catch (e) {

@@ -352,6 +352,18 @@ describe("HybridRetriever — a model whose weights changed under the same name"
   });
 });
 
+describe("HybridRetriever — candidates: how deep each list reads", () => {
+  it("50 per list by default; more when asked, so a reranker has more to choose from", async () => {
+    const store = new InMemoryStore();
+    for (let i = 0; i < 80; i += 1) await store.addNode(makeNode({ content: { text: `bread note ${i}` } }));
+    const retriever = new HybridRetriever(store);
+    expect(await retriever.recall("bread", { limit: 200 })).toHaveLength(50);
+    expect(await retriever.recall("bread", { limit: 200, candidates: 70 })).toHaveLength(70);
+    expect(await retriever.recall("bread", { limit: 200, candidates: 50 })).toEqual(await retriever.recall("bread", { limit: 200 }));
+    await expect(retriever.recall("bread", { candidates: 0 })).rejects.toThrow(/candidates must be an integer >= 1/);
+  });
+});
+
 describe("indexMissingEmbeddings — every tier (review 2026-09-22)", () => {
   /** It read the active tiers only, so an Archived fact was never embedded and a scoped vector recall for Archived could not see it. */
   it("embeds Archived and PendingDeletion facts, as well as retired and Sealed ones", async () => {

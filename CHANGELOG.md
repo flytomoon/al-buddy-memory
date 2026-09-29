@@ -29,10 +29,12 @@ earlier were GitHub releases only.
   its last words count; "currently" and "initially" nudge the latest and earliest facts up. The
   question itself is always searched as plain recall searches it, so `expand` only adds; facts
   outside a period are never dropped.
-- Neither writes anything or changes a fact: scores, sub-queries and periods live for one recall.
-  Recall without either is unchanged.
-- LongMemEval harness: `--rerank`, `--expand`, `--aggregate-top-k` (more rounds for counting
-  questions only), `--chain-of-note` (a reader
+- `recall(query, { candidates })`: how many candidates each keyword and vector list contributes
+  before fusion (default 50, as before), so a reranker can be given more to choose from.
+- None of these writes anything or changes a fact: scores, sub-queries and periods live for one
+  recall. Recall without them is unchanged.
+- LongMemEval harness: `--rerank`, `--expand`, `--recall-pool`, `--aggregate-top-k` (more rounds
+  for counting questions only), `--chain-of-note` (a reader
   prompt for counting questions that is not an official template, and is recorded as such), a
   shown-evidence diagnostic beside the official retrieval metrics, `compare.mjs` for A/B runs, and
   `--types` now refuses a type that does not exist.
