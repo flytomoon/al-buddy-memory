@@ -54,11 +54,16 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | Flag | Default | |
 |---|---|---|
 | `--limit N` | all 500 | A stratified subset: each question type in turn, in file order. Deterministic. |
-| `--types a,b` | all | Only these question types. |
+| `--types a,b` | all | Only these question types, e.g. `multi-session,knowledge-update`. A name that is not one of the six is refused. |
 | `--variant s\|oracle` | `s` | `oracle` holds only the evidence sessions — a ceiling for the reader, not a memory test. |
 | `--retrieval hybrid\|keyword` | `hybrid` | `hybrid` is the library's recall: FTS5 keywords and on-device vectors, fused. `keyword` needs no model. |
 | `--top-k N` | `20` | How many recalled rounds the reader sees. The official scripts default to 50. |
-| `--freshness X` | `0` | `HybridRetriever`'s recency weight. |
+| `--freshness X` | `0` | `HybridRetriever`'s recency weight. It orders by when a memory was *recorded*, which here is ingestion order, not session date: 211 of the 500 histories are not in date order, so this flag measures little on LongMemEval. `--expand` orders by session date instead. |
+| `--rerank none\|minilm\|bge\|<model>` | `none` | Rerank recall with an on-device cross-encoder (`LocalReranker`): `minilm` is `Xenova/ms-marco-MiniLM-L-6-v2` (~23 M parameters), `bge` is `Xenova/bge-reranker-base` (278 M, about ten times slower), or any Hugging Face cross-encoder id. Downloaded once to the transformers.js cache, like the embedder. About 200 question–passage pairs per question (100 messages, long ones in windows); a MiniLM-L6 forward pass managed 12 pairs a second on a machine at load 160, so expect seconds per question on an idle one with `minilm`, and about ten times that with `bge`. |
+| `--rerank-dtype fp32\|q8\|…` | `fp32` | The cross-encoder's weights. `q8` is a quarter of the download and faster, at some cost in accuracy. |
+| `--expand` | off | Recall with `expand`: the library reads the question's time and counting cues (`analyzeQuery`), resolving "last week" against the question's date. Also turns on `--aggregate-top-k 40`. |
+| `--aggregate-top-k N` | `2 × top-k` with `--expand`, else off | How many rounds the reader sees for a question `analyzeQuery` marks as counting across memories ("how many", "total", "A and B", "which … first"). Other questions still see `--top-k`. |
+| `--chain-of-note` | off | Questions marked as counting get the chain-of-note reader: a dated note for every relevant session, then the answer, in the same single call. **Not an official template**; the result file and each row say which reader a question got. |
 | `--reading con\|direct` | `con` | The official reader templates; `con` (reason step by step) is the one the LongMemEval README recommends. |
 | `--answerer claude\|command:<cmd>\|none` | `claude` | `command:` pipes the prompt into any command (a local model, say) and reads the answer from stdout. `none` runs retrieval only: no model is called. |
 | `--answer-model` / `--judge-model` | `sonnet` | Passed to `claude --model`. The model ids that actually answered are recorded. |
@@ -74,12 +79,16 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
    the user's words as `UserInput`, the assistant's as `AIInferred`, a `Conversation` valid from its
    session's date. Nothing is extracted, summarised or rewritten, and no model is called to build
    the memory. With `hybrid`, `indexMissingEmbeddings` embeds every message on-device.
-2. `HybridRetriever.recall(question, { limit: 100 })`. Each recalled message is grouped into its
-   round — a user turn and the turn after it, which is what the official reader is shown — and
-   named by the official corpus id of that user turn.
+2. `HybridRetriever.recall(question, { limit: 100 })` — with `expand: { now: question_date }` under
+   `--expand`, and reordered by the cross-encoder under `--rerank`. Each recalled message is
+   grouped into its round — a user turn and the turn after it, which is what the official reader
+   is shown — and named by the official corpus id of that user turn.
 3. The official retrieval metrics are computed on that ranking.
-4. The top `--top-k` rounds, sorted by date, go into the official reader prompt; the answerer
-   answers.
+4. The top `--top-k` rounds (`--aggregate-top-k` for a counting question), sorted by date, go into
+   the official reader prompt (the chain-of-note one for a counting question under
+   `--chain-of-note`); the answerer answers. Beside the official retrieval metrics, each row
+   records `shown`: how many of the evidence turns were among the rounds the reader actually saw.
+   It is not an official metric, and it is the one that explains most multi-session misses (below).
 5. The official judge prompt for the question's type grades the answer; the verdict is correct
    when the reply contains "yes", exactly as the official script decides.
 
@@ -110,6 +119,54 @@ the retrieval metrics to numbers the official `eval_utils.py` produced for 40 ra
   rounds never come near it.
 - **A `--limit` run is a sample.** Its numbers are not comparable to a full run's, and its
   task-averaged accuracy is over the types it contains.
+
+## Multi-session: where the questions are lost, and the options that go after them
+
+The full run ([result](../results/2026-09-29-longmemeval-full.json)) got 101 of 133 multi-session
+questions right (75.9%). Of the 32 it missed, **25 were missing at least one evidence turn from the
+20 rounds the reader saw**; 7 were wrong with every piece in front of it. A multi-session question
+needs every piece — "how many weddings this year" is wrong if one wedding is missing — and
+`recall_any@10` (96%) says nothing about that. So three options, each off by default so a run can
+A/B it, and none of which stores anything (they reorder, re-query and re-prompt at read time over
+the raw text):
+
+1. **`--rerank`** — a local cross-encoder reads the question with each of the 100 recalled
+   messages and reorders them (`LocalReranker`, the library's `reranker` option). Long messages are
+   scored in 1,000-character windows, best window wins. Hindsight reports reranking as what took
+   its multi-session score from 21% to 80%.
+2. **`--expand`** — the library reads the question (`analyzeQuery`, rules, no model call): a
+   period ("in April", "the past two weeks", "last Thursday") resolved against the question date
+   favours sessions from then and is dropped from the search words; a counting question searches
+   each thing it names ("jogging *and* yoga") from a pool twice as deep, on content words rather
+   than the first sixteen words; "currently" / "initially" nudge the latest / earliest session up.
+   A counting question also gets 40 rounds instead of 20 (`--aggregate-top-k`).
+3. **`--chain-of-note`** — a counting question gets a reader prompt that asks for one dated note per
+   relevant session before any arithmetic, then the answer, in the same single call. Not an
+   official template, and the result says so.
+
+They need the Claude CLI and, for `--rerank`, a one-time download from huggingface.co. Each
+multi-session + knowledge-update run is 211 questions, about 420 subscription calls; each full run
+is 500 questions, about 1,000:
+
+```sh
+npm ci && npm run build && node bench/longmemeval/download.mjs
+D=$(date +%F); R=bench/results; T=multi-session,knowledge-update
+node bench/longmemeval/run.mjs --types $T                                          --out $R/$D-lme-ms-ku-baseline.json
+node bench/longmemeval/run.mjs --types $T --rerank minilm                          --out $R/$D-lme-ms-ku-rerank.json
+node bench/longmemeval/run.mjs --types $T --expand                                 --out $R/$D-lme-ms-ku-expand.json
+node bench/longmemeval/run.mjs --types $T --chain-of-note                          --out $R/$D-lme-ms-ku-notes.json
+node bench/longmemeval/run.mjs --types $T --rerank minilm --expand --chain-of-note  --out $R/$D-lme-ms-ku-all.json
+node bench/longmemeval/compare.mjs $R/$D-lme-ms-ku-{baseline,rerank,expand,notes,all}.json
+
+node bench/longmemeval/run.mjs                                                     --out $R/$D-lme-full-baseline.json
+node bench/longmemeval/run.mjs --rerank minilm --expand --chain-of-note            --out $R/$D-lme-full-all.json
+node bench/longmemeval/compare.mjs $R/$D-lme-full-{baseline,all}.json
+```
+
+`compare.mjs` prints accuracy per type side by side, how often the reader saw every evidence turn,
+and, per option, the questions it fixed and broke against the baseline. A difference of two or three
+questions out of 133 is inside the noise of a CLI that exposes no temperature; the fixed/broken
+counts say more than the percentages.
 
 ## The result file
 

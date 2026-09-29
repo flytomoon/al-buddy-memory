@@ -22,6 +22,9 @@ import { runInstances, summarize } from "./harness.mjs";
 import { cachingEmbedder } from "./memory.mjs";
 import { ANSWER_TEMPLATES, LONGMEMEVAL_COMMIT, READER_SOURCE, SCORING_SOURCE } from "./prompts.mjs";
 
+/** `--rerank` shorthands for the two cross-encoders the library documents. */
+const RERANK_MODELS = { minilm: "Xenova/ms-marco-MiniLM-L-6-v2", bge: "Xenova/bge-reranker-base" };
+
 const { values: args } = parseArgs({
   options: {
     variant: { type: "string", default: "s" },
@@ -31,6 +34,11 @@ const { values: args } = parseArgs({
     retrieval: { type: "string", default: "hybrid" },
     "top-k": { type: "string", default: "20" },
     freshness: { type: "string", default: "0" },
+    rerank: { type: "string", default: "none" },
+    "rerank-dtype": { type: "string", default: "fp32" },
+    expand: { type: "boolean", default: false },
+    "aggregate-top-k": { type: "string" },
+    "chain-of-note": { type: "boolean", default: false },
     reading: { type: "string", default: "con" },
     answerer: { type: "string", default: "claude" },
     "answer-model": { type: "string", default: "sonnet" },
@@ -76,10 +84,15 @@ if (!pinned && !args["allow-unpinned"]) {
       : `dataset.json records no SHA-256 for ${file.path} yet: run \`node bench/longmemeval/download.mjs --pin\` and commit dataset.json, or pass --allow-unpinned; the result will say so.`,
   );
 }
-const instances = selectInstances(loadInstances(dataPath), {
-  ...(args.limit !== undefined ? { limit: int("limit", 1) } : {}),
-  ...(args.types ? { types: args.types.split(",").map((t) => t.trim()) } : {}),
-});
+const types = args.types ? args.types.split(",").map((t) => t.trim()).filter(Boolean) : [];
+const limit = args.limit !== undefined ? int("limit", 1) : undefined;
+const all = loadInstances(dataPath);
+let instances;
+try {
+  instances = selectInstances(all, { ...(limit !== undefined ? { limit } : {}), ...(types.length ? { types } : {}) });
+} catch (e) {
+  fail(`--types: ${e.message}`);
+}
 if (instances.length === 0) fail("No questions selected.");
 
 // --- retrieval, answerer and judge -----------------------------------------
@@ -97,6 +110,16 @@ if (embedder) {
     fail(`Hybrid retrieval needs the on-device embedder (optional dependency @huggingface/transformers, and a one-time model download): ${e.message}\nOr pass --retrieval keyword.`);
   }
 }
+const rerankModel = args.rerank === "none" ? null : (RERANK_MODELS[args.rerank] ?? args.rerank);
+const reranker = rerankModel ? new lib.LocalReranker({ model: rerankModel, dtype: args["rerank-dtype"] }) : null;
+if (reranker) {
+  try {
+    await reranker.score("warm-up", ["warm-up"]);
+  } catch (e) {
+    fail(`--rerank ${args.rerank} needs the on-device cross-encoder ${rerankModel} (optional dependency @huggingface/transformers, and a one-time model download): ${e.message}`);
+  }
+}
+const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top-k", 1) : args.expand ? 2 * Number(args["top-k"]) : null;
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
@@ -111,15 +134,19 @@ if ([args.answerer, args.judge].includes("claude")) {
 const info = runInfo();
 const settings = {
   variant: args.variant,
-  selection: { limit: args.limit === undefined ? null : Number(args.limit), types: args.types ?? null, stratified: args.limit !== undefined, questions: instances.length },
+  selection: { limit: args.limit === undefined ? null : Number(args.limit), types: types.length ? types.join(",") : null, stratified: args.limit !== undefined, questions: instances.length },
   store: "SqliteMemoryStore(':memory:'), a fresh one per question",
   ingestion: "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
-  recall: "HybridRetriever.recall(question, { limit: 100 }), hits grouped into rounds (a user turn and the turn after it)",
+  recall: `HybridRetriever.recall(question, { limit: 100${args.expand ? ", expand: { now: question_date }" : ""} })${reranker ? ", reranked by the cross-encoder" : ""}, hits grouped into rounds (a user turn and the turn after it)`,
+  reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: "all recalled (100)" } : null,
+  expand: args.expand,
   freshness,
   topK,
+  aggregateTopK,
   reading: args.reading,
+  chainOfNote: args["chain-of-note"],
   historyFormat: "json",
   concurrency,
 };
@@ -142,8 +169,9 @@ if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== ""
 }
 const todo = instances.filter((x) => !done.has(x.question_id));
 
+const options = [reranker && `rerank ${reranker.model}`, args.expand && "expand", aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
 console.log(
-  `LongMemEval_${args.variant}: ${instances.length} questions (${done.size} already done), retrieval ${args.retrieval}, top ${topK} rounds, reading ${args.reading}, ` +
+  `LongMemEval_${args.variant}: ${instances.length} questions (${done.size} already done), retrieval ${args.retrieval}, top ${topK} rounds, reading ${args.reading}${options.length ? ` (${options.join(", ")})` : ""}, ` +
     `answerer ${answererInfo ? `${answererInfo.kind} ${answererInfo.requestedModel ?? answererInfo.command}` : "none"}, judge ${judgeInfo ? `${judgeInfo.kind} ${judgeInfo.requestedModel ?? judgeInfo.command}` : "none"}` +
     `${answerer ? `, up to ${todo.length * (judge ? 2 : 1)} model calls` : ""}.`,
 );
@@ -161,7 +189,12 @@ const onRow = (row) => {
 };
 let stopped = null;
 try {
-  await runInstances(lib, todo, { embedder, topK, freshness, reading: args.reading, answerer, judge }, { concurrency, onRow });
+  await runInstances(
+    lib,
+    todo,
+    { embedder, reranker, topK, aggregateTopK, freshness, expand: args.expand, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
+    { concurrency, onRow },
+  );
 } catch (e) {
   stopped = e;
 }
@@ -186,6 +219,9 @@ writeJson(out, {
     readerPrompt: READER_SOURCE,
     label: "'yes' in judge_response.strip().lower()",
     officialJudgeModel: "gpt-4o-2024-08-06",
+    ...(args["chain-of-note"]
+      ? { readerNote: "Questions analyzeQuery marks as counting across memories were read with CHAIN_OF_NOTE_TEMPLATE (bench/longmemeval/prompts.mjs), not an official template; each row's `reading` says which one it got." }
+      : {}),
     note: judgeInfo
       ? "Official prompts and rule; the judge model is the one named under `judge`, not gpt-4o. `hypothesesFile` is in the official format, so evaluate_qa.py can re-judge it with gpt-4o."
       : "Not judged. `hypothesesFile` is in the official format for evaluate_qa.py.",
@@ -217,6 +253,11 @@ if (summary.qa.questions) {
 }
 const s = summary.retrieval.session;
 console.log(`Retrieval (${summary.retrieval.questions} question${summary.retrieval.questions === 1 ? "" : "s"}): session recall_any@5 ${pct(s["recall_any@5"])}, @10 ${pct(s["recall_any@10"])}; recall_all@10 ${pct(s["recall_all@10"])}; ndcg_any@10 ${pct(s["ndcg_any@10"])}`);
+const shown = summary.retrieval.shown;
+if (shown) {
+  console.log(`Shown to the reader (not an official metric): every evidence turn in ${pct(shown.allEvidence)} of questions, ${pct(shown.evidenceFound)} of evidence turns, ${shown.meanRounds} rounds on average`);
+  for (const [t, v] of Object.entries(shown.byType)) console.log(`  ${t.padEnd(26)} all evidence ${pct(v.allEvidence).padStart(6)}  (n=${v.n}, ${v.meanRounds} rounds)`);
+}
 if (summary.errors) {
   console.log(`${summary.errors} question(s) failed after retries and are not in the accuracy; see "error" in the result file.`);
   console.log(`Run the same command with --resume to retry just those (progress: ${progressPath}).`);

@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { checkInstance, corpusOf, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
-import { dcg, evaluateRetrieval, evaluateRetrievalTurn2Session, ndcg, retrievalMetrics, summarizeQa, summarizeRetrieval } from "./metrics.mjs";
-import { ANSWER_TEMPLATES, answerPrompt, formatHistory, judgeLabel, judgePrompt, pythonJsonDumps } from "./prompts.mjs";
+import { dcg, evaluateRetrieval, evaluateRetrievalTurn2Session, ndcg, retrievalMetrics, shownEvidence, summarizeQa, summarizeRetrieval } from "./metrics.mjs";
+import { ANSWER_TEMPLATES, CHAIN_OF_NOTE_TEMPLATE, answerPrompt, formatHistory, judgeLabel, judgePrompt, pythonJsonDumps } from "./prompts.mjs";
+import { digest, pairwise, report } from "./compare.mjs";
 import { instance } from "./fixture.js";
 
 /**
@@ -55,6 +56,13 @@ describe("LongMemEval dataset handling", () => {
     expect(selectInstances(all, { limit: 5 }).map((x) => x.question_id)).toEqual(["q0", "q1", "q3", "q4", "q5"]);
     expect(selectInstances(all, { limit: 2, types: ["multi-session"] }).map((x) => x.question_id)).toEqual(["q3", "q4"]);
     expect(selectInstances(all, {})).toHaveLength(6);
+  });
+
+  it("--types runs only the types named, and refuses one that does not exist rather than quietly running none of it", () => {
+    const types = ["single-session-user", "multi-session", "knowledge-update", "multi-session", "temporal-reasoning"];
+    const all = types.map((t, i) => ({ question_id: `q${i}`, question_type: t }));
+    expect(selectInstances(all, { types: ["multi-session", "knowledge-update"] }).map((x) => x.question_id)).toEqual(["q1", "q2", "q3"]);
+    expect(() => selectInstances(all, { types: ["multi-session", "multisession"] })).toThrow(/Unknown question type "multisession" \(have: single-session-user/);
   });
 });
 
@@ -119,6 +127,57 @@ describe("LongMemEval retrieval metrics — eval_utils.py, ported", () => {
     expect(summary.questions).toBe(2);
     expect(summary.skipped).toEqual({ abstention: 1, "no-user-evidence": 0 });
     expect(summary.turn["recall_any@3"]).toBe(0.5);
+    expect(summary).not.toHaveProperty("shown");
+  });
+
+  it("beside them, not among them: how much of the evidence the reader was shown, overall and per type", () => {
+    expect(shownEvidence(["noans_x1_1_3", "answer_x1_2_1"], correct)).toEqual({ rounds: 2, evidence: 2, found: 1, all: 0 });
+    expect(shownEvidence(ranked, correct)).toEqual({ rounds: 4, evidence: 2, found: 2, all: 1 });
+    const m = retrievalMetrics(ranked, correct, corpus);
+    const summary = summarizeRetrieval([
+      { question_id: "a", question_type: "multi-session", retrieval: { skipped: null, metrics: m, shown: shownEvidence(ranked, correct) } },
+      { question_id: "b", question_type: "multi-session", retrieval: { skipped: null, metrics: m, shown: shownEvidence(["answer_x1_2_1"], correct) } },
+      { question_id: "c", question_type: "knowledge-update", retrieval: { skipped: null, metrics: m, shown: shownEvidence([], correct) } },
+    ]);
+    expect(summary.shown).toEqual({
+      n: 3,
+      allEvidence: 0.3333,
+      evidenceFound: 0.5,
+      meanRounds: 1.6667,
+      byType: {
+        "multi-session": { n: 2, allEvidence: 0.5, evidenceFound: 0.75, meanRounds: 2.5 },
+        "knowledge-update": { n: 1, allEvidence: 0, evidenceFound: 0, meanRounds: 0 },
+      },
+    });
+    // The official averages are the same with or without it.
+    expect(summary.turn).toEqual(summarizeRetrieval([1, 2, 3].map((i) => ({ question_id: `${i}`, retrieval: { skipped: null, metrics: m } }))).turn);
+  });
+});
+
+describe("compare.mjs — an A/B, question by question", () => {
+  const result = (labels: Record<string, [string, boolean]>, judge = "sonnet") => ({
+    judge: { requestedModel: judge },
+    settings: {},
+    questions: Object.entries(labels).map(([id, [type, label]]) => ({ question_id: id, question_type: type, label })),
+    summary: { qa: summarizeQa(Object.entries(labels).map(([id, [type, label]]) => ({ question_id: id, question_type: type, label }))), retrieval: {} },
+  });
+
+  it("counts what an option fixed and broke against the baseline, per type, over the questions both judged", () => {
+    const base = digest(result({ a: ["multi-session", false], b: ["multi-session", true], c: ["knowledge-update", false], d: ["knowledge-update", true] }), "base");
+    const option = digest(result({ a: ["multi-session", true], b: ["multi-session", false], c: ["knowledge-update", true], e: ["knowledge-update", true] }), "option");
+    expect(pairwise(base, option)).toEqual({
+      both: 3,
+      fixed: 2,
+      broken: 1,
+      byType: { "multi-session": { fixed: 1, broken: 1, n: 2 }, "knowledge-update": { fixed: 1, broken: 0, n: 1 } },
+    });
+    const text = report([base, option]);
+    expect(text).toContain("option vs base: fixed 2, broke 1, net +1 of 3  [only 3 questions judged in both]");
+  });
+
+  it("says so when the judges differ", () => {
+    const text = report([digest(result({ a: ["multi-session", true] }), "base"), digest(result({ a: ["multi-session", true] }, "opus"), "other")]);
+    expect(text).toContain("[judge opus vs sonnet]");
   });
 });
 
@@ -172,6 +231,20 @@ describe("LongMemEval prompts — the official strings", () => {
     expect(prompt.endsWith("Question: What city did I move to for work?\nAnswer (step by step):")).toBe(true);
     expect(answerPrompt(instance(), [], "direct").endsWith("\nAnswer:")).toBe(true);
     expect(() => answerPrompt(instance(), [], "summarise")).toThrow(/Unknown reading method/);
+  });
+
+  it("the chain-of-note reader (not official) keeps the official frame and history, and asks for dated notes before the answer", () => {
+    const later = { id: "answer_x1_2_1", date: "2023/05/20 (Sat) 02:21", turns: [{ role: "user", content: "Berlin now." }] };
+    const earlier = { id: "answer_x1_1_1", date: "2023/02/10 (Fri) 18:30", turns: [{ role: "user", content: "Tokyo." }] };
+    const prompt = answerPrompt(instance(), [later, earlier], "chain-of-note");
+    expect(CHAIN_OF_NOTE_TEMPLATE.match(/\{\}/g)).toHaveLength(3);
+    expect(prompt.startsWith("I will give you several history chats between you and a user. Please answer the question based on the relevant chat history.")).toBe(true);
+    expect(prompt).toContain(`History Chats:\n\n${formatHistory([later, earlier])}\n\nCurrent Date: 2023/06/01 (Thu) 10:00\nQuestion: What city did I move to for work?\n`);
+    expect(prompt).toMatch(/Step 1, notes\..*the session date/);
+    expect(prompt).toMatch(/Step 2, answer\..*Count a thing once/);
+    expect(prompt.endsWith("Answer (notes first, then the answer):")).toBe(true);
+    // Not one of the official templates, and they are unchanged by it.
+    expect(Object.keys(ANSWER_TEMPLATES)).toEqual(["con", "direct"]);
   });
 
   it("chooses the judge template by question type, and the abstention one for _abs questions", () => {
