@@ -1,0 +1,309 @@
+{
+  "name": "stale-facts",
+  "version": 1,
+  "about": "Facts that change over time, told to an assistant in the first person. For each subject, the statement valid at an instant is the one with the latest `at` at or before it; every other statement of that subject is wrong at that instant. A statement marked learnedLate is told after everything else (an old fact mentioned today). Distractors are ordinary facts that share words with the questions. Written by hand for this benchmark; not drawn from any other dataset.",
+  "now": "2026-09-01T00:00:00.000Z",
+  "subjects": [
+    {
+      "id": "home",
+      "subject": "me",
+      "aspect": "home city",
+      "statements": [
+        { "id": "home-0", "at": "2018-09-01", "learnedLate": true, "text": "Before London, I lived in Lisbon for three years." },
+        { "id": "home-1", "at": "2021-03-02", "text": "I live in London, in a flat near Clapham Common." },
+        { "id": "home-2", "at": "2023-06-15", "text": "Big news: I've moved to Tokyo for the new role, renting a place in Setagaya." },
+        { "id": "home-3", "at": "2025-01-10", "text": "We relocated again in January; I live in Berlin now, in Kreuzberg." }
+      ],
+      "questions": [
+        { "text": "Which city do I live in?" },
+        { "text": "Which city did I live in back in mid-2022?", "asOf": "2022-07-01" },
+        { "text": "Where was I living in early 2024?", "asOf": "2024-03-01" },
+        { "text": "Where did I live in 2019?", "asOf": "2019-06-01" }
+      ]
+    },
+    {
+      "id": "employer",
+      "subject": "me",
+      "aspect": "employer",
+      "statements": [
+        { "id": "employer-1", "at": "2020-09-01", "text": "I work at Northwind Logistics as a data analyst." },
+        { "id": "employer-2", "at": "2022-11-14", "text": "Today was my first day at Brightline Health; I left Northwind last Friday." },
+        { "id": "employer-3", "at": "2025-04-07", "text": "I accepted an offer from Cobalt Robotics and started there this week." }
+      ],
+      "questions": [
+        { "text": "Where do I work?" },
+        { "text": "Which company was I working for in the summer of 2023?", "asOf": "2023-07-01" }
+      ]
+    },
+    {
+      "id": "title",
+      "subject": "me",
+      "aspect": "job title",
+      "statements": [
+        { "id": "title-1", "at": "2021-01-10", "text": "My title is Junior Designer." },
+        { "id": "title-2", "at": "2023-03-20", "text": "I got promoted to Senior Designer." },
+        { "id": "title-3", "at": "2026-02-02", "text": "As of this month I'm Design Lead for the payments team." }
+      ],
+      "questions": [{ "text": "What is my job title?" }]
+    },
+    {
+      "id": "manager",
+      "subject": "me",
+      "aspect": "manager",
+      "statements": [
+        { "id": "manager-1", "at": "2022-05-03", "text": "My manager is Priya Raman." },
+        { "id": "manager-2", "at": "2024-08-19", "text": "Priya moved to another org, so I report to Tomasz Nowak now." }
+      ],
+      "questions": [
+        { "text": "Who is my manager?" },
+        { "text": "Who was my manager at the start of 2023?", "asOf": "2023-01-01" }
+      ]
+    },
+    {
+      "id": "phone",
+      "subject": "me",
+      "aspect": "phone",
+      "statements": [
+        { "id": "phone-1", "at": "2020-02-10", "text": "I use a Pixel 4 as my phone." },
+        { "id": "phone-2", "at": "2023-09-25", "text": "Switched to an iPhone 15 last week." }
+      ],
+      "questions": [{ "text": "What phone do I have?" }]
+    },
+    {
+      "id": "car",
+      "subject": "me",
+      "aspect": "car",
+      "statements": [
+        { "id": "car-1", "at": "2019-05-01", "learnedLate": true, "text": "Back in 2019 I bought a 2012 Honda Civic, my first car." },
+        { "id": "car-2", "at": "2022-07-12", "text": "I sold the Civic and I'm driving a used Toyota Prius now." },
+        { "id": "car-3", "at": "2025-03-30", "text": "Picked up my new car today, a Tesla Model 3." }
+      ],
+      "questions": [
+        { "text": "What car do I drive?" },
+        { "text": "What was I driving in early 2023?", "asOf": "2023-01-01" }
+      ]
+    },
+    {
+      "id": "diet",
+      "subject": "me",
+      "aspect": "diet",
+      "statements": [
+        { "id": "diet-1", "at": "2020-06-01", "text": "I'm vegetarian, but I still eat eggs and cheese." },
+        { "id": "diet-2", "at": "2024-01-05", "text": "New year, new diet: I'm fully vegan now, no eggs or dairy." }
+      ],
+      "questions": [{ "text": "What diet do I follow?" }]
+    },
+    {
+      "id": "gym",
+      "subject": "me",
+      "aspect": "gym days",
+      "statements": [
+        { "id": "gym-1", "at": "2022-02-01", "text": "I go to the gym on Mondays and Wednesdays before work." },
+        { "id": "gym-2", "at": "2025-05-12", "text": "My gym days changed to Tuesdays and Thursdays in the evening." }
+      ],
+      "questions": [{ "text": "Which days do I go to the gym?" }]
+    },
+    {
+      "id": "coffee",
+      "subject": "me",
+      "aspect": "coffee order",
+      "statements": [
+        { "id": "coffee-1", "at": "2021-10-10", "text": "My usual coffee order is a flat white with oat milk." },
+        { "id": "coffee-2", "at": "2024-06-18", "text": "I've switched to a decaf americano, black, no milk." }
+      ],
+      "questions": [{ "text": "What is my usual coffee order?" }]
+    },
+    {
+      "id": "sam",
+      "subject": "Sam",
+      "aspect": "relationship",
+      "statements": [
+        { "id": "sam-1", "at": "2020-04-14", "text": "I'm dating Sam; we met at a climbing gym." },
+        { "id": "sam-2", "at": "2023-12-24", "text": "Sam proposed on Christmas Eve, we're engaged!" },
+        { "id": "sam-3", "at": "2025-06-21", "text": "Sam and I got married on the 21st of June." }
+      ],
+      "questions": [
+        { "text": "What is my relationship status with Sam?" },
+        { "text": "What was my relationship status in the middle of 2024?", "asOf": "2024-06-01" }
+      ]
+    },
+    {
+      "id": "laptop",
+      "subject": "me",
+      "aspect": "work laptop",
+      "statements": [
+        { "id": "laptop-1", "at": "2019-11-20", "text": "My work laptop is a ThinkPad X1 Carbon." },
+        { "id": "laptop-2", "at": "2024-02-29", "text": "IT replaced my work laptop with a MacBook Pro M3." }
+      ],
+      "questions": [{ "text": "Which laptop do I use for work?" }]
+    },
+    {
+      "id": "internet",
+      "subject": "home",
+      "aspect": "internet provider",
+      "statements": [
+        { "id": "internet-1", "at": "2021-08-08", "text": "Our home broadband is from Riverline Broadband." },
+        { "id": "internet-2", "at": "2025-09-01", "text": "We cancelled Riverline and switched the home internet to Starfield Fiber." }
+      ],
+      "questions": [{ "text": "Who is our home internet provider?" }]
+    },
+    {
+      "id": "doctor",
+      "subject": "me",
+      "aspect": "GP",
+      "statements": [
+        { "id": "doctor-1", "at": "2020-01-15", "text": "My GP is Dr. Okafor at the Elm Street practice." },
+        { "id": "doctor-2", "at": "2024-10-02", "text": "I registered with a new family doctor, Dr. Lindqvist, after the move." }
+      ],
+      "questions": [{ "text": "Who is my GP?" }]
+    },
+    {
+      "id": "school",
+      "subject": "Maya",
+      "aspect": "school",
+      "statements": [
+        { "id": "school-1", "at": "2022-09-05", "text": "Maya started at Hillcrest Primary this September." },
+        { "id": "school-2", "at": "2025-09-03", "text": "Maya moved up to Oakridge Secondary School this term." }
+      ],
+      "questions": [
+        { "text": "Which school does Maya go to?" },
+        { "text": "Which school was Maya at in January 2024?", "asOf": "2024-01-15" }
+      ]
+    },
+    {
+      "id": "lantern",
+      "subject": "Lantern",
+      "aspect": "latest release",
+      "statements": [
+        { "id": "lantern-1", "at": "2026-05-02", "text": "Lantern 0.5.1 is staged and waiting for approval." },
+        { "id": "lantern-2", "at": "2026-06-20", "text": "Lantern 0.6.0 went live on npm today." },
+        { "id": "lantern-3", "at": "2026-08-14", "text": "Lantern 0.7.0 is published and live." }
+      ],
+      "questions": [
+        { "text": "What is the latest Lantern release?" },
+        { "text": "Where did the Lantern release stand at the start of June 2026?", "asOf": "2026-06-01" }
+      ]
+    },
+    {
+      "id": "standup",
+      "subject": "team standup",
+      "aspect": "time",
+      "statements": [
+        { "id": "standup-1", "at": "2023-01-09", "text": "Team standup is at 9:30 every morning." },
+        { "id": "standup-2", "at": "2025-11-03", "text": "Standup moved to 10:15 because of the new US teammates." }
+      ],
+      "questions": [{ "text": "What time is standup?" }]
+    },
+    {
+      "id": "rent",
+      "subject": "flat",
+      "aspect": "rent",
+      "statements": [
+        { "id": "rent-1", "at": "2022-03-01", "text": "My rent is 1,450 euros a month." },
+        { "id": "rent-2", "at": "2024-03-01", "text": "The landlord raised the rent to 1,560 euros a month from March." },
+        { "id": "rent-3", "at": "2026-03-01", "text": "Rent went up again, it's 1,640 euros a month now." }
+      ],
+      "questions": [
+        { "text": "How much is my rent?" },
+        { "text": "How much was my rent at the start of 2025?", "asOf": "2025-01-01" }
+      ]
+    },
+    {
+      "id": "shoes",
+      "subject": "me",
+      "aspect": "running shoes",
+      "statements": [
+        { "id": "shoes-1", "at": "2021-06-01", "learnedLate": true, "text": "In 2021 I was running in Nike Pegasus 38s." },
+        { "id": "shoes-2", "at": "2023-04-01", "text": "I run in Brooks Ghost 15s." },
+        { "id": "shoes-3", "at": "2025-08-10", "text": "Retired the Ghosts; my running shoes are Hoka Clifton 9s now." }
+      ],
+      "questions": [
+        { "text": "What running shoes do I use?" },
+        { "text": "Which running shoes did I use in early 2022?", "asOf": "2022-01-01" }
+      ]
+    },
+    {
+      "id": "allergy",
+      "subject": "me",
+      "aspect": "allergy",
+      "statements": [{ "id": "allergy-1", "at": "2020-03-03", "text": "I'm allergic to penicillin." }],
+      "questions": [{ "text": "Am I allergic to any medication?" }]
+    },
+    {
+      "id": "birthday",
+      "subject": "me",
+      "aspect": "birthday",
+      "statements": [{ "id": "birthday-1", "at": "2020-02-14", "text": "My birthday is on the 14th of February." }],
+      "questions": [{ "text": "When is my birthday?" }]
+    },
+    {
+      "id": "band",
+      "subject": "me",
+      "aspect": "favourite band",
+      "statements": [
+        { "id": "band-1", "at": "2019-07-07", "text": "My favourite band is Radiohead." },
+        { "id": "band-2", "at": "2024-11-11", "text": "These days the band I love most is Khruangbin." }
+      ],
+      "questions": [{ "text": "What is my favourite band?" }]
+    },
+    {
+      "id": "name",
+      "subject": "me",
+      "aspect": "preferred name",
+      "statements": [
+        { "id": "name-1", "at": "2021-02-02", "text": "Please call me Alexander." },
+        { "id": "name-2", "at": "2023-05-05", "text": "I go by Alex now, not Alexander." }
+      ],
+      "questions": [{ "text": "What name should you call me?" }]
+    },
+    {
+      "id": "bank",
+      "subject": "me",
+      "aspect": "bank",
+      "statements": [
+        { "id": "bank-1", "at": "2020-10-10", "text": "I bank with Harbor Savings." },
+        { "id": "bank-2", "at": "2025-02-14", "text": "Moved all my accounts from Harbor Savings to Meridian Credit Union." }
+      ],
+      "questions": [{ "text": "Which bank do I use?" }]
+    },
+    {
+      "id": "language",
+      "subject": "me",
+      "aspect": "language I'm learning",
+      "statements": [
+        { "id": "language-1", "at": "2022-04-04", "text": "I'm learning Portuguese on weekday evenings." },
+        { "id": "language-2", "at": "2024-09-09", "text": "I dropped Portuguese; I'm learning Japanese now." }
+      ],
+      "questions": [{ "text": "Which language am I learning?" }]
+    }
+  ],
+  "distractors": [
+    { "at": "2020-05-05", "text": "My sister Ana lives in Madrid and teaches maths." },
+    { "at": "2021-04-18", "text": "My brother works at a bakery in Leeds." },
+    { "at": "2021-09-12", "text": "Sam's manager at the climbing gym is very strict." },
+    { "at": "2025-02-20", "text": "Tomasz recommended a good ramen place in Berlin." },
+    { "at": "2022-10-01", "text": "My friend Leo drives a Volvo estate." },
+    { "at": "2023-02-07", "text": "The office coffee machine only makes espresso." },
+    { "at": "2025-10-10", "text": "Maya's best friend goes to Oakridge too." },
+    { "at": "2024-05-15", "text": "Our neighbours pay much less rent than we do." },
+    { "at": "2022-12-27", "text": "The gym is closed on public holidays." },
+    { "at": "2023-11-30", "text": "I bought my mum a new phone for her birthday." },
+    { "at": "2024-03-12", "text": "My old ThinkPad is now the kids' homework laptop." },
+    { "at": "2021-11-02", "text": "Dr. Okafor's practice sends appointment reminders by text." },
+    { "at": "2024-04-04", "text": "The standup notes live in the team wiki." },
+    { "at": "2026-07-01", "text": "Lantern's changelog is in the repository root." },
+    { "at": "2026-01-20", "text": "I need to renew my passport before the trip to Lisbon." },
+    { "at": "2022-08-08", "text": "My partner Sam prefers tea over coffee." },
+    { "at": "2026-04-22", "text": "I want to try trail running shoes next year." },
+    { "at": "2023-08-25", "text": "The bank holiday weekend is at the end of August." },
+    { "at": "2025-12-05", "text": "I watched a documentary about Japanese gardens." },
+    { "at": "2024-12-18", "text": "My favourite film this year was a Korean thriller." },
+    { "at": "2024-08-30", "text": "Priya invited me to her farewell lunch." },
+    { "at": "2025-06-02", "text": "Our internet was down for two hours on Sunday." },
+    { "at": "2026-03-14", "text": "My title for the conference talk is Designing for Trust." },
+    { "at": "2023-03-03", "text": "My dentist is on Alexander Street." },
+    { "at": "2024-07-19", "text": "I tried a vegan cheese that was surprisingly good." },
+    { "at": "2025-07-07", "text": "I work from a café on Fridays." },
+    { "at": "2022-06-06", "text": "Where I live, the trams stop running at midnight." }
+  ]
+}

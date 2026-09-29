@@ -35,6 +35,8 @@ Sources for the cells above, each checked against the project's own code or anno
 
 Recall benchmarks (LOCOMO, LongMemEval, DMR) measure what an agent remembers. **None of them scores a memory system on provenance, invalidation or portability.** This library is built for that axis, and the conformance scorer below is one attempt at measuring it. The table is our reading of each project's own code and public docs, dated above; if we have a cell wrong, a PR with a link fixes it.
 
+We run LongMemEval anyway, so a recall number people recognise sits beside the conformance score rather than in place of it, along with a small benchmark of our own for the part recall benchmarks skip: when a fact changes, does recall return the value that is true now? See [Benchmarks](#benchmarks).
+
 ## Start here
 
 An empty memory gives an assistant nothing to stand on. [docs/STARTER.md](docs/STARTER.md) seeds
@@ -301,6 +303,47 @@ The rulebook, including which dimension is which and what the score does **not**
 written against export *shapes*, not vendors. If a system starts recording provenance, its
 score goes up — that is the point. Add an adapter for your shape and open a PR; if you
 think we declared a trait wrongly for yours, that is a one-line PR too.
+
+## Benchmarks
+
+The conformance score measures what recall benchmarks leave out; it does not replace them. Two
+harnesses in [bench/](bench/README.md) put numbers beside it, each with its result file, commit and
+settings in [bench/results/](bench/results/):
+
+- **[LongMemEval](bench/longmemeval/README.md)**, the public recall benchmark: 500 questions over
+  chat histories of about 50 sessions each. Every question gets a fresh store holding its history,
+  one memory per message through the public API, nothing extracted or summarised; recall chooses
+  what the reader sees. The reader and judge prompts, the yes/no rule and the retrieval metrics are
+  the official ones, held to the official code by tests. The reader and judge are Claude, run
+  through the Claude Code CLI on a subscription, so a run spends no metered API money — and the
+  judge is therefore not the official gpt-4o, which is why every result ships its answers in the
+  official format for anyone to re-judge. `node bench/longmemeval/run.mjs --limit 50` is a smoke run.
+- **[Stale facts](bench/README.md#stale-facts)**, our own: things about a person that change over
+  time, told to the same store three ways — append-only, append-only recalled with freshness, and
+  through `recordState`, where a newer state closes the old one. It asks whether recall returns the
+  value true now, and the value true at a past instant. No model is called; it is deterministic.
+
+Stale facts, as measured ([result](bench/results/2026-09-29-stale-facts.json); 24 questions about
+now, 11 about a past instant; keyword recall, no embedder; first 5 results):
+
+| | append-only | append-only + freshness | recordState |
+|---|---|---|---|
+| Now: an outdated value comes first | 50.0% | 4.2% | 0.0% |
+| Now: an outdated value in the first 5 | 87.5% | 37.5% | 0.0% |
+| Now: the current value comes first | 16.7% | 25.0% | 33.3% |
+| Then: a value not true then in the first 5 | 27.3% | 27.3% | 18.2% |
+| Then: the value true then comes first | 27.3% | 9.1% | 27.3% |
+
+Read it for what it is. Invalidation is what takes the outdated answer off the table: half the
+"where do things stand" questions put an old value first in an append-only store. Freshness hides
+that without removing it — the old value is still in the first five more than a third of the time —
+and it mistakes an old fact mentioned late for a new one: asked what car I drive, it answers with
+the 2019 Civic mentioned last. The current value coming first a third of the time at best is keyword
+recall, for every strategy alike: short questions ("what phone do I have?") match rare words in
+unrelated facts, and "I accepted an offer from Cobalt Robotics" shares only "I" with "where do I
+work?". The two past-instant questions where `recordState` still shows a wrong value are a gap this
+benchmark found: a state learned late is closed at the next state still live, not the next state in
+time, so a 2018 home mentioned after the 2025 one reads as valid alongside the homes in between.
 
 ## The governance MCP server
 

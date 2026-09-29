@@ -1,0 +1,2604 @@
+{
+  "benchmark": "stale-facts",
+  "date": "2026-09-29T04:52:36.561Z",
+  "commit": "2aaeb3614cca7bde2801e953eb3fcfa311b0716b",
+  "branch": "al/run-2026-09-29-delegated-al-buddy-memory",
+  "dirty": false,
+  "library": {
+    "name": "al-buddy-memory",
+    "version": "0.8.3"
+  },
+  "node": "v24.19.0",
+  "platform": "darwin-arm64",
+  "dataset": {
+    "file": "bench/stale-facts/cases.json",
+    "version": 1,
+    "subjects": 24,
+    "statements": 55,
+    "distractors": 27,
+    "now": "2026-09-01T00:00:00.000Z"
+  },
+  "settings": {
+    "k": 5,
+    "retrieval": "keyword",
+    "embedder": null,
+    "store": "SqliteMemoryStore(':memory:'), a fresh one per strategy",
+    "recall": "HybridRetriever.recall(question, { limit: k, validAt }); validAt is the dataset's `now`, or the instant an as-of question names",
+    "strategies": {
+      "append-only": "every statement an ordinary fact (addNode, validFrom = its date); nothing is closed",
+      "append-only+freshness": "the same store, recalled with freshness: 1",
+      "current-state": "every statement through recordState(subject, aspect, text, at); a newer state closes the one it replaces"
+    },
+    "caveats": [
+      "The subject and aspect of each statement come from the dataset; a host model would have to choose them.",
+      "As-of questions are given their instant; a host model would have to read it from the question.",
+      "It compares the library with itself, with and without invalidation — not with any other system."
+    ]
+  },
+  "metrics": {
+    "currentAt1": "the first result is the statement true at the instant asked",
+    "staleAt1": "the first result is another statement of the same subject (the reader would most likely repeat it)",
+    "currentInTopK": "the true statement is among the first k",
+    "staleInTopK": "another statement of the same subject is among the first k",
+    "cleanTopK": "the true statement is among the first k and no other statement of its subject is"
+  },
+  "summary": {
+    "append-only": {
+      "all": {
+        "n": 35,
+        "currentAt1": 0.2,
+        "staleAt1": 0.3429,
+        "currentInTopK": 0.6286,
+        "staleInTopK": 0.6857,
+        "cleanTopK": 0.2286
+      },
+      "now": {
+        "n": 24,
+        "currentAt1": 0.1667,
+        "staleAt1": 0.5,
+        "currentInTopK": 0.625,
+        "staleInTopK": 0.875,
+        "cleanTopK": 0.0833
+      },
+      "asOf": {
+        "n": 11,
+        "currentAt1": 0.2727,
+        "staleAt1": 0,
+        "currentInTopK": 0.6364,
+        "staleInTopK": 0.2727,
+        "cleanTopK": 0.5455
+      },
+      "lateArrival": {
+        "n": 8,
+        "currentAt1": 0.375,
+        "staleAt1": 0,
+        "currentInTopK": 0.875,
+        "staleInTopK": 0.625,
+        "cleanTopK": 0.375
+      }
+    },
+    "append-only+freshness": {
+      "all": {
+        "n": 35,
+        "currentAt1": 0.2,
+        "staleAt1": 0.0286,
+        "currentInTopK": 0.5429,
+        "staleInTopK": 0.3429,
+        "cleanTopK": 0.3143
+      },
+      "now": {
+        "n": 24,
+        "currentAt1": 0.25,
+        "staleAt1": 0.0417,
+        "currentInTopK": 0.4583,
+        "staleInTopK": 0.375,
+        "cleanTopK": 0.2083
+      },
+      "asOf": {
+        "n": 11,
+        "currentAt1": 0.0909,
+        "staleAt1": 0,
+        "currentInTopK": 0.7273,
+        "staleInTopK": 0.2727,
+        "cleanTopK": 0.5455
+      },
+      "lateArrival": {
+        "n": 8,
+        "currentAt1": 0.125,
+        "staleAt1": 0.125,
+        "currentInTopK": 0.75,
+        "staleInTopK": 0.75,
+        "cleanTopK": 0.25
+      }
+    },
+    "current-state": {
+      "all": {
+        "n": 35,
+        "currentAt1": 0.3143,
+        "staleAt1": 0,
+        "currentInTopK": 0.6857,
+        "staleInTopK": 0.0571,
+        "cleanTopK": 0.6571
+      },
+      "now": {
+        "n": 24,
+        "currentAt1": 0.3333,
+        "staleAt1": 0,
+        "currentInTopK": 0.6667,
+        "staleInTopK": 0,
+        "cleanTopK": 0.6667
+      },
+      "asOf": {
+        "n": 11,
+        "currentAt1": 0.2727,
+        "staleAt1": 0,
+        "currentInTopK": 0.7273,
+        "staleInTopK": 0.1818,
+        "cleanTopK": 0.6364
+      },
+      "lateArrival": {
+        "n": 8,
+        "currentAt1": 0.375,
+        "staleAt1": 0,
+        "currentInTopK": 0.875,
+        "staleInTopK": 0.25,
+        "cleanTopK": 0.75
+      }
+    }
+  },
+  "questions": {
+    "append-only": [
+      {
+        "subject": "home",
+        "text": "Which city do I live in?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-3",
+        "wrong": [
+          "home-0",
+          "home-1",
+          "home-2"
+        ],
+        "ranked": [
+          "home-3",
+          "home-1",
+          "distractor-13",
+          "distractor-8",
+          "distractor-27"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Which city did I live in back in mid-2022?",
+        "kind": "as-of",
+        "validAt": "2022-07-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-1",
+        "wrong": [
+          "home-0",
+          "home-2",
+          "home-3"
+        ],
+        "ranked": [
+          "home-1",
+          "car-1",
+          "shoes-1",
+          "home-0",
+          "distractor-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Where was I living in early 2024?",
+        "kind": "as-of",
+        "validAt": "2024-03-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-2",
+        "wrong": [
+          "home-0",
+          "home-1",
+          "home-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "distractor-27",
+          "employer-2",
+          "home-1",
+          "shoes-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Where did I live in 2019?",
+        "kind": "as-of",
+        "validAt": "2019-06-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-0",
+        "wrong": [
+          "home-1",
+          "home-2",
+          "home-3"
+        ],
+        "ranked": [
+          "car-1",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "employer",
+        "text": "Where do I work?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "employer-3",
+        "wrong": [
+          "employer-1",
+          "employer-2"
+        ],
+        "ranked": [
+          "distractor-27",
+          "distractor-8",
+          "distractor-26",
+          "employer-1",
+          "laptop-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "employer",
+        "text": "Which company was I working for in the summer of 2023?",
+        "kind": "as-of",
+        "validAt": "2023-07-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "employer-2",
+        "wrong": [
+          "employer-1",
+          "employer-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "home-0",
+          "home-2",
+          "birthday-1",
+          "employer-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "title",
+        "text": "What is my job title?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "title-3",
+        "wrong": [
+          "title-1",
+          "title-2"
+        ],
+        "ranked": [
+          "title-1",
+          "distractor-23",
+          "manager-1",
+          "band-1",
+          "distractor-24"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "manager",
+        "text": "Who is my manager?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "manager-2",
+        "wrong": [
+          "manager-1"
+        ],
+        "ranked": [
+          "manager-1",
+          "distractor-3",
+          "title-1",
+          "band-1",
+          "distractor-24"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "manager",
+        "text": "Who was my manager at the start of 2023?",
+        "kind": "as-of",
+        "validAt": "2023-01-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "manager-1",
+        "wrong": [
+          "manager-2"
+        ],
+        "ranked": [
+          "distractor-3",
+          "manager-1",
+          "employer-2",
+          "birthday-1",
+          "doctor-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "phone",
+        "text": "What phone do I have?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "phone-2",
+        "wrong": [
+          "phone-1"
+        ],
+        "ranked": [
+          "distractor-8",
+          "phone-1",
+          "distractor-10",
+          "language-2",
+          "diet-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "car",
+        "text": "What car do I drive?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "car-3",
+        "wrong": [
+          "car-1",
+          "car-2"
+        ],
+        "ranked": [
+          "distractor-8",
+          "car-3",
+          "car-1",
+          "language-2",
+          "diet-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "car",
+        "text": "What was I driving in early 2023?",
+        "kind": "as-of",
+        "validAt": "2023-01-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "car-2",
+        "wrong": [
+          "car-1",
+          "car-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "car-2",
+          "employer-2",
+          "home-1",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "diet",
+        "text": "What diet do I follow?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "diet-2",
+        "wrong": [
+          "diet-1"
+        ],
+        "ranked": [
+          "distractor-8",
+          "diet-2",
+          "language-2",
+          "diet-1",
+          "car-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "gym",
+        "text": "Which days do I go to the gym?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "gym-2",
+        "wrong": [
+          "gym-1"
+        ],
+        "ranked": [
+          "gym-1",
+          "gym-2",
+          "band-2",
+          "name-2",
+          "distractor-8"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "coffee",
+        "text": "What is my usual coffee order?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "coffee-2",
+        "wrong": [
+          "coffee-1"
+        ],
+        "ranked": [
+          "coffee-1",
+          "distractor-16",
+          "distractor-6",
+          "manager-1",
+          "title-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "sam",
+        "text": "What is my relationship status with Sam?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "sam-3",
+        "wrong": [
+          "sam-1",
+          "sam-2"
+        ],
+        "ranked": [
+          "coffee-1",
+          "distractor-16",
+          "distractor-3",
+          "bank-1",
+          "laptop-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "sam",
+        "text": "What was my relationship status in the middle of 2024?",
+        "kind": "as-of",
+        "validAt": "2024-06-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "sam-2",
+        "wrong": [
+          "sam-1",
+          "sam-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "birthday-1",
+          "distractor-18",
+          "distractor-13",
+          "employer-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "laptop",
+        "text": "Which laptop do I use for work?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "laptop-2",
+        "wrong": [
+          "laptop-1"
+        ],
+        "ranked": [
+          "laptop-1",
+          "laptop-2",
+          "phone-1",
+          "distractor-8",
+          "distractor-26"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "internet",
+        "text": "Who is our home internet provider?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "internet-2",
+        "wrong": [
+          "internet-1"
+        ],
+        "ranked": [
+          "internet-1",
+          "distractor-22",
+          "internet-2",
+          "distractor-8",
+          "manager-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "doctor",
+        "text": "Who is my GP?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "doctor-2",
+        "wrong": [
+          "doctor-1"
+        ],
+        "ranked": [
+          "doctor-1",
+          "manager-1",
+          "title-1",
+          "band-1",
+          "distractor-24"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "school",
+        "text": "Which school does Maya go to?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "school-2",
+        "wrong": [
+          "school-1"
+        ],
+        "ranked": [
+          "school-2",
+          "distractor-7",
+          "gym-1",
+          "name-2",
+          "school-1"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "school",
+        "text": "Which school was Maya at in January 2024?",
+        "kind": "as-of",
+        "validAt": "2024-01-15T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "school-1",
+        "wrong": [
+          "school-2"
+        ],
+        "ranked": [
+          "school-1",
+          "shoes-1",
+          "employer-2",
+          "distractor-2",
+          "home-1"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "lantern",
+        "text": "What is the latest Lantern release?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "lantern-3",
+        "wrong": [
+          "lantern-1",
+          "lantern-2"
+        ],
+        "ranked": [
+          "distractor-14",
+          "lantern-3",
+          "lantern-1",
+          "lantern-2",
+          "distractor-18"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "lantern",
+        "text": "Where did the Lantern release stand at the start of June 2026?",
+        "kind": "as-of",
+        "validAt": "2026-06-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "lantern-1",
+        "wrong": [
+          "lantern-2",
+          "lantern-3"
+        ],
+        "ranked": [
+          "sam-3",
+          "distractor-27",
+          "distractor-18",
+          "birthday-1",
+          "standup-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "standup",
+        "text": "What time is standup?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "standup-2",
+        "wrong": [
+          "standup-1"
+        ],
+        "ranked": [
+          "standup-1",
+          "distractor-13",
+          "standup-2",
+          "manager-1",
+          "title-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "rent",
+        "text": "How much is my rent?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "rent-3",
+        "wrong": [
+          "rent-1",
+          "rent-2"
+        ],
+        "ranked": [
+          "distractor-8",
+          "rent-1",
+          "rent-3",
+          "rent-2",
+          "manager-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "rent",
+        "text": "How much was my rent at the start of 2025?",
+        "kind": "as-of",
+        "validAt": "2025-01-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "rent-2",
+        "wrong": [
+          "rent-1",
+          "rent-3"
+        ],
+        "ranked": [
+          "distractor-8",
+          "distractor-18",
+          "employer-2",
+          "birthday-1",
+          "rent-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "shoes",
+        "text": "What running shoes do I use?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "shoes-3",
+        "wrong": [
+          "shoes-1",
+          "shoes-2"
+        ],
+        "ranked": [
+          "distractor-17",
+          "shoes-3",
+          "phone-1",
+          "distractor-8",
+          "shoes-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "shoes",
+        "text": "Which running shoes did I use in early 2022?",
+        "kind": "as-of",
+        "validAt": "2022-01-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "shoes-1",
+        "wrong": [
+          "shoes-2",
+          "shoes-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "phone-1",
+          "home-1",
+          "home-0",
+          "distractor-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "allergy",
+        "text": "Am I allergic to any medication?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "allergy-1",
+        "wrong": [],
+        "ranked": [
+          "allergy-1",
+          "distractor-15",
+          "manager-2",
+          "title-2",
+          "distractor-17"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "birthday",
+        "text": "When is my birthday?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "birthday-1",
+        "wrong": [],
+        "ranked": [
+          "birthday-1",
+          "distractor-10",
+          "manager-1",
+          "title-1",
+          "band-1"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "band",
+        "text": "What is my favourite band?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "band-2",
+        "wrong": [
+          "band-1"
+        ],
+        "ranked": [
+          "band-1",
+          "band-2",
+          "distractor-20",
+          "manager-1",
+          "title-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "name",
+        "text": "What name should you call me?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "name-2",
+        "wrong": [
+          "name-1"
+        ],
+        "ranked": [
+          "name-1",
+          "distractor-21"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "bank",
+        "text": "Which bank do I use?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "bank-2",
+        "wrong": [
+          "bank-1"
+        ],
+        "ranked": [
+          "bank-1",
+          "phone-1",
+          "distractor-8",
+          "distractor-18",
+          "language-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "language",
+        "text": "Which language am I learning?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "language-2",
+        "wrong": [
+          "language-1"
+        ],
+        "ranked": [
+          "language-1",
+          "language-2",
+          "diet-1",
+          "car-2",
+          "bank-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      }
+    ],
+    "append-only+freshness": [
+      {
+        "subject": "home",
+        "text": "Which city do I live in?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-3",
+        "wrong": [
+          "home-0",
+          "home-1",
+          "home-2"
+        ],
+        "ranked": [
+          "shoes-1",
+          "lantern-3",
+          "home-0",
+          "lantern-2",
+          "car-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Which city did I live in back in mid-2022?",
+        "kind": "as-of",
+        "validAt": "2022-07-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-1",
+        "wrong": [
+          "home-0",
+          "home-2",
+          "home-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "car-1",
+          "home-0",
+          "home-1",
+          "distractor-27"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Where was I living in early 2024?",
+        "kind": "as-of",
+        "validAt": "2024-03-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-2",
+        "wrong": [
+          "home-0",
+          "home-1",
+          "home-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "home-0",
+          "car-1",
+          "employer-2",
+          "shoes-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Where did I live in 2019?",
+        "kind": "as-of",
+        "validAt": "2019-06-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-0",
+        "wrong": [
+          "home-1",
+          "home-2",
+          "home-3"
+        ],
+        "ranked": [
+          "car-1",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "employer",
+        "text": "Where do I work?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "employer-3",
+        "wrong": [
+          "employer-1",
+          "employer-2"
+        ],
+        "ranked": [
+          "distractor-26",
+          "shoes-1",
+          "distractor-8",
+          "home-0",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "employer",
+        "text": "Which company was I working for in the summer of 2023?",
+        "kind": "as-of",
+        "validAt": "2023-07-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "employer-2",
+        "wrong": [
+          "employer-1",
+          "employer-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "home-0",
+          "home-2",
+          "car-1",
+          "shoes-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "title",
+        "text": "What is my job title?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "title-3",
+        "wrong": [
+          "title-1",
+          "title-2"
+        ],
+        "ranked": [
+          "distractor-23",
+          "lantern-3",
+          "distractor-14",
+          "lantern-1",
+          "distractor-24"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "manager",
+        "text": "Who is my manager?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "manager-2",
+        "wrong": [
+          "manager-1"
+        ],
+        "ranked": [
+          "distractor-23",
+          "lantern-3",
+          "distractor-14",
+          "manager-1",
+          "distractor-24"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "manager",
+        "text": "Who was my manager at the start of 2023?",
+        "kind": "as-of",
+        "validAt": "2023-01-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "manager-1",
+        "wrong": [
+          "manager-2"
+        ],
+        "ranked": [
+          "employer-2",
+          "shoes-1",
+          "manager-1",
+          "distractor-3",
+          "distractor-9"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "phone",
+        "text": "What phone do I have?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "phone-2",
+        "wrong": [
+          "phone-1"
+        ],
+        "ranked": [
+          "shoes-1",
+          "distractor-8",
+          "language-2",
+          "home-0",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "car",
+        "text": "What car do I drive?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "car-3",
+        "wrong": [
+          "car-1",
+          "car-2"
+        ],
+        "ranked": [
+          "car-1",
+          "car-3",
+          "shoes-1",
+          "distractor-8",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": true,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "car",
+        "text": "What was I driving in early 2023?",
+        "kind": "as-of",
+        "validAt": "2023-01-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "car-2",
+        "wrong": [
+          "car-1",
+          "car-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "car-2",
+          "employer-2",
+          "home-0",
+          "car-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "diet",
+        "text": "What diet do I follow?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "diet-2",
+        "wrong": [
+          "diet-1"
+        ],
+        "ranked": [
+          "shoes-1",
+          "language-2",
+          "distractor-8",
+          "distractor-19",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "gym",
+        "text": "Which days do I go to the gym?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "gym-2",
+        "wrong": [
+          "gym-1"
+        ],
+        "ranked": [
+          "distractor-15",
+          "gym-2",
+          "band-2",
+          "distractor-17",
+          "standup-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "coffee",
+        "text": "What is my usual coffee order?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "coffee-2",
+        "wrong": [
+          "coffee-1"
+        ],
+        "ranked": [
+          "lantern-3",
+          "distractor-23",
+          "distractor-14",
+          "distractor-6",
+          "distractor-16"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "sam",
+        "text": "What is my relationship status with Sam?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "sam-3",
+        "wrong": [
+          "sam-1",
+          "sam-2"
+        ],
+        "ranked": [
+          "sam-3",
+          "laptop-2",
+          "lantern-3",
+          "distractor-23",
+          "sam-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "sam",
+        "text": "What was my relationship status in the middle of 2024?",
+        "kind": "as-of",
+        "validAt": "2024-06-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "sam-2",
+        "wrong": [
+          "sam-1",
+          "sam-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "distractor-13",
+          "car-1",
+          "distractor-18",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "laptop",
+        "text": "Which laptop do I use for work?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "laptop-2",
+        "wrong": [
+          "laptop-1"
+        ],
+        "ranked": [
+          "home-0",
+          "distractor-23",
+          "distractor-26",
+          "lantern-1",
+          "title-3"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "internet",
+        "text": "Who is our home internet provider?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "internet-2",
+        "wrong": [
+          "internet-1"
+        ],
+        "ranked": [
+          "distractor-22",
+          "internet-2",
+          "lantern-3",
+          "distractor-8",
+          "distractor-14"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "doctor",
+        "text": "Who is my GP?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "doctor-2",
+        "wrong": [
+          "doctor-1"
+        ],
+        "ranked": [
+          "distractor-23",
+          "lantern-3",
+          "distractor-14",
+          "lantern-1",
+          "distractor-24"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "school",
+        "text": "Which school does Maya go to?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "school-2",
+        "wrong": [
+          "school-1"
+        ],
+        "ranked": [
+          "school-2",
+          "distractor-7",
+          "distractor-15",
+          "distractor-17",
+          "standup-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "school",
+        "text": "Which school was Maya at in January 2024?",
+        "kind": "as-of",
+        "validAt": "2024-01-15T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "school-1",
+        "wrong": [
+          "school-2"
+        ],
+        "ranked": [
+          "shoes-1",
+          "school-1",
+          "employer-2",
+          "standup-1",
+          "distractor-18"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "lantern",
+        "text": "What is the latest Lantern release?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "lantern-3",
+        "wrong": [
+          "lantern-1",
+          "lantern-2"
+        ],
+        "ranked": [
+          "lantern-3",
+          "distractor-14",
+          "lantern-2",
+          "lantern-1",
+          "distractor-23"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "lantern",
+        "text": "Where did the Lantern release stand at the start of June 2026?",
+        "kind": "as-of",
+        "validAt": "2026-06-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "lantern-1",
+        "wrong": [
+          "lantern-2",
+          "lantern-3"
+        ],
+        "ranked": [
+          "sam-3",
+          "title-3",
+          "lantern-1",
+          "standup-2",
+          "distractor-18"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "standup",
+        "text": "What time is standup?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "standup-2",
+        "wrong": [
+          "standup-1"
+        ],
+        "ranked": [
+          "standup-2",
+          "distractor-13",
+          "lantern-3",
+          "standup-1",
+          "distractor-14"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "rent",
+        "text": "How much is my rent?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "rent-3",
+        "wrong": [
+          "rent-1",
+          "rent-2"
+        ],
+        "ranked": [
+          "rent-3",
+          "distractor-8",
+          "distractor-23",
+          "lantern-3",
+          "rent-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "rent",
+        "text": "How much was my rent at the start of 2025?",
+        "kind": "as-of",
+        "validAt": "2025-01-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "rent-2",
+        "wrong": [
+          "rent-1",
+          "rent-3"
+        ],
+        "ranked": [
+          "distractor-8",
+          "distractor-20",
+          "shoes-1",
+          "distractor-18",
+          "rent-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "shoes",
+        "text": "What running shoes do I use?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "shoes-3",
+        "wrong": [
+          "shoes-1",
+          "shoes-2"
+        ],
+        "ranked": [
+          "distractor-17",
+          "shoes-1",
+          "shoes-3",
+          "home-0",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "shoes",
+        "text": "Which running shoes did I use in early 2022?",
+        "kind": "as-of",
+        "validAt": "2022-01-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "shoes-1",
+        "wrong": [
+          "shoes-2",
+          "shoes-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "home-0",
+          "car-1",
+          "home-1",
+          "distractor-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "allergy",
+        "text": "Am I allergic to any medication?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "allergy-1",
+        "wrong": [],
+        "ranked": [
+          "distractor-15",
+          "distractor-17",
+          "distractor-7",
+          "standup-2",
+          "school-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "birthday",
+        "text": "When is my birthday?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "birthday-1",
+        "wrong": [],
+        "ranked": [
+          "distractor-23",
+          "lantern-3",
+          "distractor-10",
+          "distractor-14",
+          "lantern-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "band",
+        "text": "What is my favourite band?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "band-2",
+        "wrong": [
+          "band-1"
+        ],
+        "ranked": [
+          "band-2",
+          "distractor-20",
+          "distractor-23",
+          "lantern-3",
+          "distractor-14"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "name",
+        "text": "What name should you call me?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "name-2",
+        "wrong": [
+          "name-1"
+        ],
+        "ranked": [
+          "distractor-21",
+          "name-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "bank",
+        "text": "Which bank do I use?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "bank-2",
+        "wrong": [
+          "bank-1"
+        ],
+        "ranked": [
+          "shoes-1",
+          "home-0",
+          "distractor-19",
+          "language-2",
+          "distractor-8"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "language",
+        "text": "Which language am I learning?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "language-2",
+        "wrong": [
+          "language-1"
+        ],
+        "ranked": [
+          "shoes-1",
+          "language-2",
+          "distractor-19",
+          "home-0",
+          "distractor-26"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      }
+    ],
+    "current-state": [
+      {
+        "subject": "home",
+        "text": "Which city do I live in?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-3",
+        "wrong": [
+          "home-0",
+          "home-1",
+          "home-2"
+        ],
+        "ranked": [
+          "home-3",
+          "distractor-13",
+          "distractor-8",
+          "distractor-27",
+          "lantern-3"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "home",
+        "text": "Which city did I live in back in mid-2022?",
+        "kind": "as-of",
+        "validAt": "2022-07-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-1",
+        "wrong": [
+          "home-0",
+          "home-2",
+          "home-3"
+        ],
+        "ranked": [
+          "home-1",
+          "car-1",
+          "shoes-1",
+          "home-0",
+          "distractor-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Where was I living in early 2024?",
+        "kind": "as-of",
+        "validAt": "2024-03-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-2",
+        "wrong": [
+          "home-0",
+          "home-1",
+          "home-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "distractor-27",
+          "employer-2",
+          "shoes-2",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": true,
+        "cleanTopK": false
+      },
+      {
+        "subject": "home",
+        "text": "Where did I live in 2019?",
+        "kind": "as-of",
+        "validAt": "2019-06-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "home-0",
+        "wrong": [
+          "home-1",
+          "home-2",
+          "home-3"
+        ],
+        "ranked": [
+          "car-1",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "employer",
+        "text": "Where do I work?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "employer-3",
+        "wrong": [
+          "employer-1",
+          "employer-2"
+        ],
+        "ranked": [
+          "distractor-27",
+          "distractor-8",
+          "distractor-26",
+          "laptop-2",
+          "language-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "employer",
+        "text": "Which company was I working for in the summer of 2023?",
+        "kind": "as-of",
+        "validAt": "2023-07-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "employer-2",
+        "wrong": [
+          "employer-1",
+          "employer-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "home-0",
+          "home-2",
+          "birthday-1",
+          "employer-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "title",
+        "text": "What is my job title?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "title-3",
+        "wrong": [
+          "title-1",
+          "title-2"
+        ],
+        "ranked": [
+          "distractor-23",
+          "distractor-24",
+          "birthday-1",
+          "distractor-11",
+          "distractor-9"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "manager",
+        "text": "Who is my manager?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "manager-2",
+        "wrong": [
+          "manager-1"
+        ],
+        "ranked": [
+          "distractor-3",
+          "distractor-24",
+          "birthday-1",
+          "distractor-11",
+          "distractor-23"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "manager",
+        "text": "Who was my manager at the start of 2023?",
+        "kind": "as-of",
+        "validAt": "2023-01-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "manager-1",
+        "wrong": [
+          "manager-2"
+        ],
+        "ranked": [
+          "distractor-3",
+          "manager-1",
+          "employer-2",
+          "birthday-1",
+          "doctor-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "phone",
+        "text": "What phone do I have?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "phone-2",
+        "wrong": [
+          "phone-1"
+        ],
+        "ranked": [
+          "distractor-8",
+          "distractor-10",
+          "language-2",
+          "allergy-1",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "car",
+        "text": "What car do I drive?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "car-3",
+        "wrong": [
+          "car-1",
+          "car-2"
+        ],
+        "ranked": [
+          "distractor-8",
+          "car-3",
+          "language-2",
+          "allergy-1",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "car",
+        "text": "What was I driving in early 2023?",
+        "kind": "as-of",
+        "validAt": "2023-01-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "car-2",
+        "wrong": [
+          "car-1",
+          "car-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "car-2",
+          "employer-2",
+          "home-1",
+          "home-0"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "diet",
+        "text": "What diet do I follow?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "diet-2",
+        "wrong": [
+          "diet-1"
+        ],
+        "ranked": [
+          "distractor-8",
+          "diet-2",
+          "language-2",
+          "allergy-1",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "gym",
+        "text": "Which days do I go to the gym?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "gym-2",
+        "wrong": [
+          "gym-1"
+        ],
+        "ranked": [
+          "gym-2",
+          "band-2",
+          "name-2",
+          "distractor-8",
+          "distractor-9"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "coffee",
+        "text": "What is my usual coffee order?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "coffee-2",
+        "wrong": [
+          "coffee-1"
+        ],
+        "ranked": [
+          "distractor-16",
+          "distractor-6",
+          "distractor-24",
+          "birthday-1",
+          "distractor-11"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "sam",
+        "text": "What is my relationship status with Sam?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "sam-3",
+        "wrong": [
+          "sam-1",
+          "sam-2"
+        ],
+        "ranked": [
+          "distractor-16",
+          "distractor-3",
+          "laptop-2",
+          "sam-3",
+          "doctor-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "sam",
+        "text": "What was my relationship status in the middle of 2024?",
+        "kind": "as-of",
+        "validAt": "2024-06-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "sam-2",
+        "wrong": [
+          "sam-1",
+          "sam-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "birthday-1",
+          "distractor-18",
+          "distractor-13",
+          "employer-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "laptop",
+        "text": "Which laptop do I use for work?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "laptop-2",
+        "wrong": [
+          "laptop-1"
+        ],
+        "ranked": [
+          "laptop-2",
+          "distractor-8",
+          "distractor-26",
+          "distractor-11",
+          "distractor-23"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "internet",
+        "text": "Who is our home internet provider?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "internet-2",
+        "wrong": [
+          "internet-1"
+        ],
+        "ranked": [
+          "distractor-22",
+          "internet-2",
+          "distractor-8",
+          "distractor-24",
+          "distractor-9"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "doctor",
+        "text": "Who is my GP?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "doctor-2",
+        "wrong": [
+          "doctor-1"
+        ],
+        "ranked": [
+          "distractor-24",
+          "birthday-1",
+          "distractor-11",
+          "distractor-23",
+          "distractor-9"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "school",
+        "text": "Which school does Maya go to?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "school-2",
+        "wrong": [
+          "school-1"
+        ],
+        "ranked": [
+          "school-2",
+          "distractor-7",
+          "name-2",
+          "distractor-15",
+          "manager-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "school",
+        "text": "Which school was Maya at in January 2024?",
+        "kind": "as-of",
+        "validAt": "2024-01-15T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "school-1",
+        "wrong": [
+          "school-2"
+        ],
+        "ranked": [
+          "school-1",
+          "shoes-1",
+          "employer-2",
+          "distractor-2",
+          "standup-1"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "lantern",
+        "text": "What is the latest Lantern release?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "lantern-3",
+        "wrong": [
+          "lantern-1",
+          "lantern-2"
+        ],
+        "ranked": [
+          "distractor-14",
+          "lantern-3",
+          "distractor-18",
+          "distractor-9",
+          "birthday-1"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "lantern",
+        "text": "Where did the Lantern release stand at the start of June 2026?",
+        "kind": "as-of",
+        "validAt": "2026-06-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "lantern-1",
+        "wrong": [
+          "lantern-2",
+          "lantern-3"
+        ],
+        "ranked": [
+          "sam-3",
+          "distractor-27",
+          "distractor-18",
+          "birthday-1",
+          "standup-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "standup",
+        "text": "What time is standup?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "standup-2",
+        "wrong": [
+          "standup-1"
+        ],
+        "ranked": [
+          "distractor-13",
+          "standup-2",
+          "distractor-24",
+          "distractor-9",
+          "lantern-3"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "rent",
+        "text": "How much is my rent?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "rent-3",
+        "wrong": [
+          "rent-1",
+          "rent-2"
+        ],
+        "ranked": [
+          "distractor-8",
+          "rent-3",
+          "distractor-24",
+          "birthday-1",
+          "distractor-11"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "rent",
+        "text": "How much was my rent at the start of 2025?",
+        "kind": "as-of",
+        "validAt": "2025-01-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "rent-2",
+        "wrong": [
+          "rent-1",
+          "rent-3"
+        ],
+        "ranked": [
+          "distractor-8",
+          "distractor-18",
+          "employer-2",
+          "birthday-1",
+          "rent-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "shoes",
+        "text": "What running shoes do I use?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "shoes-3",
+        "wrong": [
+          "shoes-1",
+          "shoes-2"
+        ],
+        "ranked": [
+          "distractor-17",
+          "shoes-3",
+          "distractor-8",
+          "distractor-27",
+          "language-2"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "shoes",
+        "text": "Which running shoes did I use in early 2022?",
+        "kind": "as-of",
+        "validAt": "2022-01-01T00:00:00.000Z",
+        "lateArrival": true,
+        "expected": "shoes-1",
+        "wrong": [
+          "shoes-2",
+          "shoes-3"
+        ],
+        "ranked": [
+          "shoes-1",
+          "phone-1",
+          "home-1",
+          "home-0",
+          "distractor-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "allergy",
+        "text": "Am I allergic to any medication?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "allergy-1",
+        "wrong": [],
+        "ranked": [
+          "allergy-1",
+          "distractor-15",
+          "manager-2",
+          "distractor-17",
+          "coffee-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "birthday",
+        "text": "When is my birthday?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "birthday-1",
+        "wrong": [],
+        "ranked": [
+          "birthday-1",
+          "distractor-10",
+          "distractor-24",
+          "distractor-11",
+          "distractor-23"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "band",
+        "text": "What is my favourite band?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "band-2",
+        "wrong": [
+          "band-1"
+        ],
+        "ranked": [
+          "band-2",
+          "distractor-20",
+          "distractor-24",
+          "birthday-1",
+          "distractor-11"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      },
+      {
+        "subject": "name",
+        "text": "What name should you call me?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "name-2",
+        "wrong": [
+          "name-1"
+        ],
+        "ranked": [
+          "distractor-21"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "bank",
+        "text": "Which bank do I use?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "bank-2",
+        "wrong": [
+          "bank-1"
+        ],
+        "ranked": [
+          "distractor-8",
+          "distractor-18",
+          "language-2",
+          "allergy-1",
+          "distractor-19"
+        ],
+        "currentAt1": false,
+        "staleAt1": false,
+        "currentInTopK": false,
+        "staleInTopK": false,
+        "cleanTopK": false
+      },
+      {
+        "subject": "language",
+        "text": "Which language am I learning?",
+        "kind": "now",
+        "validAt": "2026-09-01T00:00:00.000Z",
+        "lateArrival": false,
+        "expected": "language-2",
+        "wrong": [
+          "language-1"
+        ],
+        "ranked": [
+          "language-2",
+          "allergy-1",
+          "distractor-19",
+          "distractor-26",
+          "name-2"
+        ],
+        "currentAt1": true,
+        "staleAt1": false,
+        "currentInTopK": true,
+        "staleInTopK": false,
+        "cleanTopK": true
+      }
+    ]
+  }
+}
