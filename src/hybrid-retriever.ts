@@ -4,7 +4,9 @@ import type { EmbeddingVector, MemoryNode, MemoryStore, MemoryEmbedding } from "
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
-import { matchesFilter, type NodeFilter } from "./query-filter.js";
+import { matchesFilter, MAX_QUERY_TOKENS, type NodeFilter } from "./query-filter.js";
+import { analyzeQuery, inWindows, keywordsOf, type QueryCues } from "./query-cues.js";
+import { rerankTexts, type Reranker } from "./reranker.js";
 
 /**
  * Hybrid recall: keyword relevance (FTS/BM25) fused with vector similarity.
@@ -28,14 +30,72 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * where the newest of several matching notes is usually the true one.
    */
   freshness?: number;
+  /**
+   * Read the query for time and counting cues (`analyzeQuery`) and recall
+   * accordingly. Off by default; recall without it is unchanged. With it,
+   * the query is searched as it always is, and besides:
+   *
+   * - A query longer than the keyword search reads (sixteen words) is also
+   *   searched by its content words, so the end of a long question counts.
+   * - A query naming a period ("in April", "the past two weeks", "last
+   *   Thursday") is also searched without those words, and facts valid from a
+   *   time inside the period (their `validFrom`) are favoured as one more
+   *   fused list. Facts from outside it are never dropped.
+   * - A question that counts, totals or compares across memories ("how many",
+   *   "total", "A and B") searches each thing it names as well as the whole,
+   *   from twice the usual candidate pool.
+   * - "Currently", "latest", "so far" favour the facts valid from the latest
+   *   time; "first", "initially" the earliest. Half a list's weight.
+   *
+   * `true` resolves relative dates against `validAt` (default now); pass
+   * `{ now }` to ask as of another moment without changing what is valid.
+   * Cost: one keyword search and one vector scan per query it reads out of
+   * this one — at most eight, usually one or two.
+   */
+  expand?: boolean | { now?: string };
+  /** With a `reranker` configured on the retriever, `false` skips it for this recall. */
+  rerank?: boolean;
+  /**
+   * How many candidates each keyword and vector list contributes before they
+   * are fused (default 50; `expand` doubles it for a question that counts).
+   * More gives a reranker more to choose from, at the cost of reading more.
+   */
+  candidates?: number;
+}
+
+export interface HybridRetrieverOptions {
+  /** How long the vector matrix is held between recalls (default 60 s). */
+  cacheTtlMs?: number;
+  now?: () => number;
+  /**
+   * A cross-encoder that reorders the fused candidates (see `reranker.ts`).
+   * Without one, recall is keyword and vector fusion alone.
+   */
+  reranker?: Reranker;
+  /** How many fused candidates the reranker reads: default the larger of the limit and 50. */
+  rerankDepth?: number;
 }
 
 const CANDIDATE_POOL = 50;
+/** How much deeper each list reads when `expand` finds a question that counts across memories. */
+const EXPANDED_POOL_FACTOR = 2;
 const RRF_K = 60; // standard reciprocal-rank-fusion constant
 /** Cosine similarity above which two texts state the same fact. */
 const DUPLICATE_THRESHOLD = 0.9;
 /** Confidence bump when a duplicate observation reinforces a node. */
 const REINFORCE_STEP = 0.05;
+const RERANK_DEPTH = 50;
+/** A reranked order stands for the keyword and vector lists it replaces, so it counts as two lists. */
+const RERANKED_WEIGHT = 2;
+/** `expand`: the in-period list counts as one list; the earliest/latest list as half of one. */
+const WINDOW_WEIGHT = 1;
+const ORDER_WEIGHT = 0.5;
+
+/** Newest `validFrom` first; then the store's own recency order. */
+function compareValidFrom(a: MemoryNode, b: MemoryNode): number {
+  const x = Date.parse(a.validFrom), y = Date.parse(b.validFrom);
+  return (Number.isFinite(x) && Number.isFinite(y) ? y - x : 0) || compareRecency(a, b);
+}
 
 export class HybridRetriever {
   /**
@@ -51,8 +111,11 @@ export class HybridRetriever {
   constructor(
     private readonly store: MemoryStore,
     private readonly embedder?: Embedder,
-    private readonly opts: { cacheTtlMs?: number; now?: () => number } = {},
-  ) {}
+    private readonly opts: HybridRetrieverOptions = {},
+  ) {
+    const depth = opts.rerankDepth;
+    if (depth !== undefined && (!Number.isInteger(depth) || depth < 1)) throw new Error(`HybridRetriever: rerankDepth must be an integer >= 1 (got ${depth})`);
+  }
 
   private async embeddingsFor(model: string): Promise<EmbeddingVector[]> {
     const now = (this.opts.now ?? Date.now)();
@@ -77,26 +140,71 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, freshness: _freshness, ...scope } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
+    const basePool = options.candidates ?? CANDIDATE_POOL;
+    if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
+    const cues = options.expand ? analyzeQuery(query, { now: (typeof options.expand === "object" ? options.expand.now : undefined) ?? validAt }) : null;
 
-    // Keyword list — BM25-ordered by the store.
-    const keywordHits = await this.store.searchNodes({ ...filter, query, limit: CANDIDATE_POOL });
-
-    // Vector list — full scan of the embedder's model space (local scale).
-    const vectorHits = await this.vectorCandidates(query, filter);
-
-    // Reciprocal-rank fusion across both lists.
-    const scores = new Map<string, { score: number; node: MemoryNode }>();
-    const addList = (nodes: MemoryNode[]) => {
+    // Reciprocal-rank fusion across every list.
+    let scores = new Map<string, { score: number; node: MemoryNode }>();
+    const addList = (nodes: MemoryNode[], weight = 1) => {
       nodes.forEach((node, index) => {
         const entry = scores.get(node.nodeId) ?? { score: 0, node };
-        entry.score += 1 / (RRF_K + index + 1);
+        entry.score += weight / (RRF_K + index + 1);
         scores.set(node.nodeId, entry);
       });
     };
-    addList(keywordHits);
-    addList(vectorHits.map((v) => v.node));
+
+    // How many lists the relevance side weighs, all told. The time lists below
+    // are sized against two — the keyword and the vector list of one query —
+    // so a time cue counts the same however many queries `expand` ran, and
+    // whether or not a reranker replaced them. Without `expand` it is two.
+    let relevanceWeight = 2;
+
+    if (!cues) {
+      // Keyword list — BM25-ordered by the store.
+      addList(await this.store.searchNodes({ ...filter, query, limit: basePool }));
+      // Vector list — full scan of the embedder's model space (local scale).
+      addList((await this.vectorCandidates(query, filter, basePool)).map((v) => v.node));
+    } else {
+      // The same two lists for every query `expand` reads out of this one.
+      const pool = cues.aggregation ? EXPANDED_POOL_FACTOR * basePool : basePool;
+      const queries = expandedQueries(query, cues);
+      const vectors = this.embedder ? await this.embedder.embed(queries) : [];
+      let lists = 0;
+      const addRelevance = (nodes: MemoryNode[]) => {
+        if (nodes.length > 0) lists += 1;
+        addList(nodes);
+      };
+      for (const [i, q] of queries.entries()) {
+        // The query itself is searched exactly as recall without `expand` searches
+        // it, so expanding can only add to what plain recall finds; what it reads
+        // out of the query is searched by content words alone.
+        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? q : keywordsOf(q), limit: pool }));
+        const vector = vectors[i];
+        if (vector) addRelevance((await this.vectorCandidatesFor(vector, filter, pool)).map((v) => v.node));
+      }
+      // A question longer than the keyword search reads is searched once more by
+      // its content words, so the things it names last are searched at all.
+      const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
+      if (long && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
+      relevanceWeight = Math.max(1, lists);
+    }
+
+    // A cross-encoder reads the question with each of the best candidates and
+    // puts them in its order; that order then stands in for the lists it read.
+    if (this.opts.reranker && options.rerank !== false && scores.size > 0) {
+      const ranked = rankFused(scores);
+      const depth = this.opts.rerankDepth ?? Math.max(limit, RERANK_DEPTH);
+      const head = ranked.slice(0, depth);
+      const order = await rerankTexts(this.opts.reranker, query, head.map((e) => e.node.content.text));
+      scores = new Map(
+        [...order.map((o) => head[o.index]!), ...ranked.slice(depth)].map((e, i) => [e.node.nodeId, { node: e.node, score: RERANKED_WEIGHT / (RRF_K + i + 1) }]),
+      );
+      relevanceWeight = RERANKED_WEIGHT;
+    }
+    const timeScale = relevanceWeight / 2;
 
     // Recency as a third list over the facts already matched, weighted.
     if (freshness > 0) {
@@ -104,19 +212,19 @@ export class HybridRetriever {
         .map((e) => e.node)
         .sort(compareRecency)
         .forEach((node, index) => {
-          scores.get(node.nodeId)!.score += freshness / (RRF_K + index + 1);
+          scores.get(node.nodeId)!.score += (freshness * timeScale) / (RRF_K + index + 1);
         });
     }
 
-    // The same order as the stores: fused rank, then EFFECTIVE confidence (it
-    // compared stored confidence, so a fact decayed to half its weight still won
-    // the tie), then the most recently learned. A fused tie is the ordinary
-    // shape of reciprocal-rank fusion: one fact wins the keyword list, the other
-    // the vector list, and 1/61 + 1/62 is the same number both ways.
-    const now = Date.now();
-    return [...scores.values()]
-      .map((e) => ({ ...e, eff: effectiveConfidence(e.node, now) }))
-      .sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node))
+    // `expand`'s time lists, over the facts already matched, in their order so far.
+    if (cues && (cues.windows.length > 0 || cues.order)) {
+      const relevance = rankFused(scores).map((e) => e.node);
+      if (cues.windows.length > 0) addList(relevance.filter((n) => inWindows(n.validFrom, cues.windows)), WINDOW_WEIGHT * timeScale);
+      if (cues.order === "latest") addList([...relevance].sort(compareValidFrom), ORDER_WEIGHT * timeScale);
+      if (cues.order === "earliest") addList([...relevance].sort((a, b) => compareValidFrom(b, a)), ORDER_WEIGHT * timeScale);
+    }
+
+    return rankFused(scores)
       .slice(0, limit)
       .map((e) => e.node);
   }
@@ -162,10 +270,20 @@ export class HybridRetriever {
   private async vectorCandidates(
     query: string,
     filter: NodeFilter,
+    pool = CANDIDATE_POOL,
   ): Promise<{ node: MemoryNode; similarity: number }[]> {
     if (!this.embedder) return [];
     const [queryVector] = await this.embedder.embed([query]);
     if (!queryVector) return [];
+    return this.vectorCandidatesFor(queryVector, filter, pool);
+  }
+
+  private async vectorCandidatesFor(
+    queryVector: number[],
+    filter: NodeFilter,
+    pool: number,
+  ): Promise<{ node: MemoryNode; similarity: number }[]> {
+    if (!this.embedder) return [];
     const embeddings = await this.embeddingsFor(this.embedder.model);
 
     // A vector from another version of this model is from another SPACE: its
@@ -192,7 +310,7 @@ export class HybridRetriever {
     // comment here claimed recency settled it, and nothing did).
     const out: { node: MemoryNode; similarity: number }[] = [];
     for (const { nodeId, similarity } of scored) {
-      if (out.length >= CANDIDATE_POOL && similarity < out[out.length - 1]!.similarity) break;
+      if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break;
       const node = await this.store.getNode(nodeId);
       if (!node) continue;
       // Same boundary as searchNodes: in scope, currently valid, never Sealed,
@@ -208,8 +326,40 @@ export class HybridRetriever {
           effectiveConfidence(b.node, now) - effectiveConfidence(a.node, now) ||
           compareRecency(a.node, b.node),
       )
-      .slice(0, CANDIDATE_POOL);
+      .slice(0, pool);
   }
+}
+
+/**
+ * The same order as the stores: fused rank, then EFFECTIVE confidence (it
+ * compared stored confidence, so a fact decayed to half its weight still won
+ * the tie), then the most recently learned. A fused tie is the ordinary
+ * shape of reciprocal-rank fusion: one fact wins the keyword list, the other
+ * the vector list, and 1/61 + 1/62 is the same number both ways.
+ */
+function rankFused(scores: Map<string, { score: number; node: MemoryNode }>): { score: number; node: MemoryNode }[] {
+  const now = Date.now();
+  return [...scores.values()]
+    .map((e) => ({ ...e, eff: effectiveConfidence(e.node, now) }))
+    .sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node));
+}
+
+/**
+ * The queries `expand` recalls with, each once: the query itself; without its
+ * time words, when it has some; and, for a question that counts across
+ * memories, each thing it names. A derived query with nothing left to search
+ * for ("What did I do last weekend?" without its period is "What did I do?")
+ * is dropped: it would match every memory that says "I".
+ */
+export function expandedQueries(query: string, cues: QueryCues): string[] {
+  const derived = [...(cues.withoutTime ? [cues.withoutTime] : []), ...(cues.aggregation ? cues.parts : [])].filter((q) => keywordsOf(q) !== "");
+  const seen = new Set<string>();
+  return [query, ...derived].filter((q) => {
+    const key = keywordsOf(q) || q.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**

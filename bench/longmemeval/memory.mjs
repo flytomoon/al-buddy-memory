@@ -12,14 +12,19 @@
  */
 import { corpusOf, parseSessionDate } from "./dataset.mjs";
 
-/** How many memories one recall asks for: every candidate the keyword and vector lists can supply. */
+/**
+ * How many memories one recall asks for: every candidate the keyword and vector
+ * lists can supply (50 each). `--recall-pool N` asks for N, with N/2 from each
+ * list (the retriever's `candidates`), so a reranker has more to choose from.
+ */
 export const RECALL_POOL = 100;
 
 /**
  * A fresh in-memory SQLite store holding this instance's history. With an
- * embedder, every memory is embedded before the question is asked.
+ * embedder, every memory is embedded before the question is asked; with a
+ * reranker, the retriever reorders what it finds with it.
  */
-export async function ingestHistory(lib, instance, { embedder } = {}) {
+export async function ingestHistory(lib, instance, { embedder, reranker } = {}) {
   const store = new lib.SqliteMemoryStore(":memory:");
   /** nodeId → where the message sits in the history. */
   const origin = new Map();
@@ -46,7 +51,7 @@ export async function ingestHistory(lib, instance, { embedder } = {}) {
     }
   }
   if (embedder) await lib.indexMissingEmbeddings(store, embedder);
-  const retriever = new lib.HybridRetriever(store, embedder);
+  const retriever = new lib.HybridRetriever(store, embedder, reranker ? { reranker } : {});
   return { store, retriever, origin, memories: origin.size };
 }
 
@@ -65,10 +70,18 @@ function roundOf(session, turn) {
 /**
  * Ask the memory the question and turn what comes back into ranked rounds.
  * Each round carries its official corpus id (for the retrieval metrics), its
- * session date, and the turns the reader will see.
+ * session date, and the turns the reader will see. With `expand`, recall reads
+ * the question's time and counting cues, resolving "last week" against the
+ * question's own date — the moment it is asked in the benchmark's story.
  */
-export async function recallRounds(memory, instance, { freshness = 0 } = {}) {
-  const hits = await memory.retriever.recall(instance.question, { limit: RECALL_POOL, ...(freshness > 0 ? { freshness } : {}) });
+export async function recallRounds(memory, instance, { freshness = 0, expand = false, recallPool = RECALL_POOL } = {}) {
+  const hits = await memory.retriever.recall(instance.question, {
+    limit: recallPool,
+    // Half from each list, so the keyword and vector lists can fill the pool between them.
+    ...(recallPool !== RECALL_POOL ? { candidates: Math.max(1, Math.ceil(recallPool / 2)) } : {}),
+    ...(freshness > 0 ? { freshness } : {}),
+    ...(expand ? { expand: { now: parseSessionDate(instance.question_date) } } : {}),
+  });
   const { corpus } = corpusOf(instance);
   const idAt = new Map(corpus.map((c) => [`${c.session}:${c.turn}`, c.id]));
   const rounds = [];

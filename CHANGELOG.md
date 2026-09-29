@@ -9,6 +9,36 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.9.0 — unreleased
+
+### Added
+
+- **Reranking.** `new HybridRetriever(store, embedder, { reranker })` rereads the question with each
+  fused candidate through a cross-encoder and returns them in its order; `rerank: false` skips it
+  for one recall, `rerankDepth` bounds how many it reads (default the larger of the limit and 50).
+  `LocalReranker` runs one on-device through transformers.js — `Xenova/ms-marco-MiniLM-L-6-v2` by
+  default, `Xenova/bge-reranker-base` or any cross-encoder by name — downloaded once to the same
+  cache as the embedder, loaded only when first used. Long memories are scored in 1,000-character
+  windows (`passageWindows`); a memory scores its best window. `FakeReranker` for tests.
+- **Time- and count-aware recall.** `recall(query, { expand: true | { now } })` reads the query with
+  `analyzeQuery` (rules, no model call): a period it names ("in April", "the past two weeks", "last
+  Thursday", "from July to October"), resolved against `now`, favours facts whose `validFrom` falls
+  in it and is taken out of the search words; a question that counts or compares across memories
+  ("how many", "total", "A and B", "which came first") searches each thing it names, from a deeper
+  pool; a question longer than the keyword search reads is also searched by its content words, so
+  its last words count; "currently" and "initially" nudge the latest and earliest facts up. The
+  question itself is always searched as plain recall searches it, so `expand` only adds; facts
+  outside a period are never dropped.
+- `recall(query, { candidates })`: how many candidates each keyword and vector list contributes
+  before fusion (default 50, as before), so a reranker can be given more to choose from.
+- None of these writes anything or changes a fact: scores, sub-queries and periods live for one
+  recall. Recall without them is unchanged.
+- LongMemEval harness: `--rerank`, `--expand`, `--recall-pool`, `--aggregate-top-k` (more rounds
+  for counting questions only), `--chain-of-note` (a reader
+  prompt for counting questions that is not an official template, and is recorded as such), a
+  shown-evidence diagnostic beside the official retrieval metrics, `compare.mjs` for A/B runs, and
+  `--types` now refuses a type that does not exist.
+
 ## 0.8.3 — 2026-09-26
 
 ### Changed

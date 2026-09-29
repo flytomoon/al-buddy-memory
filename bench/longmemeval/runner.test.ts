@@ -186,6 +186,58 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(calls).toBe(2);
   });
 
+  it("--recall-pool bounds how many memories recall returns", async () => {
+    expect((await evaluateInstance(lib, instance())).memoriesRecalled).toBeGreaterThan(2);
+    // Half from each list: keyword-only, that is one.
+    expect((await evaluateInstance(lib, instance(), { recallPool: 2 })).memoriesRecalled).toBe(1);
+    expect((await evaluateInstance(lib, instance(), { recallPool: 2, embedder: wordEmbedder() })).memoriesRecalled).toBeLessThanOrEqual(2);
+  });
+
+  it("with a reranker, the reader sees rounds in the cross-encoder's order", async () => {
+    const plain = await evaluateInstance(lib, instance({ question: "city" }));
+    expect(plain.shownRounds[0]).toBe("answer_x1_2_1"); // "Berlin is a great city"
+    const tokyoFirst = new lib.FakeReranker("fake", (_q: string, p: string) => (p.includes("Tokyo") ? 1 : 0));
+    const row = await evaluateInstance(lib, instance({ question: "city" }), { embedder: wordEmbedder(), reranker: tokyoFirst });
+    expect(row.shownRounds[0]).toBe("answer_x1_1_1");
+  });
+
+  it("with expand, recall resolves the question's period against the question's own date", async () => {
+    // Two sessions about the trip. By words alone January's says more and comes
+    // first; "in May", read against 1 June, moves May's above it.
+    const x = instance({
+      question: "Where did I go for the bakery trip in May?",
+      question_date: "2023/06/01 (Thu) 10:00",
+      haystack_session_ids: ["answer_may", "answer_jan"],
+      haystack_dates: ["2023/05/10 (Wed) 09:00", "2023/01/10 (Tue) 09:00"],
+      haystack_sessions: [
+        [{ role: "user", content: "I went on a bakery trip.", has_answer: true }],
+        [{ role: "user", content: "I went on a bakery trip, a bakery trip.", has_answer: true }],
+      ],
+      answer_session_ids: ["answer_may", "answer_jan"],
+    });
+    expect((await evaluateInstance(lib, x)).shownRounds).toEqual(["answer_jan_1", "answer_may_1"]);
+    const row = await evaluateInstance(lib, x, { expand: true });
+    expect(row.shownRounds).toEqual(["answer_may_1", "answer_jan_1"]);
+    expect(row.cues).toEqual({ aggregation: false, order: null, windows: ["in May"], parts: 0 });
+  });
+
+  it("a question that counts across sessions gets the aggregate top-k and the chain-of-note reader; the others do not", async () => {
+    const prompts: string[] = [];
+    const options = { topK: 1, aggregateTopK: 3, chainOfNote: true, answerer: reader("2", prompts) };
+    const counting = await evaluateInstance(lib, instance({ question: "How many cities did I move to for work?" }), options);
+    expect(counting.cues.aggregation).toBe(true);
+    expect(counting.shownRounds.length).toBeGreaterThan(1);
+    expect(counting.reading).toBe("chain-of-note");
+    expect(prompts[0]).toContain("Step 1, notes.");
+    const single = await evaluateInstance(lib, instance(), options);
+    expect(single.cues.aggregation).toBe(false);
+    expect(single.shownRounds).toHaveLength(1);
+    expect(single.reading).toBe("con");
+    expect(prompts[1]).toMatch(/Answer \(step by step\):$/);
+    // The row records how much of the evidence the reader saw.
+    expect(counting.retrieval.shown).toMatchObject({ rounds: counting.shownRounds.length, evidence: 2 });
+  });
+
   it("sums the CLI's usage and notional cost, and counts every model id that answered", () => {
     const s = summarize([
       { question_id: "a", question_type: "multi-session", retrieval: { skipped: "abstention" }, answerModels: ["m1"], judgeModels: ["j1"], answerUsage: { input_tokens: 10 }, judgeUsage: { input_tokens: 2 }, answerNotionalCostUsd: 0.5, judgeNotionalCostUsd: 0.25, label: true, hypothesis: "h", promptChars: 100, ms: 2000 },
