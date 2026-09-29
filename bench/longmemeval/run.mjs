@@ -1,0 +1,223 @@
+#!/usr/bin/env node
+// Usage: npm run build && node bench/longmemeval/run.mjs --limit 50
+//
+// Runs LongMemEval against this library: every question gets a fresh store
+// holding its history, recall picks what the reader sees, an answerer answers,
+// and the official judge prompt grades the answer. Writes
+// bench/results/<date>-longmemeval.json (settings, model ids, commit, per-type
+// and retrieval numbers, every answer) and, beside it, the answers in the
+// official hypothesis format so the official evaluate_qa.py can re-judge them.
+// See bench/longmemeval/README.md for every flag and what the numbers mean.
+import { createHash } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+
+import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
+import { answererFromSpec, runProcess, subscriptionEnv } from "./answerers.mjs";
+import { loadInstances, selectInstances } from "./dataset.mjs";
+import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
+import { runInstances, summarize } from "./harness.mjs";
+import { cachingEmbedder } from "./memory.mjs";
+import { ANSWER_TEMPLATES, LONGMEMEVAL_COMMIT, READER_SOURCE, SCORING_SOURCE } from "./prompts.mjs";
+
+const { values: args } = parseArgs({
+  options: {
+    variant: { type: "string", default: "s" },
+    data: { type: "string" },
+    limit: { type: "string" },
+    types: { type: "string" },
+    retrieval: { type: "string", default: "hybrid" },
+    "top-k": { type: "string", default: "20" },
+    freshness: { type: "string", default: "0" },
+    reading: { type: "string", default: "con" },
+    answerer: { type: "string", default: "claude" },
+    "answer-model": { type: "string", default: "sonnet" },
+    judge: { type: "string", default: "claude" },
+    "judge-model": { type: "string", default: "sonnet" },
+    "claude-bin": { type: "string", default: "claude" },
+    concurrency: { type: "string", default: "4" },
+    out: { type: "string" },
+    resume: { type: "boolean", default: false },
+    fresh: { type: "boolean", default: false },
+    "allow-unpinned": { type: "boolean", default: false },
+  },
+});
+
+const fail = (message) => {
+  console.error(message);
+  process.exit(1);
+};
+const int = (name, min) => {
+  const n = Number(args[name]);
+  if (!Number.isInteger(n) || n < min) fail(`--${name} must be an integer >= ${min} (got ${args[name]})`);
+  return n;
+};
+
+// --- the library, as built -------------------------------------------------
+const distEntry = join(REPO_ROOT, "dist", "index.js");
+if (!existsSync(distEntry)) fail("dist/ is missing: run `npm run build` first (the benchmark measures the built package).");
+const lib = await import(pathToFileURL(distEntry).href);
+if (args.out !== undefined && !args.out.endsWith(".json")) fail("--out must name a .json file (the answers go beside it as .hypotheses.jsonl)");
+
+// --- the dataset, checked against the pin ----------------------------------
+const manifest = readManifest();
+const file = manifest.files[args.variant];
+if (!file) fail(`Unknown --variant "${args.variant}" (have: ${Object.keys(manifest.files).join(", ")})`);
+const dataPath = args.data ?? join(DATA_DIR, file.path);
+if (!existsSync(dataPath)) fail(`${dataPath} is missing: run \`node bench/longmemeval/download.mjs --variant ${args.variant}\` first.`);
+const dataSha256 = await sha256File(dataPath);
+const pinned = file.sha256 !== null && dataSha256 === file.sha256;
+if (!pinned && !args["allow-unpinned"]) {
+  fail(
+    file.sha256
+      ? `${dataPath} is not the pinned file (SHA-256 ${dataSha256}, dataset.json says ${file.sha256}). Pass --allow-unpinned to run it anyway; the result will say so.`
+      : `dataset.json records no SHA-256 for ${file.path} yet: run \`node bench/longmemeval/download.mjs --pin\` and commit dataset.json, or pass --allow-unpinned; the result will say so.`,
+  );
+}
+const instances = selectInstances(loadInstances(dataPath), {
+  ...(args.limit !== undefined ? { limit: int("limit", 1) } : {}),
+  ...(args.types ? { types: args.types.split(",").map((t) => t.trim()) } : {}),
+});
+if (instances.length === 0) fail("No questions selected.");
+
+// --- retrieval, answerer and judge -----------------------------------------
+if (!["hybrid", "keyword"].includes(args.retrieval)) fail(`--retrieval must be hybrid or keyword (got ${args.retrieval})`);
+if (!ANSWER_TEMPLATES[args.reading]) fail(`--reading must be ${Object.keys(ANSWER_TEMPLATES).join(" or ")} (got ${args.reading})`);
+const topK = int("top-k", 1);
+const concurrency = int("concurrency", 1);
+const freshness = Number(args.freshness);
+if (!Number.isFinite(freshness) || freshness < 0) fail(`--freshness must be a number >= 0 (got ${args.freshness})`);
+const embedder = args.retrieval === "hybrid" ? cachingEmbedder(new lib.LocalEmbedder()) : undefined;
+if (embedder) {
+  try {
+    await embedder.embed(["warm-up"]);
+  } catch (e) {
+    fail(`Hybrid retrieval needs the on-device embedder (optional dependency @huggingface/transformers, and a one-time model download): ${e.message}\nOr pass --retrieval keyword.`);
+  }
+}
+const claudeCommand = [args["claude-bin"]];
+const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
+const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
+let claudeVersion = null;
+if ([args.answerer, args.judge].includes("claude")) {
+  const v = await runProcess([...claudeCommand, "--version"], "", { env: subscriptionEnv(), timeoutMs: 30_000 }).catch(() => null);
+  claudeVersion = v && v.code === 0 ? v.stdout.trim() : null;
+  if (!claudeVersion) fail(`\`${args["claude-bin"]} --version\` failed: is the Claude Code CLI installed and logged in with a subscription?`);
+}
+
+// --- settings, and where a partial run is kept ------------------------------
+const info = runInfo();
+const settings = {
+  variant: args.variant,
+  selection: { limit: args.limit === undefined ? null : Number(args.limit), types: args.types ?? null, stratified: args.limit !== undefined, questions: instances.length },
+  store: "SqliteMemoryStore(':memory:'), a fresh one per question",
+  ingestion: "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
+  retrieval: args.retrieval,
+  embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
+  recall: "HybridRetriever.recall(question, { limit: 100 }), hits grouped into rounds (a user turn and the turn after it)",
+  freshness,
+  topK,
+  reading: args.reading,
+  historyFormat: "json",
+  concurrency,
+};
+const answererInfo = answerer ? { ...answerer.describe(), ...(answerer.kind === "claude-cli" ? { cliVersion: claudeVersion } : {}) } : null;
+const judgeInfo = judge ? { ...judge.describe(), ...(judge.kind === "claude-cli" ? { cliVersion: claudeVersion } : {}) } : null;
+const runKey = createHash("sha256")
+  .update(JSON.stringify({ dataSha256, commit: info.commit, settings: { ...settings, concurrency: undefined }, answererInfo, judgeInfo, ids: instances.map((x) => x.question_id) }))
+  .digest("hex")
+  .slice(0, 16);
+const progressPath = join(RESULTS_DIR, ".progress", `longmemeval-${runKey}.jsonl`);
+mkdirSync(join(RESULTS_DIR, ".progress"), { recursive: true });
+const done = new Map();
+if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== "") {
+  if (args.fresh) writeFileSync(progressPath, "");
+  else if (!args.resume) fail(`A partial run with these exact settings is in ${progressPath}.\nPass --resume to continue it, or --fresh to start over.`);
+  else for (const line of readFileSync(progressPath, "utf8").split("\n").filter(Boolean)) {
+    const row = JSON.parse(line);
+    if (!row.error) done.set(row.question_id, row);
+  }
+}
+const todo = instances.filter((x) => !done.has(x.question_id));
+
+console.log(
+  `LongMemEval_${args.variant}: ${instances.length} questions (${done.size} already done), retrieval ${args.retrieval}, top ${topK} rounds, reading ${args.reading}, ` +
+    `answerer ${answererInfo ? `${answererInfo.kind} ${answererInfo.requestedModel ?? answererInfo.command}` : "none"}, judge ${judgeInfo ? `${judgeInfo.kind} ${judgeInfo.requestedModel ?? judgeInfo.command}` : "none"}` +
+    `${answerer ? `, up to ${todo.length * (judge ? 2 : 1)} model calls` : ""}.`,
+);
+if (!pinned) console.log(`WARNING: ${dataPath} is not verified against dataset.json; the result will record that.`);
+
+// --- the run ------------------------------------------------------------------
+let finished = done.size;
+const started = Date.now();
+const onRow = (row) => {
+  appendFileSync(progressPath, `${JSON.stringify(row)}\n`);
+  finished += 1;
+  const t = row.retrieval?.metrics?.session?.["recall_any@10"];
+  const verdict = row.error ? `ERROR ${row.error}` : typeof row.label === "boolean" ? (row.label ? "correct" : "wrong") : row.hypothesis ? "answered" : "retrieved";
+  console.log(`[${finished}/${instances.length}] ${row.question_id} ${row.question_type}${t === undefined ? "" : ` session recall@10=${t}`} ${verdict}${row.ms ? ` (${(row.ms / 1000).toFixed(1)}s)` : ""}`);
+};
+let stopped = null;
+try {
+  await runInstances(lib, todo, { embedder, topK, freshness, reading: args.reading, answerer, judge }, { concurrency, onRow });
+} catch (e) {
+  stopped = e;
+}
+if (stopped) {
+  console.error(`\nStopped: ${stopped.message}\nProgress is kept in ${progressPath}; run the same command with --resume to continue.`);
+  process.exit(2);
+}
+
+// --- the result ----------------------------------------------------------------
+const byId = new Map(readFileSync(progressPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).map((r) => [r.question_id, r]));
+const rows = instances.map((x) => byId.get(x.question_id)).filter(Boolean);
+const summary = summarize(rows);
+const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), "longmemeval");
+writeJson(out, {
+  benchmark: "LongMemEval",
+  date: new Date().toISOString(),
+  ...info,
+  dataset: { name: manifest.name, repo: manifest.repo, revision: manifest.revision, file: basename(dataPath), sha256: dataSha256, verifiedAgainstManifest: pinned },
+  scoring: {
+    code: `github.com/xiaowu0162/LongMemEval@${LONGMEMEVAL_COMMIT}`,
+    judgePrompts: SCORING_SOURCE,
+    readerPrompt: READER_SOURCE,
+    label: "'yes' in judge_response.strip().lower()",
+    officialJudgeModel: "gpt-4o-2024-08-06",
+    note: judgeInfo
+      ? "Official prompts and rule; the judge model is the one named under `judge`, not gpt-4o. `hypothesesFile` is in the official format, so evaluate_qa.py can re-judge it with gpt-4o."
+      : "Not judged. `hypothesesFile` is in the official format for evaluate_qa.py.",
+  },
+  settings,
+  answerer: answererInfo,
+  judge: judgeInfo,
+  wallClockSeconds: Math.round((Date.now() - started) / 1000),
+  summary,
+  hypothesesFile: answerer ? basename(out).replace(/\.json$/, ".hypotheses.jsonl") : null,
+  questions: rows,
+});
+if (answerer) {
+  writeFileSync(
+    out.replace(/\.json$/, ".hypotheses.jsonl"),
+    rows.filter((r) => typeof r.hypothesis === "string").map((r) => `${JSON.stringify({ question_id: r.question_id, hypothesis: r.hypothesis })}\n`).join(""),
+  );
+}
+
+// With every question answered the result holds it all, and a rerun starts over;
+// with failures, the progress stays so --resume retries just those.
+if (summary.errors === 0) rmSync(progressPath, { force: true });
+
+const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed(1)}%`);
+console.log(`\nWrote ${out}`);
+if (summary.qa.questions) {
+  console.log(`QA accuracy ${pct(summary.qa.overallAccuracy)} overall, ${pct(summary.qa.taskAveragedAccuracy)} task-averaged, abstention ${pct(summary.qa.abstention.accuracy)} (n=${summary.qa.abstention.n})`);
+  for (const [t, v] of Object.entries(summary.qa.byType)) console.log(`  ${t.padEnd(26)} ${pct(v.accuracy).padStart(6)}  (n=${v.n})`);
+}
+const s = summary.retrieval.session;
+console.log(`Retrieval (${summary.retrieval.questions} question${summary.retrieval.questions === 1 ? "" : "s"}): session recall_any@5 ${pct(s["recall_any@5"])}, @10 ${pct(s["recall_any@10"])}; recall_all@10 ${pct(s["recall_all@10"])}; ndcg_any@10 ${pct(s["ndcg_any@10"])}`);
+if (summary.errors) {
+  console.log(`${summary.errors} question(s) failed after retries and are not in the accuracy; see "error" in the result file.`);
+  console.log(`Run the same command with --resume to retry just those (progress: ${progressPath}).`);
+}

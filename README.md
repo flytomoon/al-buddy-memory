@@ -35,6 +35,8 @@ Sources for the cells above, each checked against the project's own code or anno
 
 Recall benchmarks (LOCOMO, LongMemEval, DMR) measure what an agent remembers. **None of them scores a memory system on provenance, invalidation or portability.** This library is built for that axis, and the conformance scorer below is one attempt at measuring it. The table is our reading of each project's own code and public docs, dated above; if we have a cell wrong, a PR with a link fixes it.
 
+We run LongMemEval anyway, so a recall number people recognise sits beside the conformance score rather than in place of it, along with a small benchmark of our own for the part recall benchmarks skip: when a fact changes, does recall return the value that is true now? See [Benchmarks](#benchmarks).
+
 ## Start here
 
 An empty memory gives an assistant nothing to stand on. [docs/STARTER.md](docs/STARTER.md) seeds
@@ -301,6 +303,25 @@ The rulebook, including which dimension is which and what the score does **not**
 written against export *shapes*, not vendors. If a system starts recording provenance, its
 score goes up — that is the point. Add an adapter for your shape and open a PR; if you
 think we declared a trait wrongly for yours, that is a one-line PR too.
+
+## Benchmarks
+
+The conformance score measures what recall benchmarks leave out; it does not replace them. Two
+harnesses in [bench/](bench/README.md) put numbers beside it, each with its result file, commit and
+settings in [bench/results/](bench/results/):
+
+- **[LongMemEval](bench/longmemeval/README.md)**, the public recall benchmark: 500 questions over
+  chat histories of about 50 sessions each. Every question gets a fresh store holding its history,
+  one memory per message through the public API, nothing extracted or summarised; recall chooses
+  what the reader sees. The reader and judge prompts, the yes/no rule and the retrieval metrics are
+  the official ones, held to the official code by tests. The reader and judge are Claude, run
+  through the Claude Code CLI on a subscription, so a run spends no metered API money — and the
+  judge is therefore not the official gpt-4o, which is why every result ships its answers in the
+  official format for anyone to re-judge. `node bench/longmemeval/run.mjs --limit 50` is a smoke run.
+- **[Stale facts](bench/README.md#stale-facts)**, our own: things about a person that change over
+  time, told to the same store three ways — append-only, append-only recalled with freshness, and
+  through `recordState`, where a newer state closes the old one. It asks whether recall returns the
+  value true now, and the value true at a past instant. No model is called; it is deterministic.
 
 ## The governance MCP server
 

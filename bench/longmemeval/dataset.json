@@ -1,0 +1,13 @@
+{
+  "name": "LongMemEval (cleaned release, 2025-09)",
+  "repo": "xiaowu0162/longmemeval-cleaned",
+  "homepage": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned",
+  "paper": "https://arxiv.org/abs/2410.10813",
+  "code": "https://github.com/xiaowu0162/LongMemEval",
+  "revision": null,
+  "pinnedAt": null,
+  "files": {
+    "s": { "path": "longmemeval_s_cleaned.json", "sha256": null, "bytes": null },
+    "oracle": { "path": "longmemeval_oracle.json", "sha256": null, "bytes": null }
+  }
+}

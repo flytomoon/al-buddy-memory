@@ -3,3 +3,7 @@ dist/
 *.tsbuildinfo
 .DS_Store
 docs/demo/conformance.js
+# The LongMemEval data is downloaded (bench/longmemeval/download.mjs), never committed.
+bench/longmemeval/data/
+# A benchmark run's partial progress; the finished result goes in bench/results/.
+bench/results/.progress/
