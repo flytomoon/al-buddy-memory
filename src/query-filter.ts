@@ -52,9 +52,12 @@ export function normaliseLimit(limit: number | undefined): number | undefined {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : undefined;
 }
 
+/** How many words of a keyword query the stores read; the rest are not searched. */
+export const MAX_QUERY_TOKENS = 16;
+
 /** The words of a keyword query, as both stores and the governed ranking read it: letters and digits, at most 16. */
 export function queryTokens(query: string): string[] {
-  return (query.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 16);
+  return (query.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, MAX_QUERY_TOKENS);
 }
 
 /**

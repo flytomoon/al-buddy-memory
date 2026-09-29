@@ -80,11 +80,26 @@ export function retrievalMetrics(ranked, correct, corpus) {
   return out;
 }
 
+/**
+ * Not an official metric: how much of the evidence the reader was actually
+ * shown. The official ones cut the ranking at fixed k; the reader sees
+ * `shown.length` rounds (more, for a counting question, with an aggregate
+ * top-k), and a question that needs every piece of evidence is lost by the one
+ * it was not shown.
+ */
+export function shownEvidence(shown, correct) {
+  const seen = new Set(shown);
+  const found = correct.filter((id) => seen.has(id)).length;
+  return { rounds: shown.length, evidence: correct.length, found, all: found === correct.length ? 1 : 0 };
+}
+
 const mean = (xs) => (xs.length === 0 ? NaN : xs.reduce((a, b) => a + b, 0) / xs.length);
 
 /**
  * The averages the official retrieval script prints, over the questions it
- * counts. `rows` are `{ question_id, retrieval: { skipped, metrics } }`.
+ * counts. `rows` are `{ question_id, retrieval: { skipped, metrics } }`. Rows
+ * that also carry `retrieval.shown` get the (unofficial) shown-evidence
+ * averages beside them, overall and per question type.
  */
 export function summarizeRetrieval(rows) {
   const counted = rows.filter((r) => r.retrieval && !r.retrieval.skipped);
@@ -95,7 +110,20 @@ export function summarizeRetrieval(rows) {
     const names = counted.length ? Object.keys(counted[0].retrieval.metrics[level]) : [];
     for (const name of names) averages[level][name] = round4(mean(counted.map((r) => r.retrieval.metrics[level][name])));
   }
-  return { questions: counted.length, skipped, ...averages };
+  const withShown = counted.filter((r) => r.retrieval.shown);
+  if (withShown.length === 0) return { questions: counted.length, skipped, ...averages };
+  const shownSummary = (xs) => ({
+    n: xs.length,
+    allEvidence: round4(mean(xs.map((r) => r.retrieval.shown.all))),
+    evidenceFound: round4(xs.reduce((a, r) => a + r.retrieval.shown.found, 0) / Math.max(1, xs.reduce((a, r) => a + r.retrieval.shown.evidence, 0))),
+    meanRounds: round4(mean(xs.map((r) => r.retrieval.shown.rounds))),
+  });
+  const byType = {};
+  for (const t of QUESTION_TYPES) {
+    const xs = withShown.filter((r) => r.question_type === t);
+    if (xs.length) byType[t] = shownSummary(xs);
+  }
+  return { questions: counted.length, skipped, ...averages, shown: { ...shownSummary(withShown), byType } };
 }
 
 /**

@@ -22,6 +22,25 @@ export const ANSWER_TEMPLATES = {
   direct: "I will give you several history chats between you and a user. Please answer the question based on the relevant chat history.\n\n\nHistory Chats:\n\n{}\n\nCurrent Date: {}\nQuestion: {}\nAnswer:",
 };
 
+/**
+ * NOT an official template: the chain-of-note reader (`--chain-of-note`), for
+ * questions that count, total, compare or order across sessions. It asks for a
+ * note per relevant session, dated, before any arithmetic — a question lost to
+ * a missed or double-counted mention is lost there — and the answer after, in
+ * the same single call. It keeps the official frame (the same opening, the
+ * same history block, "Current Date", "Question") so only the instructions
+ * differ, and a result that used it says so.
+ */
+export const CHAIN_OF_NOTE_TEMPLATE =
+  "I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. The answer may need information from several of the chats: to count, add up, compare or order what they say.\n\n" +
+  "Work in two steps.\n" +
+  "Step 1, notes. Go through the history chats in order. For every session that mentions anything bearing on the question, write one line: the session date, then what that session says that matters, with its numbers, names and dates exactly as given. Note a mention even when you are unsure it counts, and note each session separately even when they repeat each other. Skip sessions with nothing relevant.\n" +
+  "Step 2, answer. Using your notes, work out the answer. Count a thing once even when several sessions mention it. When the question names a period, keep only what happened in it, judged by when each thing happened: a date the session gives, or else the session date, against the current date. When a later session updates or corrects an earlier one, use the later one. If the chats hold nothing that answers the question, say so rather than guess. End with the final answer and the items or numbers it is built from.\n\n\n" +
+  "History Chats:\n\n{}\n\nCurrent Date: {}\nQuestion: {}\nAnswer (notes first, then the answer):";
+
+/** Every reading method: the two official templates, and the one that is not. */
+export const READING_TEMPLATES = { ...ANSWER_TEMPLATES, "chain-of-note": CHAIN_OF_NOTE_TEMPLATE };
+
 const JUDGE_DEFAULT =
   "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no. \n\nQuestion: {}\n\nCorrect Answer: {}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only.";
 const JUDGE_TEMPORAL =
@@ -73,8 +92,8 @@ export function formatHistory(rounds) {
 
 /** The reader's prompt for one question, given the rounds it is shown. */
 export function answerPrompt(instance, rounds, reading = "con") {
-  const template = ANSWER_TEMPLATES[reading];
-  if (!template) throw new Error(`Unknown reading method "${reading}" (use ${Object.keys(ANSWER_TEMPLATES).join(" or ")})`);
+  const template = READING_TEMPLATES[reading];
+  if (!template) throw new Error(`Unknown reading method "${reading}" (use ${Object.keys(READING_TEMPLATES).join(", ")})`);
   return format(template, formatHistory(rounds), instance.question_date, instance.question);
 }
 

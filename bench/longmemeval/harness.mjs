@@ -3,9 +3,9 @@
  * retrieval metrics, the official reader prompt, an answer, the official judge
  * — and a run over many of them.
  */
-import { corpusOf, isAbstention, retrievalSkipReason } from "./dataset.mjs";
+import { corpusOf, isAbstention, parseSessionDate, retrievalSkipReason } from "./dataset.mjs";
 import { ingestHistory, recallRounds } from "./memory.mjs";
-import { retrievalMetrics, summarizeQa, summarizeRetrieval } from "./metrics.mjs";
+import { retrievalMetrics, shownEvidence, summarizeQa, summarizeRetrieval } from "./metrics.mjs";
 import { answerPrompt, judgePrompt, judgeLabel } from "./prompts.mjs";
 import { UsageLimitError } from "./answerers.mjs";
 
@@ -13,27 +13,49 @@ import { UsageLimitError } from "./answerers.mjs";
  * Evaluate one instance. `answerer` and `judge` may be null: without an
  * answerer the row has retrieval metrics only; without a judge it has a
  * hypothesis and no label (judge it later from the hypotheses file).
+ *
+ * The A/B options, each off by default: `reranker` (the retriever reorders
+ * what it finds with a cross-encoder), `expand` (recall reads the question's
+ * time and counting cues), `recallPool` (how many memories recall returns,
+ * default RECALL_POOL), `aggregateTopK` (how many rounds the reader sees
+ * when the question counts across memories, instead of `topK`), and
+ * `chainOfNote` (such a question gets the chain-of-note reader). Whether a
+ * question "counts across memories" is the library's `analyzeQuery`, recorded
+ * in every row as `cues`.
  */
-export async function evaluateInstance(lib, instance, { embedder, topK = 20, freshness = 0, reading = "con", answerer = null, judge = null } = {}) {
+export async function evaluateInstance(
+  lib,
+  instance,
+  { embedder, reranker = null, topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, reading = "con", chainOfNote = false, answerer = null, judge = null } = {},
+) {
   const started = Date.now();
-  const memory = await ingestHistory(lib, instance, { embedder });
+  const memory = await ingestHistory(lib, instance, { embedder, reranker });
   try {
-    const { rounds, memoriesRecalled } = await recallRounds(memory, instance, { freshness });
+    const { rounds, memoriesRecalled } = await recallRounds(memory, instance, { freshness, expand, ...(recallPool ? { recallPool } : {}) });
     const { corpus, correct } = corpusOf(instance);
     const skipped = retrievalSkipReason(instance);
+    const cues = lib.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) });
+    const shown = rounds.slice(0, cues.aggregation && aggregateTopK ? aggregateTopK : topK);
+    const readingUsed = chainOfNote && cues.aggregation ? "chain-of-note" : reading;
     const row = {
       question_id: instance.question_id,
       question_type: instance.question_type,
       abstention: isAbstention(instance.question_id),
       memories: memory.memories,
       memoriesRecalled,
+      cues: { aggregation: cues.aggregation, order: cues.order, windows: cues.windows.map((w) => w.phrase), parts: cues.parts.length },
       retrieval: skipped
         ? { skipped }
-        : { skipped: null, metrics: retrievalMetrics(rounds.map((r) => r.id), correct, corpus.map((c) => c.id)) },
-      shownRounds: rounds.slice(0, topK).map((r) => r.id),
+        : {
+            skipped: null,
+            metrics: retrievalMetrics(rounds.map((r) => r.id), correct, corpus.map((c) => c.id)),
+            shown: shownEvidence(shown.map((r) => r.id), correct),
+          },
+      shownRounds: shown.map((r) => r.id),
+      reading: readingUsed,
     };
     if (answerer) {
-      const prompt = answerPrompt(instance, rounds.slice(0, topK), reading);
+      const prompt = answerPrompt(instance, shown, readingUsed);
       const answer = await answerer.complete(prompt);
       Object.assign(row, { promptChars: prompt.length, hypothesis: answer.text, answerModels: answer.modelIds, answerUsage: answer.usage, answerNotionalCostUsd: answer.notionalCostUsd });
       if (judge) {
