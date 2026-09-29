@@ -1,0 +1,36 @@
+{
+  "model": "gpt-6-sol",
+  "judgedWith": "codex exec (ChatGPT seat), official LongMemEval judge prompts",
+  "n": 500,
+  "overall": 0.882,
+  "byType": {
+    "single-session-user": {
+      "correct": 64,
+      "n": 64
+    },
+    "abstention": {
+      "correct": 25,
+      "n": 30
+    },
+    "multi-session": {
+      "correct": 92,
+      "n": 121
+    },
+    "single-session-preference": {
+      "correct": 26,
+      "n": 30
+    },
+    "temporal-reasoning": {
+      "correct": 111,
+      "n": 127
+    },
+    "knowledge-update": {
+      "correct": 69,
+      "n": 72
+    },
+    "single-session-assistant": {
+      "correct": 54,
+      "n": 56
+    }
+  }
+}
