@@ -129,6 +129,21 @@ describe("recall with expand — counting across memories", () => {
     expect(expandedQueries(vague, analyzeQuery(vague, { now: NOW }))).toEqual([vague]);
   });
 
+  it("finds everything plain recall finds, even when its own reading of the question matches nothing", async () => {
+    // Keyword search does not stem: "bake" is not "baked", so the question's content
+    // words match nothing here, and only the question as asked ("I") finds these.
+    const store = new InMemoryStore();
+    await store.addNode(makeNode({ content: { text: "I baked banana bread yesterday." }, validFrom: "2023-05-10T00:00:00.000Z" }));
+    await store.addNode(makeNode({ content: { text: "Today I baked a lemon tart." }, validFrom: "2023-05-20T00:00:00.000Z" }));
+    const retriever = new HybridRetriever(store);
+    for (const question of ["How many times did I bake something in the past month?", "What did I bake most recently?"]) {
+      const plain = (await retriever.recall(question, { limit: 10 })).map((n) => n.nodeId);
+      const expanded = (await retriever.recall(question, { limit: 10, expand: { now: NOW } })).map((n) => n.nodeId);
+      expect(plain.length, question).toBe(2);
+      expect(new Set(expanded), question).toEqual(new Set(plain));
+    }
+  });
+
   it("recall without expand is the recall it always was", async () => {
     const { store } = await hobbies();
     const retriever = new HybridRetriever(store);

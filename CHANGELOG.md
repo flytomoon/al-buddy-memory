@@ -25,8 +25,10 @@ earlier were GitHub releases only.
   Thursday", "from July to October"), resolved against `now`, favours facts whose `validFrom` falls
   in it and is taken out of the search words; a question that counts or compares across memories
   ("how many", "total", "A and B", "which came first") searches each thing it names, from a deeper
-  pool; the keyword side searches content words, so a long question's last words count; "currently"
-  and "initially" nudge the latest and earliest facts up. Facts outside a period are never dropped.
+  pool; a question longer than the keyword search reads is also searched by its content words, so
+  its last words count; "currently" and "initially" nudge the latest and earliest facts up. The
+  question itself is always searched as plain recall searches it, so `expand` only adds; facts
+  outside a period are never dropped.
 - Neither writes anything or changes a fact: scores, sub-queries and periods live for one recall.
   Recall without either is unchanged.
 - LongMemEval harness: `--rerank`, `--expand`, `--aggregate-top-k`, `--chain-of-note` (a reader
