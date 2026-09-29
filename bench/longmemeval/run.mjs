@@ -119,7 +119,7 @@ if (reranker) {
     fail(`--rerank ${args.rerank} needs the on-device cross-encoder ${rerankModel} (optional dependency @huggingface/transformers, and a one-time model download): ${e.message}`);
   }
 }
-const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top-k", 1) : args.expand ? 2 * Number(args["top-k"]) : null;
+const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top-k", 1) : null;
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
