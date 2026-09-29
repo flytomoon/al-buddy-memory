@@ -61,8 +61,8 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | `--freshness X` | `0` | `HybridRetriever`'s recency weight. It orders by when a memory was *recorded*, which here is ingestion order, not session date: 211 of the 500 histories are not in date order, so this flag measures little on LongMemEval. `--expand` orders by session date instead. |
 | `--rerank none\|minilm\|bge\|<model>` | `none` | Rerank recall with an on-device cross-encoder (`LocalReranker`): `minilm` is `Xenova/ms-marco-MiniLM-L-6-v2` (~23 M parameters), `bge` is `Xenova/bge-reranker-base` (278 M, about ten times slower), or any Hugging Face cross-encoder id. Downloaded once to the transformers.js cache, like the embedder. About 200 question–passage pairs per question (100 messages, long ones in windows); a MiniLM-L6 forward pass managed 12 pairs a second on a machine at load 160, so expect seconds per question on an idle one with `minilm`, and about ten times that with `bge`. |
 | `--rerank-dtype fp32\|q8\|…` | `fp32` | The cross-encoder's weights. `q8` is a quarter of the download and faster, at some cost in accuracy. |
-| `--expand` | off | Recall with `expand`: the library reads the question's time and counting cues (`analyzeQuery`), resolving "last week" against the question's date. Also turns on `--aggregate-top-k 40`. |
-| `--aggregate-top-k N` | `2 × top-k` with `--expand`, else off | How many rounds the reader sees for a question `analyzeQuery` marks as counting across memories ("how many", "total", "A and B", "which … first"). Other questions still see `--top-k`. |
+| `--expand` | off | Recall with `expand`: the library reads the question's time and counting cues (`analyzeQuery`), resolving "last week" against the question's date. |
+| `--aggregate-top-k N` | off | How many rounds the reader sees for a question `analyzeQuery` marks as counting across memories ("how many", "total", "A and B", "which … first"). Other questions still see `--top-k`. |
 | `--chain-of-note` | off | Questions marked as counting get the chain-of-note reader: a dated note for every relevant session, then the answer, in the same single call. **Not an official template**; the result file and each row say which reader a question got. |
 | `--reading con\|direct` | `con` | The official reader templates; `con` (reason step by step) is the one the LongMemEval README recommends. |
 | `--answerer claude\|command:<cmd>\|none` | `claude` | `command:` pipes the prompt into any command (a local model, say) and reads the answer from stdout. `none` runs retrieval only: no model is called. |
@@ -126,9 +126,9 @@ The full run ([result](../results/2026-09-29-longmemeval-full.json)) got 101 of 
 questions right (75.9%). Of the 32 it missed, **25 were missing at least one evidence turn from the
 20 rounds the reader saw**; 7 were wrong with every piece in front of it. A multi-session question
 needs every piece — "how many weddings this year" is wrong if one wedding is missing — and
-`recall_any@10` (96%) says nothing about that. So three options, each off by default so a run can
-A/B it, and none of which stores anything (they reorder, re-query and re-prompt at read time over
-the raw text):
+`recall_any@10` (96%) says nothing about that. So four options, each off by default so a run can
+A/B it, and none of which stores anything (they reorder, re-query, show more and re-prompt at read
+time over the raw text):
 
 1. **`--rerank`** — a local cross-encoder reads the question with each of the 100 recalled
    messages and reorders them (`LocalReranker`, the library's `reranker` option). Long messages are
@@ -141,8 +141,9 @@ the raw text):
    than the sixteen words keyword search reads is searched again by its content words; "currently"
    / "initially" nudge the latest / earliest session up. The question itself is always searched as
    it is without `--expand`, so expanding only adds candidates.
-   A counting question also gets 40 rounds instead of 20 (`--aggregate-top-k`).
-3. **`--chain-of-note`** — a counting question gets a reader prompt that asks for one dated note per
+3. **`--aggregate-top-k 40`** — a counting question is shown 40 rounds instead of 20 (the official
+   scripts show 50). Its own arm, because it is the one lever measured so far (below).
+4. **`--chain-of-note`** — a counting question gets a reader prompt that asks for one dated note per
    relevant session before any arithmetic, then the answer, in the same single call. Not an
    official template, and the result says so.
 
@@ -153,15 +154,16 @@ is 500 questions, about 1,000:
 ```sh
 npm ci && npm run build && node bench/longmemeval/download.mjs
 D=$(date +%F); R=bench/results; T=multi-session,knowledge-update
-node bench/longmemeval/run.mjs --types $T                                          --out $R/$D-lme-ms-ku-baseline.json
-node bench/longmemeval/run.mjs --types $T --rerank minilm                          --out $R/$D-lme-ms-ku-rerank.json
-node bench/longmemeval/run.mjs --types $T --expand                                 --out $R/$D-lme-ms-ku-expand.json
-node bench/longmemeval/run.mjs --types $T --chain-of-note                          --out $R/$D-lme-ms-ku-notes.json
-node bench/longmemeval/run.mjs --types $T --rerank minilm --expand --chain-of-note  --out $R/$D-lme-ms-ku-all.json
-node bench/longmemeval/compare.mjs $R/$D-lme-ms-ku-{baseline,rerank,expand,notes,all}.json
+node bench/longmemeval/run.mjs --types $T                      --out $R/$D-lme-ms-ku-baseline.json
+node bench/longmemeval/run.mjs --types $T --rerank minilm      --out $R/$D-lme-ms-ku-rerank.json
+node bench/longmemeval/run.mjs --types $T --expand             --out $R/$D-lme-ms-ku-expand.json
+node bench/longmemeval/run.mjs --types $T --aggregate-top-k 40 --out $R/$D-lme-ms-ku-top40.json
+node bench/longmemeval/run.mjs --types $T --chain-of-note      --out $R/$D-lme-ms-ku-notes.json
+node bench/longmemeval/run.mjs --types $T --rerank minilm --expand --aggregate-top-k 40 --chain-of-note --out $R/$D-lme-ms-ku-all.json
+node bench/longmemeval/compare.mjs $R/$D-lme-ms-ku-{baseline,rerank,expand,top40,notes,all}.json
 
-node bench/longmemeval/run.mjs                                                     --out $R/$D-lme-full-baseline.json
-node bench/longmemeval/run.mjs --rerank minilm --expand --chain-of-note            --out $R/$D-lme-full-all.json
+node bench/longmemeval/run.mjs --out $R/$D-lme-full-baseline.json
+node bench/longmemeval/run.mjs --rerank minilm --expand --aggregate-top-k 40 --chain-of-note --out $R/$D-lme-full-all.json
 node bench/longmemeval/compare.mjs $R/$D-lme-full-{baseline,all}.json
 ```
 
