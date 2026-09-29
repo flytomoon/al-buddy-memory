@@ -16,7 +16,8 @@ import { UsageLimitError } from "./answerers.mjs";
  *
  * The A/B options, each off by default: `reranker` (the retriever reorders
  * what it finds with a cross-encoder), `expand` (recall reads the question's
- * time and counting cues), `aggregateTopK` (how many rounds the reader sees
+ * time and counting cues), `recallPool` (how many memories recall returns,
+ * default RECALL_POOL), `aggregateTopK` (how many rounds the reader sees
  * when the question counts across memories, instead of `topK`), and
  * `chainOfNote` (such a question gets the chain-of-note reader). Whether a
  * question "counts across memories" is the library's `analyzeQuery`, recorded
@@ -25,12 +26,12 @@ import { UsageLimitError } from "./answerers.mjs";
 export async function evaluateInstance(
   lib,
   instance,
-  { embedder, reranker = null, topK = 20, aggregateTopK = null, freshness = 0, expand = false, reading = "con", chainOfNote = false, answerer = null, judge = null } = {},
+  { embedder, reranker = null, topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, reading = "con", chainOfNote = false, answerer = null, judge = null } = {},
 ) {
   const started = Date.now();
   const memory = await ingestHistory(lib, instance, { embedder, reranker });
   try {
-    const { rounds, memoriesRecalled } = await recallRounds(memory, instance, { freshness, expand });
+    const { rounds, memoriesRecalled } = await recallRounds(memory, instance, { freshness, expand, ...(recallPool ? { recallPool } : {}) });
     const { corpus, correct } = corpusOf(instance);
     const skipped = retrievalSkipReason(instance);
     const cues = lib.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) });

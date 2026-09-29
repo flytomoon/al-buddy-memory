@@ -12,7 +12,11 @@
  */
 import { corpusOf, parseSessionDate } from "./dataset.mjs";
 
-/** How many memories one recall asks for: every candidate the keyword and vector lists can supply. */
+/**
+ * How many memories one recall asks for: every candidate the keyword and vector
+ * lists can supply (50 each). `--recall-pool N` asks for N, with N/2 from each
+ * list (the retriever's `candidates`), so a reranker has more to choose from.
+ */
 export const RECALL_POOL = 100;
 
 /**
@@ -70,9 +74,11 @@ function roundOf(session, turn) {
  * the question's time and counting cues, resolving "last week" against the
  * question's own date — the moment it is asked in the benchmark's story.
  */
-export async function recallRounds(memory, instance, { freshness = 0, expand = false } = {}) {
+export async function recallRounds(memory, instance, { freshness = 0, expand = false, recallPool = RECALL_POOL } = {}) {
   const hits = await memory.retriever.recall(instance.question, {
-    limit: RECALL_POOL,
+    limit: recallPool,
+    // Half from each list, so the keyword and vector lists can fill the pool between them.
+    ...(recallPool !== RECALL_POOL ? { candidates: Math.max(1, Math.ceil(recallPool / 2)) } : {}),
     ...(freshness > 0 ? { freshness } : {}),
     ...(expand ? { expand: { now: parseSessionDate(instance.question_date) } } : {}),
   });

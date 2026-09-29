@@ -186,6 +186,13 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(calls).toBe(2);
   });
 
+  it("--recall-pool bounds how many memories recall returns", async () => {
+    expect((await evaluateInstance(lib, instance())).memoriesRecalled).toBeGreaterThan(2);
+    // Half from each list: keyword-only, that is one.
+    expect((await evaluateInstance(lib, instance(), { recallPool: 2 })).memoriesRecalled).toBe(1);
+    expect((await evaluateInstance(lib, instance(), { recallPool: 2, embedder: wordEmbedder() })).memoriesRecalled).toBeLessThanOrEqual(2);
+  });
+
   it("with a reranker, the reader sees rounds in the cross-encoder's order", async () => {
     const plain = await evaluateInstance(lib, instance({ question: "city" }));
     expect(plain.shownRounds[0]).toBe("answer_x1_2_1"); // "Berlin is a great city"

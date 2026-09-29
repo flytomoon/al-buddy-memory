@@ -55,6 +55,12 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
   expand?: boolean | { now?: string };
   /** With a `reranker` configured on the retriever, `false` skips it for this recall. */
   rerank?: boolean;
+  /**
+   * How many candidates each keyword and vector list contributes before they
+   * are fused (default 50; `expand` doubles it for a question that counts).
+   * More gives a reranker more to choose from, at the cost of reading more.
+   */
+  candidates?: number;
 }
 
 export interface HybridRetrieverOptions {
@@ -71,8 +77,8 @@ export interface HybridRetrieverOptions {
 }
 
 const CANDIDATE_POOL = 50;
-/** The pool per list when `expand` finds a question that counts across memories. */
-const EXPANDED_POOL = 100;
+/** How much deeper each list reads when `expand` finds a question that counts across memories. */
+const EXPANDED_POOL_FACTOR = 2;
 const RRF_K = 60; // standard reciprocal-rank-fusion constant
 /** Cosine similarity above which two texts state the same fact. */
 const DUPLICATE_THRESHOLD = 0.9;
@@ -134,8 +140,10 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, ...scope } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
+    const basePool = options.candidates ?? CANDIDATE_POOL;
+    if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
     const cues = options.expand ? analyzeQuery(query, { now: (typeof options.expand === "object" ? options.expand.now : undefined) ?? validAt }) : null;
 
     // Reciprocal-rank fusion across every list.
@@ -156,12 +164,12 @@ export class HybridRetriever {
 
     if (!cues) {
       // Keyword list — BM25-ordered by the store.
-      addList(await this.store.searchNodes({ ...filter, query, limit: CANDIDATE_POOL }));
+      addList(await this.store.searchNodes({ ...filter, query, limit: basePool }));
       // Vector list — full scan of the embedder's model space (local scale).
-      addList((await this.vectorCandidates(query, filter)).map((v) => v.node));
+      addList((await this.vectorCandidates(query, filter, basePool)).map((v) => v.node));
     } else {
       // The same two lists for every query `expand` reads out of this one.
-      const pool = cues.aggregation ? EXPANDED_POOL : CANDIDATE_POOL;
+      const pool = cues.aggregation ? EXPANDED_POOL_FACTOR * basePool : basePool;
       const queries = expandedQueries(query, cues);
       const vectors = this.embedder ? await this.embedder.embed(queries) : [];
       let lists = 0;
@@ -262,11 +270,12 @@ export class HybridRetriever {
   private async vectorCandidates(
     query: string,
     filter: NodeFilter,
+    pool = CANDIDATE_POOL,
   ): Promise<{ node: MemoryNode; similarity: number }[]> {
     if (!this.embedder) return [];
     const [queryVector] = await this.embedder.embed([query]);
     if (!queryVector) return [];
-    return this.vectorCandidatesFor(queryVector, filter, CANDIDATE_POOL);
+    return this.vectorCandidatesFor(queryVector, filter, pool);
   }
 
   private async vectorCandidatesFor(
