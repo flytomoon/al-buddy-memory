@@ -62,6 +62,7 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | `--freshness X` | `0` | `HybridRetriever`'s recency weight. It orders by when a memory was *recorded*, which here is ingestion order, not session date: 211 of the 500 histories are not in date order, so this flag measures little on LongMemEval. `--expand` orders by session date instead. |
 | `--rerank none\|minilm\|bge\|<model>` | `none` | Rerank recall with an on-device cross-encoder (`LocalReranker`): `minilm` is `Xenova/ms-marco-MiniLM-L-6-v2` (~23 M parameters), `bge` is `Xenova/bge-reranker-base` (278 M, about ten times slower), or any Hugging Face cross-encoder id. Downloaded once to the transformers.js cache, like the embedder. About 200 question–passage pairs per question (100 messages, long ones in windows); a MiniLM-L6 forward pass managed 12 pairs a second on a machine at load 160, so expect seconds per question on an idle one with `minilm`, and about ten times that with `bge`. |
 | `--rerank-dtype fp32\|q8\|…` | `fp32` | The cross-encoder's weights. `q8` is a quarter of the download and faster, at some cost in accuracy. |
+| `--rerank-depth N` | all recalled | The cross-encoder reads only the best N fused candidates (`HybridRetriever`'s `rerankDepth`); the rest keep their order after them. See [Recall time](#recall-time) for why N at or below the rounds shown changes almost nothing the reader sees. |
 | `--expand` | off | Recall with `expand`: the library reads the question's time and counting cues (`analyzeQuery`), resolving "last week" against the question's date. |
 | `--aggregate-top-k N` | off | How many rounds the reader sees for a question `analyzeQuery` marks as counting across memories ("how many", "total", "A and B", "which … first"). Other questions still see `--top-k`. |
 | `--chain-of-note` | off | Questions marked as counting get the chain-of-note reader: a dated note for every relevant session, then the answer, in the same single call. **Not an official template**; the result file and each row say which reader a question got. |
@@ -81,8 +82,9 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
    session's date. Nothing is extracted, summarised or rewritten, and no model is called to build
    the memory. With `hybrid`, `indexMissingEmbeddings` embeds every message on-device.
 2. `HybridRetriever.recall(question, { limit: 100 })` — with `expand: { now: question_date }` under
-   `--expand`, and reordered by the cross-encoder under `--rerank`. Each recalled message is
-   grouped into its round — a user turn and the turn after it, which is what the official reader
+   `--expand`, and reordered by the cross-encoder under `--rerank`. The `recall` call alone is
+   timed — wall clock and CPU, with the machine's load average — and kept in the row as `recall`
+   ([Recall time](#recall-time)). Each recalled message is grouped into its round — a user turn and the turn after it, which is what the official reader
    is shown — and named by the official corpus id of that user turn.
 3. The official retrieval metrics are computed on that ranking.
 4. The top `--top-k` rounds (`--aggregate-top-k` for a counting question), sorted by date, go into
@@ -192,15 +194,63 @@ and, per option, the questions it fixed and broke against the baseline. A differ
 questions out of 133 is inside the noise of a CLI that exposes no temperature; the fixed/broken
 counts say more than the percentages.
 
+## Recall time
+
+A memory score means little without the time it took, so every row records `recall`:
+
+- `ms` — the wall clock of the `HybridRetriever.recall` call alone: embedding the question (and
+  each query `expand` reads out of it), keyword and vector search, fusion and any reranking. Not
+  building the memory, grouping hits into rounds, answering or judging. The question is always
+  embedded afresh, never from the memo that speeds up building the memory.
+- `cpuMs` — the CPU this process spent meanwhile, over all its threads. The embedder and the
+  cross-encoder run on onnxruntime's thread pool, whose threads spin while they wait, so for a
+  reranked recall this overstates the work; it is there to show how much of `ms` was waiting.
+- `load1` — the machine's 1-minute load average just after. A recall on a busy machine waits for
+  a core like everything else; read `ms` beside it.
+
+The summary's `recall` gives p50, p95, max and mean. Memory building and recall run one question
+at a time (answering and judging still overlap), so no other question embeds or reranks in the same
+process while one is timed. Each question's store and retriever are fresh, so every recall is a
+first recall — vectors read from SQLite — as the first recall of a session is. What the harness
+cannot control is the rest of the machine.
+
+`recall-sweep.mjs` times several reranker settings at once, with no model call: each question's
+memory is built once and every arm recalls from it with a fresh retriever, in an order that
+rotates from question to question. It reports, per arm, the recall time, the share of recalls
+within `--budget-ms` (default 300), the official retrieval averages, how often the reader would see
+every evidence turn, and in how many questions it would see the same rounds as the first arm:
+
+```sh
+node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
+  --arm none --arm minilm:q8:20 --arm minilm:q8:40 --arm minilm:fp32:all
+```
+
+An arm is `none` or `<model>:<dtype>:<depth>` (`minilm`, `bge` or a Hugging Face id; `fp32`, `q8`,
+…; a number of candidates or `all`).
+
+### Reranking only the top 20 changes almost nothing the reader sees
+
+The reader is shown at least 20 rounds, **listed by date** (the official reader prompt sorts them).
+A cross-encoder that reorders only the best 20 recalled messages reorders messages whose rounds the
+reader sees anyway, in an order the prompt then discards; every message after the 20th keeps its
+place. So the rounds shown can only change through `expand`'s time lists, which are laid over the
+reranked order and can move a round across the cut. ‹SWEEP20›
+
+To change what the reader sees, the cross-encoder has to read deeper than the reader's window and
+pull something up from below it: depth 40 and up. That is where its time goes.
+
+‹SWEEPTABLE›
+
 ## The result file
 
 `bench/results/<date>-longmemeval.json` holds the commit and whether the tree was clean, the
 library version, the dataset file's SHA-256 and whether it matched `dataset.json`, every setting,
 the answerer and judge (CLI version, requested model, and every model id that answered, with call
-counts), and a summary: overall, task-averaged and per-type accuracy, abstention accuracy, the
-official retrieval averages at session and turn level, errors, token usage, and time. Then one row
-per question: its retrieval metrics, the rounds the reader saw, the answer, the judge's reply and
-the verdict.
+counts), the machine (CPU, cores, load average at start and end), and a summary: overall,
+task-averaged and per-type accuracy, abstention accuracy, the official retrieval averages at
+session and turn level, recall time (p50/p95/max/mean), errors, token usage, and time. Then one
+row per question: its recall time, its retrieval metrics, the rounds the reader saw, the answer,
+the judge's reply and the verdict. Results from before 2026-09-30 have no recall time.
 
 `npm test` covers the pieces — dataset handling, the metrics, the prompts, ingestion and recall,
 the answerers, the download checks — against the source, with hand-written fixtures. It never
