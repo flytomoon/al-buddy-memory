@@ -38,6 +38,13 @@ earlier were GitHub releases only.
   prompt for counting questions that is not an official template, and is recorded as such), a
   shown-evidence diagnostic beside the official retrieval metrics, `compare.mjs` for A/B runs, and
   `--types` now refuses a type that does not exist.
+- LongMemEval harness, speed beside every score: each question's `recall` call is timed (wall
+  clock and CPU, with the machine's load average) and the summary gives p50/p95/max; memory
+  building and recall run one question at a time so a recall is never timed while another
+  question works in the same process, and the question is always embedded afresh. `--rerank-depth`
+  reranks only the best N candidates. `recall-sweep.mjs` times several reranker settings over one
+  memory build per question, with no model calls, and says what each would show the reader.
+  `compare.mjs` shows recall times and counts the questions whose reader saw the same rounds.
 
 ## 0.8.3 — 2026-09-26
 
