@@ -10,6 +10,8 @@
  * rewritten on the way in, and no model is called to build the memory: raw
  * text is the source of truth, which is the library's premise.
  */
+import { performance } from "node:perf_hooks";
+
 import { corpusOf, parseSessionDate } from "./dataset.mjs";
 
 /**
@@ -22,9 +24,12 @@ export const RECALL_POOL = 100;
 /**
  * A fresh in-memory SQLite store holding this instance's history. With an
  * embedder, every memory is embedded before the question is asked; with a
- * reranker, the retriever reorders what it finds with it.
+ * reranker, the retriever reorders what it finds with it — all of it, or the
+ * best `rerankDepth` candidates. `queryEmbedder` (default `embedder`) is the
+ * one recall embeds the question with: the same model without
+ * `cachingEmbedder`'s memo, so a timed recall always pays for its embedding.
  */
-export async function ingestHistory(lib, instance, { embedder, reranker } = {}) {
+export async function ingestHistory(lib, instance, { embedder, queryEmbedder = embedder, reranker, rerankDepth } = {}) {
   const store = new lib.SqliteMemoryStore(":memory:");
   /** nodeId → where the message sits in the history. */
   const origin = new Map();
@@ -51,7 +56,7 @@ export async function ingestHistory(lib, instance, { embedder, reranker } = {}) 
     }
   }
   if (embedder) await lib.indexMissingEmbeddings(store, embedder);
-  const retriever = new lib.HybridRetriever(store, embedder, reranker ? { reranker } : {});
+  const retriever = new lib.HybridRetriever(store, queryEmbedder, reranker ? { reranker, ...(rerankDepth ? { rerankDepth } : {}) } : {});
   return { store, retriever, origin, memories: origin.size };
 }
 
@@ -73,8 +78,15 @@ function roundOf(session, turn) {
  * session date, and the turns the reader will see. With `expand`, recall reads
  * the question's time and counting cues, resolving "last week" against the
  * question's own date — the moment it is asked in the benchmark's story.
+ *
+ * `recall` is how long the `recall` call alone took: `ms` by the wall clock,
+ * `cpuMs` the CPU this process spent meanwhile, across all its threads (the
+ * embedder and cross-encoder run on their own). Grouping into rounds is not
+ * in it; it is the benchmark's bookkeeping, not the library's work.
  */
 export async function recallRounds(memory, instance, { freshness = 0, expand = false, recallPool = RECALL_POOL } = {}) {
+  const cpu = process.cpuUsage();
+  const t0 = performance.now();
   const hits = await memory.retriever.recall(instance.question, {
     limit: recallPool,
     // Half from each list, so the keyword and vector lists can fill the pool between them.
@@ -82,6 +94,9 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
     ...(freshness > 0 ? { freshness } : {}),
     ...(expand ? { expand: { now: parseSessionDate(instance.question_date) } } : {}),
   });
+  const ms = performance.now() - t0;
+  const { user, system } = process.cpuUsage(cpu);
+  const recall = { ms: Math.round(ms * 10) / 10, cpuMs: Math.round((user + system) / 100) / 10 };
   const { corpus } = corpusOf(instance);
   const idAt = new Map(corpus.map((c) => [`${c.session}:${c.turn}`, c.id]));
   const rounds = [];
@@ -101,7 +116,7 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
       turns: session.slice(userTurn, userTurn + 2).map(({ role, content }) => ({ role, content })),
     });
   }
-  return { rounds, memoriesRecalled: hits.length };
+  return { rounds, memoriesRecalled: hits.length, recall };
 }
 
 /**
