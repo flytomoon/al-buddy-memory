@@ -10,6 +10,7 @@
 // See bench/longmemeval/README.md for every flag and what the numbers mean.
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpus, loadavg, totalmem } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -37,6 +38,7 @@ const { values: args } = parseArgs({
     freshness: { type: "string", default: "0" },
     rerank: { type: "string", default: "none" },
     "rerank-dtype": { type: "string", default: "fp32" },
+    "rerank-depth": { type: "string" },
     expand: { type: "boolean", default: false },
     "aggregate-top-k": { type: "string" },
     "chain-of-note": { type: "boolean", default: false },
@@ -103,7 +105,9 @@ const topK = int("top-k", 1);
 const concurrency = int("concurrency", 1);
 const freshness = Number(args.freshness);
 if (!Number.isFinite(freshness) || freshness < 0) fail(`--freshness must be a number >= 0 (got ${args.freshness})`);
-const embedder = args.retrieval === "hybrid" ? cachingEmbedder(new lib.LocalEmbedder()) : undefined;
+// Memory building embeds through a memo (histories share most of their messages); the question never does.
+const queryEmbedder = args.retrieval === "hybrid" ? new lib.LocalEmbedder() : undefined;
+const embedder = queryEmbedder ? cachingEmbedder(queryEmbedder) : undefined;
 if (embedder) {
   try {
     await embedder.embed(["warm-up"]);
@@ -122,6 +126,8 @@ if (reranker) {
 }
 const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top-k", 1) : null;
 const recallPool = int("recall-pool", 1);
+const rerankDepth = args["rerank-depth"] !== undefined ? int("rerank-depth", 1) : null;
+if (rerankDepth !== null && !reranker) fail("--rerank-depth needs --rerank.");
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
@@ -141,8 +147,8 @@ const settings = {
   ingestion: "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
-  recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""} })${reranker ? ", reranked by the cross-encoder" : ""}, hits grouped into rounds (a user turn and the turn after it)`,
-  reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: `all recalled (${recallPool})` } : null,
+  recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""} })${reranker ? `, reranked by the cross-encoder${rerankDepth !== null ? ` (its best ${rerankDepth} candidates)` : ""}` : ""}, hits grouped into rounds (a user turn and the turn after it)`,
+  reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: rerankDepth !== null ? `the best ${rerankDepth} of ${recallPool} recalled` : `all recalled (${recallPool})` } : null,
   expand: args.expand,
   freshness,
   topK,
@@ -151,6 +157,7 @@ const settings = {
   chainOfNote: args["chain-of-note"],
   historyFormat: "json",
   concurrency,
+  recallTiming: "per question, the wall-clock and CPU time of the HybridRetriever.recall call alone (query embedding, keyword and vector search, fusion and any reranking; not building the memory, grouping into rounds, answering or judging), with no other question's memory building or recall running in this process",
 };
 const answererInfo = answerer ? { ...answerer.describe(), ...(answerer.kind === "claude-cli" ? { cliVersion: claudeVersion } : {}) } : null;
 const judgeInfo = judge ? { ...judge.describe(), ...(judge.kind === "claude-cli" ? { cliVersion: claudeVersion } : {}) } : null;
@@ -171,7 +178,7 @@ if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== ""
 }
 const todo = instances.filter((x) => !done.has(x.question_id));
 
-const options = [reranker && `rerank ${reranker.model}`, args.expand && "expand", aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
+const options = [reranker && `rerank ${reranker.model} ${reranker.dtype}${rerankDepth !== null ? ` top ${rerankDepth}` : ""}`, args.expand && "expand", aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
 console.log(
   `LongMemEval_${args.variant}: ${instances.length} questions (${done.size} already done), retrieval ${args.retrieval}, top ${topK} rounds, reading ${args.reading}${options.length ? ` (${options.join(", ")})` : ""}, ` +
     `answerer ${answererInfo ? `${answererInfo.kind} ${answererInfo.requestedModel ?? answererInfo.command}` : "none"}, judge ${judgeInfo ? `${judgeInfo.kind} ${judgeInfo.requestedModel ?? judgeInfo.command}` : "none"}` +
@@ -182,19 +189,20 @@ if (!pinned) console.log(`WARNING: ${dataPath} is not verified against dataset.j
 // --- the run ------------------------------------------------------------------
 let finished = done.size;
 const started = Date.now();
+const loadAtStart = loadavg().map((x) => Math.round(x * 100) / 100);
 const onRow = (row) => {
   appendFileSync(progressPath, `${JSON.stringify(row)}\n`);
   finished += 1;
   const t = row.retrieval?.metrics?.session?.["recall_any@10"];
   const verdict = row.error ? `ERROR ${row.error}` : typeof row.label === "boolean" ? (row.label ? "correct" : "wrong") : row.hypothesis ? "answered" : "retrieved";
-  console.log(`[${finished}/${instances.length}] ${row.question_id} ${row.question_type}${t === undefined ? "" : ` session recall@10=${t}`} ${verdict}${row.ms ? ` (${(row.ms / 1000).toFixed(1)}s)` : ""}`);
+  console.log(`[${finished}/${instances.length}] ${row.question_id} ${row.question_type}${t === undefined ? "" : ` session recall@10=${t}`}${row.recall ? ` recall ${Math.round(row.recall.ms)}ms` : ""} ${verdict}${row.ms ? ` (${(row.ms / 1000).toFixed(1)}s)` : ""}`);
 };
 let stopped = null;
 try {
   await runInstances(
     lib,
     todo,
-    { embedder, reranker, topK, aggregateTopK, freshness, expand: args.expand, recallPool, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
+    { embedder, queryEmbedder, reranker, rerankDepth, topK, aggregateTopK, freshness, expand: args.expand, recallPool, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
     { concurrency, onRow },
   );
 } catch (e) {
@@ -229,6 +237,8 @@ writeJson(out, {
       : "Not judged. `hypothesesFile` is in the official format for evaluate_qa.py.",
   },
   settings,
+  // What the recall times were measured on: the load average is over the whole machine, not this run.
+  machine: { cpu: cpus()[0]?.model ?? null, cores: cpus().length, memoryGb: Math.round(totalmem() / 2 ** 30), loadAverage: { atStart: loadAtStart, atEnd: loadavg().map((x) => Math.round(x * 100) / 100) } },
   answerer: answererInfo,
   judge: judgeInfo,
   wallClockSeconds: Math.round((Date.now() - started) / 1000),
@@ -255,6 +265,13 @@ if (summary.qa.questions) {
 }
 const s = summary.retrieval.session;
 console.log(`Retrieval (${summary.retrieval.questions} question${summary.retrieval.questions === 1 ? "" : "s"}): session recall_any@5 ${pct(s["recall_any@5"])}, @10 ${pct(s["recall_any@10"])}; recall_all@10 ${pct(s["recall_all@10"])}; ndcg_any@10 ${pct(s["ndcg_any@10"])}`);
+const rt = summary.recall;
+if (rt) {
+  console.log(
+    `Recall time (the recall call alone, ${rt.n} questions): p50 ${rt.ms.p50} ms, p95 ${rt.ms.p95} ms, max ${rt.ms.max} ms; CPU p50 ${rt.cpuMs.p50} ms, p95 ${rt.cpuMs.p95} ms` +
+      `${rt.load1 ? `; machine load (1 min) ${rt.load1.mean} on average, ${rt.load1.max} at most, on ${cpus().length} cores` : ""}`,
+  );
+}
 const shown = summary.retrieval.shown;
 if (shown) {
   console.log(`Shown to the reader (not an official metric): every evidence turn in ${pct(shown.allEvidence)} of questions, ${pct(shown.evidenceFound)} of evidence turns, ${shown.meanRounds} rounds on average`);

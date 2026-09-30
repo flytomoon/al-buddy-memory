@@ -126,6 +126,34 @@ export function summarizeRetrieval(rows) {
   return { questions: counted.length, skipped, ...averages, shown: { ...shownSummary(withShown), byType } };
 }
 
+/** The nearest-rank percentile: the smallest value at least `p` of `xs` are at or below. */
+export function percentile(xs, p) {
+  if (xs.length === 0) return null;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+}
+
+const round1 = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
+
+/**
+ * Not an official metric: how long recall took, per question, as every row
+ * records it (`recall.ms` by the wall clock, `recall.cpuMs` in CPU time, and
+ * `recall.load1`, the machine's 1-minute load average then). Rows from before
+ * recall was timed have none, and give `null`.
+ */
+export function summarizeRecallTime(rows) {
+  const timed = rows.filter((r) => typeof r.recall?.ms === "number");
+  if (timed.length === 0) return null;
+  const stats = (xs) => ({ p50: round1(percentile(xs, 0.5)), p95: round1(percentile(xs, 0.95)), max: round1(Math.max(...xs)), mean: round1(mean(xs)) });
+  const loads = timed.map((r) => r.recall.load1).filter((x) => typeof x === "number");
+  return {
+    n: timed.length,
+    ms: stats(timed.map((r) => r.recall.ms)),
+    cpuMs: stats(timed.map((r) => r.recall.cpuMs)),
+    load1: loads.length ? { mean: round1(mean(loads)), max: round1(Math.max(...loads)) } : null,
+  };
+}
+
 /**
  * The QA numbers the official metrics script prints. `rows` are
  * `{ question_id, question_type, label }` with `label` true or false; rows with
