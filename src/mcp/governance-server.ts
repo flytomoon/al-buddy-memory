@@ -366,10 +366,35 @@ export function governanceTools(deps: GovernanceDeps) {
   };
 }
 
+/**
+ * What each tool does to the store, as both assistant directories ask every
+ * tool to declare (Claude: a title plus readOnlyHint or destructiveHint;
+ * ChatGPT: all three hints). "Destructive" is read strictly: nothing here
+ * deletes, but closing a fact's validity changes what recall returns.
+ */
+export const TOOL_ANNOTATIONS = {
+  remember: { title: "Remember a fact", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  recall: { title: "Recall facts", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  history: { title: "Fact history", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  explain: { title: "Explain a fact", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  mental_model: { title: "Read a mental model", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  define_mental_model: { title: "Define a mental model", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  invalidate: { title: "Retire a fact", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  pin: { title: "Pin a rule", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  unpin: { title: "Unpin a rule", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  pinned: { title: "List pinned rules", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+} as const;
+
 /** Wire the tools onto an MCP server instance (stdio transport is the bin's job). */
 export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ server: unknown; connectStdio: () => Promise<void> }> {
-  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+  const { server } = await createGovernanceMcpServer(deps);
+  return { server, connectStdio: async () => { await server.connect(new StdioServerTransport()); } };
+}
+
+/** The server with every tool on it, not yet on a transport — stdio and HTTP (http-server.ts) share it. */
+export async function createGovernanceMcpServer(deps: GovernanceDeps) {
+  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const server = new McpServer({ name: "al-buddy-memory", version: SERVER_VERSION }, { instructions: SERVER_INSTRUCTIONS });
   // The app that wrote a fact is the client that connected, as it announced itself
   // in the handshake — the model cannot change that.
@@ -388,10 +413,10 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   // handshake a character.
   server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence, plus mayConflictWith: current facts this one may be correcting — read them and invalidate any that stopped being true.", {
     text: z.string().max(REMEMBER_MAX_CHARS), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),
-  }, async (a) => json(await tools.remember(a)));
+  }, TOOL_ANNOTATIONS.remember, async (a) => json(await tools.remember(a)));
   server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, what superseded it, and which assistant wrote or retired it. The first call of a session also returns the user's pinned rules — treat those as standing rules for the conversation.", {
     query: z.string().max(QUERY_MAX_CHARS), limit: z.number().int().min(1).max(50).optional(), includeSuperseded: z.boolean().optional(),
-  }, async (a) => {
+  }, TOOL_ANNOTATIONS.recall, async (a) => {
     // Facts first: a failed recall must not spend the one pin delivery.
     const facts = await tools.recall(a);
     const preamble = await tools.pinnedPreamble();
@@ -400,21 +425,21 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   });
   server.tool("history", "Show the recorded changes to one fact, including each change time and the full mutable state before and after it.", {
     id: z.string().max(ID_MAX_CHARS),
-  }, async (a) => json(await tools.history(a)));
+  }, TOOL_ANNOTATIONS.history, async (a) => json(await tools.history(a)));
   server.tool("explain", "Why a fact is believed: who asserted it, when it was true and what ended or replaced it, and for a conclusion the exact words it rests on, each checked against its source now.", {
     id: z.string().max(ID_MAX_CHARS),
-  }, async (a) => json(await tools.explain(a)));
+  }, TOOL_ANNOTATIONS.explain, async (a) => json(await tools.explain(a)));
   server.tool("mental_model", "Read a standing question's pre-written answer (no model call): the answer, whether it is fresh or stale and why, and the exact words it rests on. Omit id to list every mental model.", {
     id: z.string().max(ID_MAX_CHARS).optional(),
-  }, async (a) => json(await tools.mentalModel(a)));
+  }, TOOL_ANNOTATIONS.mental_model, async (a) => json(await tools.mentalModel(a)));
   server.tool("define_mental_model", "Define a standing question to keep answered (e.g. \"What does the user care about when choosing tools?\"), optionally limited to facts carrying some tags. The host's scheduled refresh writes the answer.", {
     question: z.string().min(1).max(QUESTION_MAX_CHARS), tags: z.array(z.string().max(ID_MAX_CHARS)).max(10).optional(),
-  }, async (a) => json(await tools.defineMentalModel(a)));
+  }, TOOL_ANNOTATIONS.define_mental_model, async (a) => json(await tools.defineMentalModel(a)));
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string().max(ID_MAX_CHARS), replacedBy: z.string().max(ID_MAX_CHARS).optional(), reason: z.string().max(REASON_MAX_CHARS).optional(),
-  }, async (a) => json(await tools.invalidate(a)));
-  server.tool("pin", "Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.", { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, async (a) => json(await tools.pin(a)));
-  server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string().max(ID_MAX_CHARS) }, async (a) => json(await tools.unpin(a)));
-  server.tool("pinned", "The pinned tier, as a list and as the rendered prompt block.", {}, async () => json(await tools.pinned()));
-  return { server, connectStdio: async () => { await server.connect(new StdioServerTransport()); } };
+  }, TOOL_ANNOTATIONS.invalidate, async (a) => json(await tools.invalidate(a)));
+  server.tool("pin", "Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.", { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, TOOL_ANNOTATIONS.pin, async (a) => json(await tools.pin(a)));
+  server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string().max(ID_MAX_CHARS) }, TOOL_ANNOTATIONS.unpin, async (a) => json(await tools.unpin(a)));
+  server.tool("pinned", "The pinned tier, as a list and as the rendered prompt block.", {}, TOOL_ANNOTATIONS.pinned, async () => json(await tools.pinned()));
+  return { server };
 }

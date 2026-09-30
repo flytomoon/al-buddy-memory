@@ -427,6 +427,25 @@ caller can see. SQLite on disk, no service, no key. The tool bodies are
 a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
 `al-buddy-memory/mcp`), so they run against any backend and test without a transport.
 
+### As a remote connector in Claude and ChatGPT
+
+`al-buddy-memory-http` serves the same tools over Streamable HTTP for one owner, signed in
+with OAuth 2.1 (PKCE S256, dynamic client registration, rotating refresh tokens). Each tool
+declares `title`, `readOnlyHint`, `destructiveHint` and `openWorldHint`, the annotations both
+assistant directories ask for. It listens on 127.0.0.1; put a tunnel in front (e.g.
+`tailscale funnel --bg --https=8443 http://127.0.0.1:8787`) and give the apps its URL:
+
+```sh
+echo 'a long passphrase' | al-buddy-memory-http --set-passphrase   # stores a scrypt hash, 0600
+AL_BUDDY_MEMORY_PUBLIC_URL=https://you.example.ts.net:8443 al-buddy-memory-http
+```
+
+In Claude: *Customize → Connectors → Add custom connector*, URL `https://…:8443/mcp`. In
+ChatGPT: *Settings → Security and login → Developer mode*, then add the same URL. Each app
+opens a consent page once; the passphrase allows it. Only hashes of codes and tokens are
+kept on disk, and five wrong passphrases lock the page for 15 minutes. Facts an app writes
+carry its name in the audit trail, as over stdio.
+
 ## Roadmap
 
 - [x] The spec and the portable format, published and versioned (this repo)
