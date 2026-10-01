@@ -13,6 +13,13 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **Remote connector.** `al-buddy-memory-http` serves the governance server's tools over
+  Streamable HTTP for one owner, so Claude and ChatGPT can reach the same memory as a remote
+  connector. Sign-in is OAuth 2.1 through the MCP SDK's own handlers (discovery, dynamic client
+  registration, authorize, token, revoke) behind a passphrase consent page; only hashes of codes
+  and tokens are stored, refresh tokens rotate, and five wrong passphrases lock the page.
+- Every governance tool now declares `title`, `readOnlyHint`, `destructiveHint` and
+  `openWorldHint`, as both assistant directories require.
 - **Reranking.** `new HybridRetriever(store, embedder, { reranker })` rereads the question with each
   fused candidate through a cross-encoder and returns them in its order; `rerank: false` skips it
   for one recall, `rerankDepth` bounds how many it reads (default the larger of the limit and 50).
