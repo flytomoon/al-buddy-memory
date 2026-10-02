@@ -117,6 +117,8 @@ describe("LongMemEval recall — memories back to the rounds the official reader
   });
 });
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const reader = (text: string, prompts: string[] = []) => ({
   kind: "fake",
   describe: () => ({ kind: "fake" }),
@@ -236,6 +238,38 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(prompts[1]).toMatch(/Answer \(step by step\):$/);
     // The row records how much of the evidence the reader saw.
     expect(counting.retrieval.shown).toMatchObject({ rounds: counting.shownRounds.length, evidence: 2 });
+  });
+
+  it("times the recall call alone: a slow reranker shows in it, a slow reader does not", async () => {
+    const slowReranker = { model: "slow", score: async (_q: string, ps: string[]) => (await sleep(60), ps.map(() => 0)) };
+    const slowReader = { ...reader("Berlin"), complete: async (p: string) => (await sleep(300), reader("Berlin").complete(p)) };
+    const row = await evaluateInstance(lib, instance(), { reranker: slowReranker, answerer: slowReader });
+    expect(row.recall.ms).toBeGreaterThanOrEqual(55);
+    expect(row.recall.cpuMs).toBeGreaterThanOrEqual(0);
+    expect(typeof row.recall.load1).toBe("number");
+    expect(row.ms - row.recall.ms).toBeGreaterThanOrEqual(290);
+    expect(summarize([row]).recall).toMatchObject({ n: 1, ms: { p50: row.recall.ms, p95: row.recall.ms } });
+  });
+
+  it("a run builds memories and recalls one question at a time, while readers still overlap", async () => {
+    const inside = { now: 0, most: 0 };
+    const reading = { now: 0, most: 0 };
+    const enter = (c: { now: number; most: number }) => ((c.now += 1), (c.most = Math.max(c.most, c.now)));
+    const countingReranker = { model: "counting", score: async (_q: string, ps: string[]) => (enter(inside), await sleep(20), (inside.now -= 1), ps.map(() => 0)) };
+    const countingReader = { ...reader("x"), complete: async (p: string) => (enter(reading), await sleep(40), (reading.now -= 1), reader("x").complete(p)) };
+    const rows = await runInstances(lib, ["a", "b", "c", "d"].map((id) => instance({ question_id: id })), { reranker: countingReranker, answerer: countingReader }, { concurrency: 4 });
+    expect(rows).toHaveLength(4);
+    expect(inside.most).toBe(1);
+    expect(reading.most).toBeGreaterThan(1);
+  });
+
+  it("--rerank-depth: the reranker reads only the best candidates", async () => {
+    const read: number[] = [];
+    const recording = { model: "rec", score: async (_q: string, ps: string[]) => (read.push(ps.length), ps.map(() => 0)) };
+    const all = await evaluateInstance(lib, instance(), { reranker: recording });
+    expect(read[0]).toBe(all.memoriesRecalled);
+    await evaluateInstance(lib, instance(), { reranker: recording, rerankDepth: 1 });
+    expect(read[1]).toBe(1);
   });
 
   it("sums the CLI's usage and notional cost, and counts every model id that answered", () => {
