@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { checkInstance, corpusOf, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
-import { dcg, evaluateRetrieval, evaluateRetrievalTurn2Session, ndcg, retrievalMetrics, shownEvidence, summarizeQa, summarizeRetrieval } from "./metrics.mjs";
+import { dcg, evaluateRetrieval, evaluateRetrievalTurn2Session, ndcg, percentile, retrievalMetrics, shownEvidence, summarizeQa, summarizeRecallTime, summarizeRetrieval } from "./metrics.mjs";
 import { ANSWER_TEMPLATES, CHAIN_OF_NOTE_TEMPLATE, answerPrompt, formatHistory, judgeLabel, judgePrompt, pythonJsonDumps } from "./prompts.mjs";
 import { digest, pairwise, report } from "./compare.mjs";
 import { instance } from "./fixture.js";
@@ -170,9 +170,28 @@ describe("compare.mjs — an A/B, question by question", () => {
       fixed: 2,
       broken: 1,
       byType: { "multi-session": { fixed: 1, broken: 1, n: 2 }, "knowledge-update": { fixed: 1, broken: 0, n: 1 } },
+      sameShown: 0,
+      bothShown: 0,
     });
     const text = report([base, option]);
     expect(text).toContain("option vs base: fixed 2, broke 1, net +1 of 3  [only 3 questions judged in both]");
+    expect(text).toMatch(/recall p50 +— +—/);
+  });
+
+  it("counts the questions whose reader saw the same rounds, in any order, and puts recall times side by side", () => {
+    const run = (shown: Record<string, string[]>, ms: number) => ({
+      judge: null,
+      settings: {},
+      questions: Object.entries(shown).map(([id, shownRounds]) => ({ question_id: id, question_type: "multi-session", shownRounds })),
+      summary: { qa: summarizeQa([]), retrieval: {}, recall: summarizeRecallTime([{ recall: { ms, cpuMs: ms * 2, load1: 3 } }]) },
+    });
+    const base = digest(run({ a: ["s1_1", "s2_1"], b: ["s1_1"], c: ["s3_1"] }, 40), "base");
+    const other = digest(run({ a: ["s2_1", "s1_1"], b: ["s9_1"], d: ["s3_1"] }, 250), "other");
+    expect(pairwise(base, other)).toMatchObject({ sameShown: 1, bothShown: 2 });
+    const text = report([base, other]);
+    expect(text).toContain("the reader was shown the same rounds in 1 of 2 questions");
+    expect(text).toMatch(/recall p50 +40 ms +250 ms/);
+    expect(text).toMatch(/CPU p50 \/ p95 +80 \/ 80 +500 \/ 500/);
   });
 
   it("says so when the judges differ", () => {
@@ -197,6 +216,18 @@ describe("LongMemEval QA metrics — print_qa_metrics.py, ported", () => {
     expect(s.byType["multi-session"]).toEqual({ accuracy: 0.3333, n: 3 });
     expect(s.abstention).toEqual({ accuracy: 1, n: 1 });
     expect(s.typesMissing).toContain("temporal-reasoning");
+  });
+});
+
+describe("Recall time — not an official metric", () => {
+  it("nearest-rank percentiles of the recall call's wall-clock and CPU time, and the load it ran under", () => {
+    expect(percentile([], 0.5)).toBeNull();
+    expect(percentile([7], 0.95)).toBe(7);
+    const rows = Array.from({ length: 20 }, (_, i) => ({ recall: { ms: 20 - i, cpuMs: (20 - i) * 3, load1: i % 2 ? 4 : 2 } }));
+    const s = summarizeRecallTime([...rows, { question_id: "untimed" }]);
+    expect(s).toEqual({ n: 20, ms: { p50: 10, p95: 19, max: 20, mean: 10.5 }, cpuMs: { p50: 30, p95: 57, max: 60, mean: 31.5 }, load1: { mean: 3, max: 4 } });
+    // A result from before recall was timed has nothing to summarise.
+    expect(summarizeRecallTime([{ question_id: "old" }])).toBeNull();
   });
 });
 
