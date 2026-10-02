@@ -31,3 +31,12 @@ Sonnet answering and judging. The second drops `--rerank minilm`.
 
 Without the reranker the overall score holds and recall stays far inside a 300 ms budget; the one
 type that loses ground is multi-session (−3.0 points).
+
+### Re-graded with the official judge (2026-10-02)
+
+The no-reranker run's answers (`2026-09-30-lme-full-fast.hypotheses.jsonl`) re-graded by the official
+LongMemEval judge — gpt-4o-2024-08-06 over the OpenAI API, the official prompts, temperature 0,
+max_tokens 10 (`bench/longmemeval/regrade-openai.mjs`): **92.8% overall, 94.4% task-averaged**
+(single-session-user 98.6%, single-session-assistant 96.4%, single-session-preference 96.6%,
+multi-session 83.5%, temporal-reasoning 94.0%, knowledge-update 97.4%). Labels are in
+`2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.jsonl`. Cost: about $0.55.

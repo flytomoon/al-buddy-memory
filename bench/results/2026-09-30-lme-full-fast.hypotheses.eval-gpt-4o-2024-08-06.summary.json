@@ -1,0 +1,33 @@
+{
+  "model": "gpt-4o-2024-08-06",
+  "judgedWith": "OpenAI API, official LongMemEval judge prompts, temperature 0, max_tokens 10",
+  "n": 500,
+  "overall": 0.928,
+  "taskAveraged": 0.9442436218752008,
+  "byType": {
+    "single-session-user": {
+      "correct": 69,
+      "n": 70
+    },
+    "multi-session": {
+      "correct": 111,
+      "n": 133
+    },
+    "single-session-preference": {
+      "correct": 29,
+      "n": 30
+    },
+    "temporal-reasoning": {
+      "correct": 125,
+      "n": 133
+    },
+    "knowledge-update": {
+      "correct": 76,
+      "n": 78
+    },
+    "single-session-assistant": {
+      "correct": 54,
+      "n": 56
+    }
+  }
+}
