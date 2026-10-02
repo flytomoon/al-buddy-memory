@@ -20,6 +20,7 @@ earlier were GitHub releases only.
   reranks only the best N candidates. `recall-sweep.mjs` times several reranker settings over one
   memory build per question, with no model calls, and says what each would show the reader.
   `compare.mjs` shows recall times and counts the questions whose reader saw the same rounds.
+- `bench/longmemeval/regrade-openai.mjs`: re-grades with the official gpt-4o judge; the official judge prompts now live in `judge-prompts.mjs`, shared with the Codex re-grade.
 - Benchmark results: the full 500-question LongMemEval run without the reranker (92.6% overall, recall p50 11.7 ms / p95 33.5 ms), side by side with the all-levers run, in `bench/results/`.
 
 ## 0.9.0 — 2026-10-01

@@ -320,7 +320,9 @@ settings in [bench/results/](bench/results/):
   official format for anyone to re-judge. `node bench/longmemeval/run.mjs --limit 50` is a smoke run.
   Latest full run (2026-09-30, all 500 questions, no reranker): **92.6% overall, 94.4% task-averaged**,
   with the recall call itself at **11.7 ms p50 / 33.5 ms p95** on a laptop — side by side with the
-  all-levers run in [bench/results/README.md](bench/results/README.md). Claude judge, not the official gpt-4o.
+  all-levers run in [bench/results/README.md](bench/results/README.md). Re-graded with the **official judge
+  (gpt-4o-2024-08-06, the official prompts, temperature 0): 92.8% overall, 94.4% task-averaged** — the
+  number to compare with other systems; the Claude judge gave 92.6% / 94.4%.
 - **[Stale facts](bench/README.md#stale-facts)**, our own: things about a person that change over
   time, told to the same store three ways — append-only, append-only recalled with freshness, and
   through `recordState`, where a newer state closes the old one. It asks whether recall returns the
