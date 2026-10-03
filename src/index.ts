@@ -16,6 +16,7 @@ export type { CaptureInput, ProjectMemoryOptions } from "./project-memory.js";
 export { renderMemoryBlock } from "./memory-block.js";
 export { exportMemoryMarkdown } from "./memory-export.js";
 export { FakeEmbedder, LocalEmbedder, cosineSimilarity } from "./embedder.js";
+export { WorkerEmbedder, type WorkerEmbedderOptions } from "./worker-embedder.js";
 export type { Embedder } from "./embedder.js";
 export { HybridRetriever, indexMissingEmbeddings, expandedQueries } from "./hybrid-retriever.js";
 export { matchesFilter } from "./query-filter.js";

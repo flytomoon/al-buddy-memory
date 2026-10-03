@@ -1,6 +1,7 @@
 ---
 name: recall
 description: Search the user's long-term memory before answering anything about past work, earlier decisions, preferences, people, or project history — "what did we decide", "how did I set this up", "do you remember", or any question whose answer may be in a previous session.
+argument-hint: <question>
 ---
 
 # Recall before you answer
@@ -16,3 +17,5 @@ The `memory` server's `recall` tool searches facts the user (or an assistant) st
 4. If nothing relevant comes back, say that memory has nothing on it. Do not invent a past decision.
 
 The first `recall` of a session also returns the user's pinned rules. Treat them as standing instructions for the conversation.
+
+When the user runs `/al-buddy:recall <question>`, the question arrives as ARGUMENTS: recall for it and answer from what comes back, saying where each answer came from and since when. If memory has nothing, say so.

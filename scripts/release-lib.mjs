@@ -94,7 +94,15 @@ export function movePin(readme, version) {
  * They move WITH the README pin, after npm serves the version — a plugin that
  * launches a version npm does not have is a plugin that does not start.
  */
-export const PLUGIN_PIN_FILES = ["plugin/.mcp.json", "plugin/hooks/hooks.json", "plugin/README.md", "plugin/.claude-plugin/plugin.json"];
+export const PLUGIN_PIN_FILES = [
+  "plugin/.mcp.json",
+  "plugin/hooks/hooks.json",
+  "plugin/README.md",
+  "plugin/.claude-plugin/plugin.json",
+  "plugin/commands/status.md",
+  "plugin/commands/export.md",
+  "plugin/commands/import.md",
+];
 
 /** One plugin file with its package pins (and, in plugin.json, its `version`) moved to `version`. */
 export function movePluginPin(text, version) {

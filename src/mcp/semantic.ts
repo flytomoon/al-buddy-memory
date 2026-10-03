@@ -23,6 +23,8 @@ import type { MemoryStore } from "../types/memory.js";
 
 /** How many facts one start embeds in the background; the rest wait for the next start. */
 export const DEFAULT_INDEX_LIMIT = 5_000;
+/** Facts per embedding call in the background pass; writes between calls are time-sliced. */
+const INDEX_BATCH = 16;
 
 export type SemanticStatus =
   | { state: "loading" }
@@ -40,7 +42,7 @@ export interface SemanticRecall {
 }
 
 export interface SemanticOptions {
-  /** Builds the embedder (default: the on-device LocalEmbedder, its model kept in `modelCacheDir`). */
+  /** Builds the embedder (default: the on-device model in a worker thread — WorkerEmbedder — kept in `modelCacheDir`). */
   load?: () => Promise<Embedder> | Embedder;
   /** Where the default embedder keeps its downloaded model (default: transformers.js's own cache). */
   modelCacheDir?: string;
@@ -75,7 +77,10 @@ export function startSemanticRecall(opts: SemanticOptions = {}): SemanticRecall 
     if (opts.disabledBy) return off(opts.disabledBy);
     let candidate: Embedder;
     try {
-      candidate = opts.load ? await opts.load() : new (await import("../embedder.js")).LocalEmbedder(opts.modelCacheDir ? { cacheDir: opts.modelCacheDir } : {});
+      // The default runs the model in a worker thread: loading it and embedding
+      // with it are synchronous native work that would otherwise stall every
+      // request the server is answering (2026-10-03: seconds, on the connector).
+      candidate = opts.load ? await opts.load() : new (await import("../worker-embedder.js")).WorkerEmbedder(opts.modelCacheDir ? { cacheDir: opts.modelCacheDir } : {});
       // The probe is what proves the optional dependency, the native runtime and
       // the model are all there — constructing the embedder proves none of them.
       const [probe] = await candidate.embed(["al-buddy-memory warm-up"]);
@@ -90,7 +95,7 @@ export function startSemanticRecall(opts: SemanticOptions = {}): SemanticRecall 
     const limit = opts.indexLimit ?? DEFAULT_INDEX_LIMIT;
     if (opts.indexStore && limit > 0) {
       try {
-        const indexed = await indexMissingEmbeddings(opts.indexStore, candidate, 32, { limit });
+        const indexed = await indexMissingEmbeddings(opts.indexStore, candidate, INDEX_BATCH, { limit });
         const now = status as SemanticStatus;
         if (now.state === "ready") status = { ...now, indexed };
         if (indexed > 0) log(`al-buddy-memory: embedded ${indexed} fact(s) for semantic recall${indexed >= limit ? ` (the next start continues past ${limit})` : ""}.`);

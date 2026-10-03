@@ -33,6 +33,40 @@ describe("indexMissingEmbeddings — a bounded pass", () => {
     expect(await indexMissingEmbeddings(store, e, 2, { limit: 3 })).toBe(0);
   });
 
+  it("gives the event loop back while it works, so a server keeps answering (2026-10-03)", async () => {
+    const store = new InMemoryStore();
+    for (let i = 0; i < 40; i += 1) await store.addNode(fact(`fact ${i}`));
+    // Everything here resolves as microtasks: without an explicit yield the whole
+    // pass would finish before a single macrotask (a request) got to run.
+    let ticks = 0;
+    let done = false;
+    const tick = () => {
+      ticks += 1;
+      if (!done) setImmediate(tick);
+    };
+    setImmediate(tick);
+    const indexed = await indexMissingEmbeddings(store, new FakeEmbedder("f", 2, vec), 4);
+    done = true;
+    expect(indexed).toBe(40);
+    expect(ticks).toBeGreaterThanOrEqual(10); // at least once per batch
+  });
+
+  it("slices a long run of writes by time, not only between batches", async () => {
+    const store = new InMemoryStore();
+    for (let i = 0; i < 30; i += 1) await store.addNode(fact(`fact ${i}`));
+    let ticks = 0;
+    let done = false;
+    const tick = () => {
+      ticks += 1;
+      if (!done) setImmediate(tick);
+    };
+    setImmediate(tick);
+    // One batch of 30, a zero budget: every write is its own slice.
+    await indexMissingEmbeddings(store, new FakeEmbedder("f", 2, vec), 30, { sliceMs: 0 });
+    done = true;
+    expect(ticks).toBeGreaterThanOrEqual(30);
+  });
+
   it("refuses a negative limit", async () => {
     await expect(indexMissingEmbeddings(new InMemoryStore(), new FakeEmbedder("f", 2, vec), 2, { limit: -1 })).rejects.toThrow(/limit/);
   });

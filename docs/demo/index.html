@@ -82,7 +82,7 @@
 </head>
 <body>
 <header><div class="wrap bar"><img src="al-icon.png" alt=""><b>Al Buddy</b>
-  <nav><a href="#iphone">iPhone</a><a href="#memory">Memory</a><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
+  <nav><a href="#iphone">iPhone</a><a href="claude.html">Claude</a><a href="#memory">Memory</a><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
 <main class="wrap">
   <section class="hero" id="iphone">
@@ -97,6 +97,14 @@
     </form>
     <p id="signup-status" role="status"></p>
     <a class="more" href="#memory">The memory underneath is open source ↓</a>
+  </section>
+
+  <section class="block" id="claude">
+    <h2>Use Claude? Never lose your work with it.</h2>
+    <p class="sub">All your work with Claude is never lost — you have it forever and you can bring it anywhere. The Al Buddy plugin gives Claude Code a long-term memory in one file on your machine, with commands to recall, remember, forget and export. Nothing is sent anywhere.</p>
+    <div class="cta" style="justify-content:flex-start"><a class="btn primary" href="claude.html">See how it works</a><a class="btn" href="claude.html#install">Install the plugin</a></div>
+    <pre style="margin-top:16px"><code>/plugin marketplace add flytomoon/al-buddy-memory
+/plugin install al-buddy@al-buddy</code></pre>
   </section>
 
   <section class="block" id="memory">
@@ -202,7 +210,8 @@
     <div class="grid">
       <div class="card"><h3>Score an export from the terminal</h3><pre><code>npx al-buddy-memory conformance my-export.json</code></pre></div>
       <div class="card"><h3>Give your agent a memory it can weigh</h3><p style="margin-bottom:8px">An MCP server whose every recall returns provenance and validity:</p><pre><code>{ "mcpServers": { "memory": {
-    "command": "npx", "args": ["al-buddy-memory-mcp"] } } }</code></pre></div>
+    "command": "npx", "args": ["-y", "al-buddy-memory", "mcp"] } } }</code></pre></div>
+      <div class="card"><h3>Claude Code, Codex, ChatGPT desktop</h3><p>A plugin for Claude Code, and the same memory in Codex and the ChatGPT desktop app. <a href="claude.html#install">Install guide.</a></p></div>
       <div class="card"><h3>Build on the library</h3><pre><code>npm install al-buddy-memory</code></pre><p style="margin-top:8px">TypeScript, SQLite, governance hooks, the portable format. <a href="https://github.com/flytomoon/al-buddy-memory#readme">Docs on GitHub.</a></p></div>
     </div>
   </section>
