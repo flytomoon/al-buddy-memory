@@ -1,9 +1,10 @@
 # Listing submissions — drafts, not submitted
 
 Where each framework lists third-party integrations, what its process asks for,
-and the exact text to paste. Nothing here has been submitted. All three need the
-integrations published on npm first (they ship in 0.7.0), and each links to the
-docs page in this folder.
+and the exact text to paste. Nothing here has been submitted. The three framework
+listings need the integrations published on npm first (they ship in 0.7.0), and each
+links to the docs page in this folder. The MCP Registry (section 4) needs the next
+release on npm.
 
 Docs URLs used below:
 
@@ -148,3 +149,51 @@ description: 'Use al-buddy-memory with Mastra to give agents governed long-term 
 
 # al-buddy-memory
 ```
+
+---
+
+## 4. MCP Registry — `io.github.flytomoon/al-buddy-memory`
+
+**Where:** the official [MCP Registry](https://registry.modelcontextprotocol.io), which
+directories and clients read servers from. Not listed as of 2026-10-02. Published with
+the registry's own CLI, `mcp-publisher`, from `server.json` at the repo root; no PR, no form.
+
+**How it checks ownership:** the name's `io.github.flytomoon/` prefix is proved by
+logging in to GitHub as `flytomoon`; the npm package is proved by `mcpName` in
+`package.json`, which the registry reads from the **published** version that
+`server.json` names. 0.9.0 was published without `mcpName`, so the first version
+that can be listed is the next release. `npm run release` moves `server.json` to
+that version along with `package.json`.
+
+**What it runs:** `npx -y al-buddy-memory@X.Y.Z mcp` — the `mcp` subcommand exists
+from the next release on, because npx runs the bin named like the package (the CLI),
+not `al-buddy-memory-mcp`. The four `AL_BUDDY_MEMORY_*` variables the server reads are
+declared, the audit key as a secret.
+
+**Steps, after the next release is approved on npm** (the login is the one step that needs a person):
+
+1. Confirm npm serves the new version with `mcpName`:
+   `npm view al-buddy-memory@X.Y.Z mcpName` → `io.github.flytomoon/al-buddy-memory`.
+   If it prints nothing, stop: that version cannot be listed.
+2. Install the publisher, once: `brew install mcp-publisher` (or download the binary for
+   your platform from https://github.com/modelcontextprotocol/registry/releases/latest).
+   `mcp-publisher --help` should answer.
+3. From an up-to-date `main`, at the repo root (where `server.json` is):
+   `mcp-publisher login github`. It prints a URL (https://github.com/login/device) and a
+   short code. Open the URL, sign in **as flytomoon**, type the code, Authorize. The
+   terminal then says it is logged in.
+4. `mcp-publisher publish`. It reports the published name and version.
+5. Check: `curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.flytomoon/al-buddy-memory"`
+   lists it with the new version.
+
+**If publish refuses:**
+
+- *"package … is missing required 'mcpName'"* or a version mismatch: npm does not yet
+  serve the version in `server.json` (step 1).
+- *a schema error naming a newer `$schema`*: the registry moved its format. Run
+  `mcp-publisher init` in an empty temp directory to see the current `$schema` URL,
+  update `server.json`'s `$schema` (and any field the error names), commit, publish again.
+- *permission denied for the namespace*: the login was not as `flytomoon`; run
+  `mcp-publisher logout`, then step 3 again.
+
+Later releases repeat steps 1, 3 and 4 (the login token expires).

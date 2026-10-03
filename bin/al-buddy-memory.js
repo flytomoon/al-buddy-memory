@@ -24,6 +24,10 @@
 //   has one, comes from AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which
 //   lands in shell history). --head anchors ONE chain, so it names a database or a
 //   file, not a directory of files.
+// al-buddy-memory mcp
+//   the stdio MCP server, exactly as `al-buddy-memory-mcp` (same env vars). This
+//   is the form the MCP Registry listing (server.json) starts: a client runs
+//   `npx al-buddy-memory@X.Y.Z mcp`, and npx runs the bin named like the package.
 import { readFileSync } from "node:fs";
 import { InMemoryStore, exportPortable, verifyAuditLogs } from "../dist/index.js";
 import { toConformanceInput, scoreConformance, formatReport, fromPortable } from "../dist/conformance/index.js";
@@ -94,8 +98,8 @@ if (cmd === "export" || cmd === "import" || cmd === "context") {
   }
 }
 
-if (cmd !== "conformance") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]");
+if (cmd !== "conformance" && cmd !== "mcp") {
+  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory mcp");
   process.exit(2);
 }
 
@@ -111,15 +115,19 @@ async function demoInput() {
   return fromPortable(await exportPortable(new Map([["demo", store]])), { system: "al-buddy-memory (demo store)" });
 }
 
-try {
-  const input = has("--demo") ? await demoInput() : await toConformanceInput(readFileSync(args[1], "utf8"), flag("--format"));
-  const report = scoreConformance(input);
-  if (has("--json")) console.log(JSON.stringify({ ...report, notes: input.traits.notes ?? [] }, null, 2));
-  else {
-    console.log(formatReport(report));
-    if (input.traits.notes?.length) console.log("\nNotes:\n" + input.traits.notes.map((n) => `- ${n}`).join("\n"));
+if (cmd === "mcp") {
+  await import("./al-buddy-memory-mcp.js");
+} else {
+  try {
+    const input = has("--demo") ? await demoInput() : await toConformanceInput(readFileSync(args[1], "utf8"), flag("--format"));
+    const report = scoreConformance(input);
+    if (has("--json")) console.log(JSON.stringify({ ...report, notes: input.traits.notes ?? [] }, null, 2));
+    else {
+      console.log(formatReport(report));
+      if (input.traits.notes?.length) console.log("\nNotes:\n" + input.traits.notes.map((n) => `- ${n}`).join("\n"));
+    }
+  } catch (err) {
+    console.error(`conformance: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
   }
-} catch (err) {
-  console.error(`conformance: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
 }
