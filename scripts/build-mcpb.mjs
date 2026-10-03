@@ -51,7 +51,7 @@ mkdirSync(join(stage, "server"), { recursive: true });
 cpSync(join(root, "dist"), join(stage, "server", "dist"), { recursive: true, filter: (p) => !/\.(d\.ts|map)$/.test(p) });
 cpSync(join(root, "bin"), join(stage, "server", "bin"), { recursive: true });
 cpSync(join(root, "mcpb", "server", "index.js"), join(stage, "server", "index.js"));
-cpSync(join(root, "docs", "demo", "al-icon.png"), join(stage, "icon.png"));
+cpSync(join(root, "plugin", "assets", "icon-512.png"), join(stage, "icon.png"));
 cpSync(join(root, "LICENSE"), join(stage, "LICENSE"));
 const manifest = JSON.parse(readFileSync(join(root, "mcpb", "manifest.json"), "utf8"));
 manifest.version = pkg.version;
