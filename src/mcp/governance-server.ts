@@ -4,7 +4,7 @@
  * it, with every recall. 217 memory MCP servers hand agents facts; this one
  * hands them facts they can weigh.
  *
- * Tools: remember, recall, history, explain, invalidate, pin, unpin, pinned. Every answer
+ * Tools: remember, recall, history, explain, invalidate, pin, unpin, pinned, export. Every answer
  * carries provenance, validFrom, validTo, confidence, and — for a superseded
  * fact — the id of what replaced it. There is no erase tool; invalidation keeps
  * the record. The shipped server serves `serverStore(...)`, a governed handle.
@@ -14,11 +14,12 @@
  */
 import { explainFact, type Explanation } from "../explain.js";
 import { defineMentalModel, getMentalModel, listMentalModels, QUESTION_MAX_CHARS, type MentalModel } from "../mental-models.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 
 import { z } from "zod";
 import type { AuditSink } from "../governance/audit.js";
-import { govern } from "../governance/governed-store.js";
+import { exportView, govern } from "../governance/governed-store.js";
 import { looksSecret, personalDefaults } from "../governance/samples.js";
 import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.js";
 
@@ -27,6 +28,8 @@ import { PinnedBlocks } from "../pinned.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
 import { isHistoryCapable } from "../history.js";
 import type { Embedder } from "../embedder.js";
+import { expandHome } from "../home-path.js";
+import { exportPortable, type PortableExport } from "../memory-portability.js";
 import type { MemoryNode, MemoryStore } from "../types/memory.js";
 
 export interface GovernedFact {
@@ -195,13 +198,71 @@ export function serverStore(inner: MemoryStore, opts: { owner?: string; audit?: 
   });
 }
 
+/**
+ * What the server's `export` tool reads: the same owner policy and audience as
+ * `serverStore`, judged by beforeExport — so an assistant can export what it
+ * could recall and nothing more. The owner's full backup is the CLI's
+ * `al-buddy-memory export`.
+ */
+export function serverExportView(inner: MemoryStore, opts: { owner?: string; audit?: AuditSink } = {}): MemoryStore {
+  const owner = opts.owner ?? "owner";
+  return exportView(inner, {
+    policies: [personalDefaults({ owner })],
+    context: () => ({ actor: owner, audience: "mcp-client" }),
+    audit: opts.audit,
+  });
+}
+
 export interface GovernanceDeps {
   store: MemoryStore;
   /** Who is writing, asked at each write. The shipped server answers from the MCP handshake. */
   origin?: () => Origin | undefined;
-  embedder?: Embedder;
+  /**
+   * Turns recall hybrid (keyword + vector). A function is asked at every call,
+   * so a server can start on keyword recall and switch once its model has
+   * loaded (`startSemanticRecall`); `undefined` from it means keyword for now.
+   */
+  embedder?: Embedder | (() => Embedder | undefined);
+  /** A recall or index through the embedder threw: told once per failure, and the call falls back to keyword. */
+  onEmbedderFailure?: (reason: string) => void;
+  /**
+   * Hybrid recall reads the query for time and counting cues (`RecallOptions.expand`),
+   * the setting the LongMemEval result was measured with. Default true; false
+   * recalls exactly as 0.9.0 did.
+   */
+  expand?: boolean;
+  /**
+   * What the `export` tool reads: give it an `exportView` so the policy's
+   * beforeExport decides what leaves. Defaults to `store`.
+   */
+  exportStore?: MemoryStore;
+  /**
+   * Let `export` write to a path on this machine. The stdio server, which runs
+   * as the user on the user's machine, turns it on; the remote (HTTP) server
+   * does not, so a remote client can never write files on the host. Off by default.
+   */
+  exportToFiles?: boolean;
+  /** The project name an export carries (default "default"). */
+  exportProject?: string;
   now?: () => Date;
   encryptionKeyRef?: string;
+}
+
+/**
+ * The largest export the tool returns in its answer. Bigger ones are written to
+ * a file the caller names: a whole memory in a tool result is context nobody
+ * asked to spend (~50 KB is ~12k tokens).
+ */
+export const EXPORT_INLINE_MAX_BYTES = 50_000;
+export const PATH_MAX_CHARS = 1_024;
+
+/** What `export` returns when it wrote a file. */
+export interface ExportWritten {
+  path: string;
+  bytes: number;
+  facts: number;
+  edges: number;
+  formatVersion: string;
 }
 
 /**
@@ -229,7 +290,20 @@ export const SERVER_INSTRUCTIONS = [
 export function governanceTools(deps: GovernanceDeps) {
   const now = deps.now ?? (() => new Date());
   const pins = new PinnedBlocks(deps.store, { now, ...(deps.encryptionKeyRef && { encryptionKeyRef: deps.encryptionKeyRef }) });
-  const retriever = deps.embedder ? new HybridRetriever(deps.store, deps.embedder) : null;
+  const embedderNow: () => Embedder | undefined =
+    typeof deps.embedder === "function" ? deps.embedder : ((e) => () => e)(deps.embedder);
+  // One retriever per embedder: it holds the vector matrix between recalls.
+  let retriever: { embedder: Embedder; r: HybridRetriever } | null = null;
+  const retrieverNow = (): HybridRetriever | null => {
+    const e = embedderNow();
+    if (!e) return null;
+    if (retriever?.embedder !== e) retriever = { embedder: e, r: new HybridRetriever(deps.store, e) };
+    return retriever.r;
+  };
+  const embedderFailed = (err: unknown) => {
+    deps.onEmbedderFailure?.((err instanceof Error ? err.message : String(err)).split("\n")[0]!.slice(0, 300));
+  };
+  const expand = deps.expand ?? true;
   let pinsDelivered = false;
   return {
     /**
@@ -272,7 +346,16 @@ export function governanceTools(deps: GovernanceDeps) {
       // a fact this reader can see: a governed handle refuses to embed one a
       // policy hides (a secret written Sensitive), exactly as for a missing fact,
       // and remembering it must not fail over a cache (review 2026-09-22).
-      if (retriever && (await deps.store.getNode(saved.nodeId))) await retriever.indexNode(saved);
+      const r = retrieverNow();
+      if (r && (await deps.store.getNode(saved.nodeId))) {
+        // The fact is stored; a vector is a cache. A failed embed leaves it
+        // keyword-findable, and the next start's backfill embeds it.
+        try {
+          await r.indexNode(saved);
+        } catch (err) {
+          embedderFailed(err);
+        }
+      }
       return { ...toGovernedFact(saved), mayConflictWith: await mayConflictWith(deps.store, text, saved.nodeId, now().toISOString()) };
     },
     /**
@@ -286,12 +369,18 @@ export function governanceTools(deps: GovernanceDeps) {
     async recall(input: { query: string; limit?: number | undefined; includeSuperseded?: boolean | undefined }): Promise<GovernedFact[]> {
       const limit = Math.max(1, Math.min(50, input.limit ?? 8));
       const currentOnly = input.includeSuperseded !== true ? { validAt: now().toISOString() } : {};
-      let nodes: MemoryNode[];
       // With an embedder the retriever already reads at an instant, and asking
       // it for history is a known limitation rather than a new one (CHANGELOG).
-      if (retriever) nodes = await retriever.recall(input.query, { limit, ...currentOnly });
-      else nodes = await deps.store.searchNodes({ query: input.query, limit, ...currentOnly });
-      return nodes.map(toGovernedFact);
+      const r = retrieverNow();
+      if (r) {
+        try {
+          return (await r.recall(input.query, { limit, ...currentOnly, ...(expand ? { expand: true } : {}) })).map(toGovernedFact);
+        } catch (err) {
+          // The model failing mid-session must not cost the caller its answer.
+          embedderFailed(err);
+        }
+      }
+      return (await deps.store.searchNodes({ query: input.query, limit, ...currentOnly })).map(toGovernedFact);
     },
     async history(input: { id: string }) {
       if (!isHistoryCapable(deps.store)) return [];
@@ -363,6 +452,42 @@ export function governanceTools(deps: GovernanceDeps) {
     async pinned() {
       return { blocks: await pins.list(), rendered: await pins.render() };
     },
+    /**
+     * The memory in the documented portable format (docs/portable-format.schema.json),
+     * as the policy lets it leave: through an exportView, beforeExport decides,
+     * so an assistant cannot carry out what it could not recall. Small exports
+     * come back in the answer; bigger ones need a path, which must be absolute,
+     * end in .json, and not exist yet — this never overwrites a file.
+     */
+    async export(input: { path?: string | undefined }): Promise<PortableExport | ExportWritten> {
+      const project = deps.exportProject ?? "default";
+      const artifact = await exportPortable(new Map([[project, deps.exportStore ?? deps.store]]));
+      const text = JSON.stringify(artifact, null, 2);
+      const bytes = Buffer.byteLength(text, "utf8");
+      const raw = input.path?.trim();
+      if (!raw) {
+        if (bytes > EXPORT_INLINE_MAX_BYTES) {
+          throw new Error(`export: the export is ${bytes} bytes, more than the ${EXPORT_INLINE_MAX_BYTES} returned inline. Give a path (an absolute path ending in .json that does not exist yet) to write it to.`);
+        }
+        return artifact;
+      }
+      if (!deps.exportToFiles) throw new Error("export: this server does not write files; call export without a path (it returns the export when it is small enough)");
+      const path = expandHome(raw);
+      if (!isAbsolute(path)) throw new Error(`export: the path must be absolute (got ${raw})`);
+      if (!path.toLowerCase().endsWith(".json")) throw new Error("export: the path must end in .json");
+      try {
+        // "wx": fail if the file exists — an export never replaces anything.
+        writeFileSync(path, text + "\n", { flag: "wx", mode: 0o600 });
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "EEXIST") throw new Error(`export: ${path} already exists; name a new file`);
+        if (code === "ENOENT") throw new Error(`export: the folder for ${path} does not exist`);
+        throw err;
+      }
+      const facts = artifact.projects.reduce((n, p) => n + p.nodes.length, 0);
+      const edges = artifact.projects.reduce((n, p) => n + p.edges.length, 0);
+      return { path, bytes: bytes + 1, facts, edges, formatVersion: artifact.formatVersion };
+    },
   };
 }
 
@@ -383,6 +508,8 @@ export const TOOL_ANNOTATIONS = {
   pin: { title: "Pin a rule", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   unpin: { title: "Unpin a rule", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   pinned: { title: "List pinned rules", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  // Not read-only: with a path it writes a new file (never an existing one).
+  export: { title: "Export memory", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
 } as const;
 
 /** Wire the tools onto an MCP server instance (stdio transport is the bin's job). */
@@ -441,5 +568,11 @@ export async function createGovernanceMcpServer(deps: GovernanceDeps) {
   server.tool("pin", "Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.", { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, TOOL_ANNOTATIONS.pin, async (a) => json(await tools.pin(a)));
   server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string().max(ID_MAX_CHARS) }, TOOL_ANNOTATIONS.unpin, async (a) => json(await tools.unpin(a)));
   server.tool("pinned", "The pinned tier, as a list and as the rendered prompt block.", {}, TOOL_ANNOTATIONS.pinned, async () => json(await tools.pinned()));
+  server.tool("export", `Export the user's memory in the portable format, with provenance and validity. Only when the user asks for an export or backup. Without a path it is returned inline if under ${EXPORT_INLINE_MAX_BYTES} bytes; otherwise give an absolute path ending in .json that does not exist yet (never overwrites).`, {
+    path: z.string().max(PATH_MAX_CHARS).optional(),
+  }, TOOL_ANNOTATIONS.export, async (a) => json(await tools.export(a)));
   return { server };
 }
+
+export { startSemanticRecall, DEFAULT_INDEX_LIMIT } from "./semantic.js";
+export type { SemanticRecall, SemanticStatus, SemanticOptions } from "./semantic.js";

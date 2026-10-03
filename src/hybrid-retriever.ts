@@ -373,12 +373,19 @@ export function expandedQueries(query: string, cues: QueryCues): string[] {
  * the name reported nothing to do and left every vector in the old space
  * (Astra R9, 2026-09-18). A row for the same (nodeId, model) is replaced by
  * setEmbedding, so the stale one does not survive the pass.
+ *
+ * `limit` bounds one pass (default: no bound): a server indexing in the
+ * background at start embeds at most that many and leaves the rest for the
+ * next start, so a large backlog never holds a CPU for minutes at a time.
  */
 export async function indexMissingEmbeddings(
   store: MemoryStore,
   embedder: Embedder,
   batchSize = 32,
+  options: { limit?: number } = {},
 ): Promise<number> {
+  const limit = options.limit ?? Infinity;
+  if (!(limit >= 0)) throw new Error(`indexMissingEmbeddings: limit must be >= 0 (got ${options.limit})`);
   const existing = new Set(
     (await store.listEmbeddings(embedder.model))
       .filter((e) => e.modelVersion === embedder.modelVersion && e.dimensions === embedder.dimensions)
@@ -387,9 +394,9 @@ export async function indexMissingEmbeddings(
   // Every tier and classification by name: `{}` alone hides Archived and
   // PendingDeletion, so a scoped recall that names them had no vectors to find
   // (review 2026-09-22). What a recall may SEE is still decided at read time.
-  const missing = (await store.searchNodes({ retentionTier: [...RETENTION_TIERS], privacyClassification: [...PRIVACY_CLASSIFICATIONS] })).filter(
-    (n) => !existing.has(n.nodeId),
-  );
+  const missing = (await store.searchNodes({ retentionTier: [...RETENTION_TIERS], privacyClassification: [...PRIVACY_CLASSIFICATIONS] }))
+    .filter((n) => !existing.has(n.nodeId))
+    .slice(0, limit === Infinity ? undefined : Math.floor(limit));
 
   let indexed = 0;
   for (let i = 0; i < missing.length; i += batchSize) {

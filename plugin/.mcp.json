@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "--package=al-buddy-memory@0.10.0", "al-buddy-memory-mcp"]
+    }
+  }
+}

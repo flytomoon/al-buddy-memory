@@ -88,6 +88,22 @@ export function movePin(readme, version) {
 }
 
 /**
+ * The Claude Code plugin's files that name the package version (plugin/): the
+ * MCP server and hook launch `al-buddy-memory@X.Y.Z`, its README's examples do,
+ * and plugin.json's `version` is what Claude Code compares to offer an update.
+ * They move WITH the README pin, after npm serves the version — a plugin that
+ * launches a version npm does not have is a plugin that does not start.
+ */
+export const PLUGIN_PIN_FILES = ["plugin/.mcp.json", "plugin/hooks/hooks.json", "plugin/README.md", "plugin/.claude-plugin/plugin.json"];
+
+/** One plugin file with its package pins (and, in plugin.json, its `version`) moved to `version`. */
+export function movePluginPin(text, version) {
+  return text
+    .replace(/al-buddy-memory@\d+\.\d+\.\d+/g, `al-buddy-memory@${version}`)
+    .replace(/("version"\s*:\s*")\d+\.\d+\.\d+(")/, `$1${version}$2`);
+}
+
+/**
  * Other projects are named in the README comparison table only (CONTRIBUTING.md,
  * "Write against shapes and specs, not other vendors"). The pattern is built
  * from parts so this file does not find itself.
