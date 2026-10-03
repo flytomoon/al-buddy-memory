@@ -1,0 +1,59 @@
+{
+  "manifest_version": "0.3",
+  "name": "al-buddy-memory",
+  "display_name": "Al Buddy Memory",
+  "version": "0.0.0",
+  "description": "Your work with Claude, never lost: long-term memory on your own computer, shared with Claude Code, that you keep forever and can take anywhere.",
+  "long_description": "Claude remembers decisions, preferences and facts across conversations. Everything is kept in one file on your computer (`~/.al-buddy-memory/brain.db`, the same one the Claude Code plugin uses, so both apps share one memory). Every fact keeps where it came from and since when it has been true; a fact that stops being true is retired with a date, never overwritten. Nothing is sent anywhere: no account, no telemetry. The search model (about 90 MB) is downloaded once from Hugging Face on first start, then runs offline.",
+  "author": {
+    "name": "Chris Canfield",
+    "url": "https://github.com/flytomoon"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flytomoon/al-buddy-memory.git"
+  },
+  "homepage": "https://albuddy.com/claude.html",
+  "documentation": "https://albuddy.com/claude.html#desktop",
+  "support": "https://github.com/flytomoon/al-buddy-memory/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "AL_BUDDY_MEMORY_DB": "${user_config.db_path}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "remember", "description": "Store a durable fact, with who said it and since when" },
+    { "name": "recall", "description": "Search memory; every result carries its source and validity" },
+    { "name": "history", "description": "Every version of a fact" },
+    { "name": "explain", "description": "Why a fact is believed" },
+    { "name": "invalidate", "description": "Retire a fact that stopped being true; it is kept in history" },
+    { "name": "pin", "description": "Pin a standing rule for every conversation" },
+    { "name": "unpin", "description": "Remove a pinned rule" },
+    { "name": "pinned", "description": "List the pinned rules" },
+    { "name": "mental_model", "description": "Read a standing question's current answer" },
+    { "name": "define_mental_model", "description": "Define a standing question" },
+    { "name": "export", "description": "Export memory in the documented portable format" }
+  ],
+  "keywords": ["memory", "long-term memory", "local-first", "privacy", "sqlite"],
+  "license": "Apache-2.0",
+  "privacy_policies": ["https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md"],
+  "compatibility": {
+    "platforms": ["darwin"]
+  },
+  "user_config": {
+    "db_path": {
+      "type": "string",
+      "title": "Memory file",
+      "description": "Where your memory is kept. Leave it as it is to share one memory with Claude Code.",
+      "default": "${HOME}/.al-buddy-memory/brain.db",
+      "required": false
+    }
+  }
+}

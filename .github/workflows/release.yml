@@ -28,3 +28,22 @@ jobs:
           generate_release_notes: true
           body: |
             The npm version is **staged**, not yet public. To release it: npmjs.com → al-buddy-memory → Staged Packages → Approve (2FA), or `npm stage approve` from a logged-in terminal.
+  # The Claude Desktop extension, attached to the GitHub release the job above creates.
+  # macOS runner: the bundle's SQLite engine for Claude Desktop's built-in Node (Electron)
+  # is compiled from source for darwin arm64 and x64 (scripts/build-mcpb.mjs).
+  mcpb:
+    needs: release
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build
+      - run: npm run build:mcpb
+      - run: gh release upload "$GITHUB_REF_NAME" build/mcpb/al-buddy-memory.mcpb --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

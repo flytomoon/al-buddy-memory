@@ -78,11 +78,28 @@
   footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
   footer a { color:var(--fg-dim) }
   @media (max-width:520px) { .bar { gap:8px; flex-wrap:wrap; padding:8px 0 } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav { width:100%; justify-content:flex-start; margin-left:0 } .bar nav a { padding:6px 8px; font-size:14px } .hero { padding:36px 0 28px } }
+
+  /* Top menu (2026-10-03): at most six items on desktop; a menu button at phone widths.
+     Without JS the list stays visible (wrapped), so nothing is unreachable. */
+  .bar { position:relative }
+  .menu-btn { display:none; margin-left:auto; align-items:center; justify-content:center; width:44px; height:44px; padding:0; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--fg); cursor:pointer }
+  .menu-btn svg { width:20px; height:20px }
+  .menu-btn .x { display:none } .menu-btn[aria-expanded="true"] .x { display:block } .menu-btn[aria-expanded="true"] .burger { display:none }
+  @media (max-width:720px) {
+    .js .menu-btn { display:inline-flex }
+    .js .bar nav { display:none; width:auto; position:absolute; top:100%; left:0; right:0; margin:0; padding:8px 12px 14px; flex-direction:column; align-items:stretch; gap:2px; background:var(--paper); border-bottom:1px solid var(--line); box-shadow:0 14px 24px rgba(0,0,0,.10); z-index:20 }
+    .js .bar nav.open { display:flex }
+    .js .bar nav a { padding:12px 10px; font-size:16px; border-radius:10px }
+    .bar { flex-wrap:nowrap }
+  }
+  /* The phone bar keeps the page's side gutter (an older rule zeroed it). */
+  @media (max-width:520px) { .wrap.bar { padding:8px 16px } }
 </style>
 </head>
 <body>
 <header><div class="wrap bar"><img src="al-icon.png" alt=""><b>Al Buddy</b>
-  <nav><a href="#iphone">iPhone</a><a href="claude.html">Claude</a><a href="#memory">Memory</a><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="#governance">Governance</a><a href="#install">Install</a><a href="#next">What's next</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
+  <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu" hidden><svg class="burger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <nav id="site-nav" aria-label="Site"><a href="claude.html">Claude</a><a href="#memory">Memory</a><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
 <main class="wrap">
   <section class="hero" id="iphone">
@@ -226,7 +243,21 @@
     </div>
   </section>
 </main>
-<footer><div class="wrap">Al Buddy · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · Apache-2.0</div></footer>
+<footer><div class="wrap">Al Buddy · <a href="#iphone">iPhone</a> · <a href="claude.html">Claude</a> · <a href="#governance">Governance</a> · <a href="#install">Install</a> · <a href="#next">What's next</a> · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · Apache-2.0</div></footer>
+<script>
+  // The menu button: open/close, Esc and outside-click close, a chosen link closes.
+  (function () {
+    document.documentElement.classList.add("js");
+    var btn = document.querySelector(".menu-btn"), nav = document.getElementById("site-nav");
+    if (!btn || !nav) return;
+    btn.hidden = false;
+    var set = function (open) { nav.classList.toggle("open", open); btn.setAttribute("aria-expanded", open ? "true" : "false"); btn.setAttribute("aria-label", open ? "Close menu" : "Open menu"); };
+    btn.addEventListener("click", function (e) { e.stopPropagation(); set(btn.getAttribute("aria-expanded") !== "true"); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && nav.classList.contains("open")) { set(false); btn.focus(); } });
+    document.addEventListener("click", function (e) { if (nav.classList.contains("open") && !nav.contains(e.target)) set(false); });
+    nav.addEventListener("click", function (e) { if (e.target.closest("a")) set(false); });
+  })();
+</script>
 <script>
   // The iPhone signup: acknowledge on press, refuse a second press while it runs, say the outcome.
   (function () {
