@@ -9,7 +9,7 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
-## 0.10.0 — unreleased
+## 0.10.0 — 2026-10-03
 
 The shipped servers recall the way the benchmark does, memory exports from the server and the
 command line, and the package installs as a Claude Code plugin.
