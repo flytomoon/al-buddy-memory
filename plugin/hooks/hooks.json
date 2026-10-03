@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx --no --package=al-buddy-memory@0.10.0 al-buddy-memory context --hook --max-chars 2000",
+            "command": "npx --no --package=al-buddy-memory@0.10.1 al-buddy-memory context --hook --max-chars 2000",
             "timeout": 15
           }
         ]
