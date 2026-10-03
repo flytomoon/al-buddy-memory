@@ -31,10 +31,12 @@ describe("the plugin's pins", () => {
     expect(new Set(pinned)).toEqual(new Set([manifest["version"]]));
   });
 
-  it("names the README's install version, or the version the CHANGELOG is preparing", () => {
+  it("names the README's install version, the version the CHANGELOG is preparing, or the one being released", () => {
     const readmePin = first(read("README.md"), /--package=al-buddy-memory@(\d+\.\d+\.\d+)/);
     const preparing = first(read("CHANGELOG.md"), /^## (\d+\.\d+\.\d+) — unreleased\s*$/m);
-    expect([readmePin, preparing]).toContain(manifest["version"]);
+    // The release commit dates the CHANGELOG heading and bumps package.json before npm serves the version.
+    const releasing = (json("package.json") as { version: string }).version;
+    expect([readmePin, preparing, releasing]).toContain(manifest["version"]);
   });
 
   it("launches with npx exact pins only — never a range, a tag or latest", () => {
