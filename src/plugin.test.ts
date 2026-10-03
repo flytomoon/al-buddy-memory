@@ -91,6 +91,11 @@ describe("the plugin folder", () => {
     for (const f of filesUnder(pluginDir)) {
       const rel = relative(pluginDir, f);
       expect(rel).not.toMatch(/(^|[\\/])(\.DS_Store|Thumbs\.db|desktop\.ini)$/);
+      // The one binary: the listing icon the directory reads (.claude-plugin/icon.png, square PNG, under 2 MB).
+      if (rel === join(".claude-plugin", "icon.png")) {
+        expect(statSync(f).size).toBeLessThan(2 * 1024 * 1024);
+        continue;
+      }
       expect(rel).toMatch(/\.(json|md)$/);
       expect(statSync(f).size).toBeLessThan(256 * 1024);
     }
