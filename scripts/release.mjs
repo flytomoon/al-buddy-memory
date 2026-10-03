@@ -2,7 +2,7 @@
 // One release command (docs: CONTRIBUTING.md "Releasing").
 //
 //   npm run release -- <patch|minor|major|X.Y.Z> [--dry-run]
-//     preflight → date the CHANGELOG → bump package.json + lock → gates →
+//     preflight → date the CHANGELOG → bump package.json + lock + server.json → gates →
 //     commit → annotated tag → push main, then the tag. The tag's workflow STAGES
 //     the npm publish; the maintainer approves it with 2FA.
 //
@@ -107,9 +107,11 @@ try {
 }
 step(`CHANGELOG.md: "## ${target} — unreleased" → "## ${target} — ${today}"`);
 write("CHANGELOG.md", dated);
-step(`package.json + package-lock.json: ${current} → ${target}`);
+step(`package.json + package-lock.json + server.json: ${current} → ${target}`);
 write("package.json", setVersion(read("package.json"), current, target, 1));
 write("package-lock.json", setVersion(read("package-lock.json"), current, target, 2));
+// The MCP Registry entry: its own version and the npm package's, both this release.
+write("server.json", setVersion(read("server.json"), current, target, 2));
 
 gate("typecheck", "npx", ["tsc", "--noEmit"]);
 gate("tests", "npx", ["vitest", "run"]);
@@ -132,4 +134,6 @@ ${dryRun ? "Dry run complete — nothing was changed." : `Tagged v${target} and 
 Next, by hand:
   1. Wait for the "release" workflow (gh run list) — it stages ${target} on npm with provenance.
   2. Approve it: npmjs.com → al-buddy-memory → Staged Packages → Approve (2FA), or \`npm stage approve\`.
-  3. Then: npm run release:pin   (moves the README install line and the Claude Code plugin to ${target} once npm serves it)`);
+  3. Then: npm run release:pin   (moves the README install line and the Claude Code plugin to ${target} once npm serves it)
+  4. Then list ${target} in the MCP Registry, from main: mcp-publisher login github && mcp-publisher publish
+     (the registry checks npm's ${target} for mcpName, so never before step 2 — CONTRIBUTING.md "Releasing")`);

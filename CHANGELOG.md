@@ -62,6 +62,12 @@ command line, and the package installs as a Claude Code plugin.
   `/plugin install al-buddy-memory@al-buddy`. It starts the MCP server with `npx` pinned to an
   exact version, adds `recall` and `remember` skills, and a SessionStart hook that runs
   `context`. `npm run release:pin` now moves the plugin's pins with the README's.
+- **MCP Registry entry.** `server.json` describes the stdio server for the
+  [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.flytomoon/al-buddy-memory`,
+  and `package.json` carries the matching `mcpName` the registry checks on npm. `npm run release`
+  moves `server.json` to each new version.
+- `al-buddy-memory mcp` starts the stdio MCP server, the same as `al-buddy-memory-mcp`, so
+  `npx -y al-buddy-memory mcp` works without `--package=` — the form a registry listing runs.
 - LongMemEval harness, speed beside every score: each question's `recall` call is timed (wall
   clock and CPU, with the machine's load average) and the summary gives p50/p95/max; memory
   building and recall run one question at a time so a recall is never timed while another

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.flytomoon/al-buddy-memory",
+  "description": "Governed local memory for AI agents: facts are retired, not overwritten, and every call is audited.",
+  "repository": {
+    "url": "https://github.com/flytomoon/al-buddy-memory",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/flytomoon/al-buddy-memory#readme",
+  "version": "0.9.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "al-buddy-memory",
+      "version": "0.9.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "Start the stdio MCP server (the same server as the al-buddy-memory-mcp executable)."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "AL_BUDDY_MEMORY_DB",
+          "description": "The SQLite memory file. A leading ~ is expanded.",
+          "format": "filepath",
+          "default": "~/.al-buddy-memory/brain.db",
+          "isRequired": false
+        },
+        {
+          "name": "AL_BUDDY_MEMORY_OWNER",
+          "description": "Whose memory this is; the owner's policy applies to every call.",
+          "default": "owner",
+          "isRequired": false
+        },
+        {
+          "name": "AL_BUDDY_MEMORY_AUDIT",
+          "description": "Optional JSONL file for the audit chain instead of the database's own table. One writing process per file.",
+          "format": "filepath",
+          "isRequired": false
+        },
+        {
+          "name": "AL_BUDDY_MEMORY_AUDIT_KEY",
+          "description": "Optional HMAC key for the audit chain. Keep it away from the trail.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "AL_BUDDY_MEMORY_SEMANTIC",
+          "description": "Set to off for keyword-only recall; the on-device embedding model is then never downloaded.",
+          "default": "on",
+          "isRequired": false
+        },
+        {
+          "name": "AL_BUDDY_MEMORY_MODEL_CACHE",
+          "description": "Where the on-device embedding model (about 90 MB, downloaded once) is kept.",
+          "format": "filepath",
+          "default": "~/.al-buddy-memory/models",
+          "isRequired": false
+        },
+        {
+          "name": "AL_BUDDY_MEMORY_INDEX_LIMIT",
+          "description": "Most facts embedded in the background per start (0 skips it).",
+          "default": "5000",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
