@@ -43,3 +43,13 @@ npm run release:pin   # moves the README install line to the published version, 
 
 The pin waits because an install line that names a version npm does not have yet fails for
 everyone who copies it.
+
+The release also moves `server.json` — the [MCP Registry](https://registry.modelcontextprotocol.io)
+entry — to the new version. The registry reads `mcpName` from that version on npm, so list it
+only after npm serves it, from `main` with [`mcp-publisher`](https://github.com/modelcontextprotocol/registry)
+installed:
+
+```
+mcp-publisher login github   # device flow: open the URL it prints, enter the code, as flytomoon
+mcp-publisher publish        # reads ./server.json
+```
