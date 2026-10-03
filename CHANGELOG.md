@@ -9,10 +9,59 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
-## Unreleased
+## 0.10.0 — unreleased
+
+The shipped servers recall the way the benchmark does, memory exports from the server and the
+command line, and the package installs as a Claude Code plugin.
+
+### Behaviour change
+
+- **The MCP servers' recall is hybrid by default.** `al-buddy-memory-mcp` and
+  `al-buddy-memory-http` load the on-device embedder (`@huggingface/transformers`, already an
+  optional dependency, so `npx` installs it) in the background and switch recall from keyword-only
+  to keyword + vector as soon as it answers a probe. They never wait for it: until it loads, and
+  wherever it cannot (the optional dependency missing, no onnxruntime binary for the platform —
+  Intel Macs among them — or no network on first run), recall stays keyword-only and stderr says
+  so once, with the reason. A recall or an embed that fails mid-session falls back to keyword for
+  that call and turns the embedder off. `AL_BUDDY_MEMORY_SEMANTIC=off` keeps 0.9.0's keyword-only
+  recall and never downloads the model. The model is about 90 MB, downloaded once from the Hugging
+  Face hub to `~/.al-buddy-memory/models` (`AL_BUDDY_MEMORY_MODEL_CACHE`), not into npx's
+  throwaway install folder, so a new version does not download it again.
+- **Hybrid recall in the MCP tools reads time and counting cues** (`expand`), the setting the
+  LongMemEval result was measured with: "latest", "first", "in April", "how many" now order and
+  widen what `recall` returns. It only adds candidates; the question is still searched as before.
+  `governanceTools({ expand: false })` turns it off. Keyword-only recall is unchanged.
+- A failed embedding no longer fails `remember`: the fact is stored, stays findable by keyword,
+  and is embedded by the next start's backfill.
 
 ### Added
 
+- Facts written without a vector (by keyword-only runs, or other hosts) are embedded in the
+  background when a server starts, at most 5,000 per start (`AL_BUDDY_MEMORY_INDEX_LIMIT`; 0
+  skips it). `indexMissingEmbeddings(store, embedder, batchSize, { limit })` takes the bound.
+- `startSemanticRecall` (from `al-buddy-memory/mcp`): the load-in-background, fall-back-to-keyword
+  wiring the servers use, for hosts that build their own. `governanceTools({ embedder })` also takes
+  a function, asked at every call, and `onEmbedderFailure`.
+- `LocalEmbedder({ cacheDir })`: where the model is kept. Without it, transformers.js's default
+  as before.
+- **`export` MCP tool.** The memory in the portable format, as the policy lets it leave: through
+  `serverExportView`, `beforeExport` decides, so an assistant can export what it could recall and
+  nothing Sensitive or Sealed. Up to 50,000 bytes come back inline; a bigger export needs a path,
+  which must be absolute, end in `.json`, and not exist (it never overwrites; written 0600). Only
+  the stdio server writes files (`exportToFiles`); the remote connector answers inline only.
+- **`al-buddy-memory export [--out file] [--format portable|markdown] [--db path]`**: the owner's
+  complete backup (Sensitive and Sealed included, through an owner `exportView`, audited), to
+  stdout or a new file. **`al-buddy-memory import <file> [--db path]`**: restores a portable export
+  as the owner, every check before the first write, idempotent.
+- **`al-buddy-memory context [--hook] [--max-chars N]`**: a bounded session-start briefing — the
+  pinned rules, current facts that mention the working directory's name, and the most recently
+  learned facts — read with the assistant as the audience, so nothing recall would hide. Empty
+  (and nothing created) when there is no memory yet.
+- **Claude Code plugin** (`plugin/`, and `.claude-plugin/marketplace.json` at the root):
+  `/plugin marketplace add flytomoon/al-buddy-memory`, then
+  `/plugin install al-buddy-memory@al-buddy`. It starts the MCP server with `npx` pinned to an
+  exact version, adds `recall` and `remember` skills, and a SessionStart hook that runs
+  `context`. `npm run release:pin` now moves the plugin's pins with the README's.
 - LongMemEval harness, speed beside every score: each question's `recall` call is timed (wall
   clock and CPU, with the machine's load average) and the summary gives p50/p95/max; memory
   building and recall run one question at a time so a recall is never timed while another

@@ -1,4 +1,19 @@
 #!/usr/bin/env node
+// al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]
+//   the owner's backup of the memory the MCP server keeps: every fact, with its
+//   provenance, validity and history, in the documented portable format
+//   (docs/portable-format.schema.json) — or a read-only Markdown mirror. To
+//   stdout, or to --out, a NEW file (never overwritten), readable by you only.
+// al-buddy-memory import <export.json> [--db path]
+//   restore a portable export verbatim, as the owner. The whole file is checked
+//   before anything is written; running it twice is safe.
+// al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]
+//   a short briefing for the start of an assistant session (pinned rules, facts
+//   mentioning the project, the most recent facts), read as the assistant would
+//   see it. --hook reads a Claude Code hook's JSON from stdin for the working
+//   directory. Prints nothing when there is no memory yet; never creates it.
+// The database is AL_BUDDY_MEMORY_DB, else ~/.al-buddy-memory/brain.db — the
+// MCP server's. --db overrides both.
 // al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]
 // al-buddy-memory conformance --demo        score a small governed store, for comparison
 // al-buddy-memory verify-audit <memory.db | audit.jsonl | <db>.audit dir> [--head <hash>]
@@ -38,8 +53,49 @@ if (cmd === "verify-audit") {
   process.exit(checked.ok ? 0 : 1);
 }
 
+if (cmd === "export" || cmd === "import" || cmd === "context") {
+  const cli = await import("../dist/cli.js");
+  const db = flag("--db") ? cli.memoryDbPath({ AL_BUDDY_MEMORY_DB: flag("--db") }) : cli.memoryDbPath();
+  const owner = process.env.AL_BUDDY_MEMORY_OWNER ?? "owner";
+  try {
+    if (cmd === "export") {
+      const format = flag("--format") ?? "portable";
+      if (format !== "portable" && format !== "markdown") throw new Error(`--format must be portable or markdown (got ${format})`);
+      const text = await cli.exportMemory({ db, owner, format });
+      const out = flag("--out");
+      if (out) {
+        cli.writeNewFile(out, text);
+        console.error(`exported ${db} to ${out} (${Buffer.byteLength(text)} bytes, ${format})`);
+      } else process.stdout.write(text);
+    } else if (cmd === "import") {
+      if (!args[1] || args[1].startsWith("--")) throw new Error("usage: al-buddy-memory import <export.json> [--db path]");
+      const summary = await cli.importMemory({ db, owner, file: args[1] });
+      console.log(`imported ${summary.nodes} fact(s) and ${summary.edges} link(s) into ${db}`);
+    } else {
+      let cwd = flag("--cwd") ?? process.cwd();
+      if (has("--hook")) {
+        // A hook's input is one JSON object on stdin; only its cwd is used.
+        try {
+          const input = JSON.parse(readFileSync(0, "utf8") || "{}");
+          if (typeof input.cwd === "string" && input.cwd) cwd = input.cwd;
+        } catch {
+          /* no usable hook input: fall back to this process's directory */
+        }
+      }
+      const maxChars = flag("--max-chars") !== undefined ? Number(flag("--max-chars")) : undefined;
+      const text = await cli.sessionContext({ db, owner, cwd, ...(Number.isFinite(maxChars) ? { maxChars } : {}) });
+      if (text) process.stdout.write(text + "\n");
+    }
+    process.exit(0);
+  } catch (err) {
+    console.error(`${cmd}: ${err instanceof Error ? err.message : String(err)}`);
+    // A session-start hook must never get in the way of the session.
+    process.exit(cmd === "context" && has("--hook") ? 0 : 1);
+  }
+}
+
 if (cmd !== "conformance") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]");
+  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]");
   process.exit(2);
 }
 

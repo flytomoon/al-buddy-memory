@@ -60,15 +60,27 @@ export class FakeEmbedder implements Embedder {
 
 /**
  * On-device embedder via transformers.js (all-MiniLM-L6-v2, 384 dims).
- * The model (~25 MB) downloads once to the HF cache on first use, then runs
- * offline forever. Loaded lazily so importing this module costs nothing.
+ * The model (about 90 MB at fp32) downloads once from the Hugging Face hub on
+ * first use, then runs offline. Loaded lazily so importing this module costs
+ * nothing.
+ *
+ * Where the model is kept: transformers.js's default is a `.cache` folder
+ * INSIDE its own package, which under `npx` is a throwaway install directory —
+ * every new version of this package downloaded the model again. Pass
+ * `cacheDir` to keep it somewhere stable; the shipped servers use
+ * `~/.al-buddy-memory/models`.
  */
 export class LocalEmbedder implements Embedder {
   readonly model = "xenova/all-MiniLM-L6-v2";
   readonly modelVersion = "1";
   readonly dimensions = 384;
+  readonly cacheDir: string | undefined;
 
   private pipelinePromise: Promise<FeatureExtractor> | undefined;
+
+  constructor(options: { cacheDir?: string } = {}) {
+    this.cacheDir = options.cacheDir;
+  }
 
   async embed(texts: string[]): Promise<number[][]> {
     const extract = await this.loadPipeline();
@@ -79,7 +91,8 @@ export class LocalEmbedder implements Embedder {
 
   private loadPipeline(): Promise<FeatureExtractor> {
     this.pipelinePromise ??= (async () => {
-      const { pipeline } = await import("@huggingface/transformers");
+      const { pipeline, env } = await import("@huggingface/transformers");
+      if (this.cacheDir) env.cacheDir = this.cacheDir;
       return (await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
         dtype: "fp32",
       })) as unknown as FeatureExtractor;

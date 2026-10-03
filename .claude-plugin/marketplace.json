@@ -1,0 +1,17 @@
+{
+  "name": "al-buddy",
+  "description": "Al Buddy's Claude Code plugins: local-first, governed long-term memory.",
+  "owner": {
+    "name": "Chris Canfield",
+    "url": "https://github.com/flytomoon"
+  },
+  "plugins": [
+    {
+      "name": "al-buddy-memory",
+      "source": "./plugin",
+      "description": "Local-first, governed long-term memory: recall before answering, remember durable facts, export everything.",
+      "category": "productivity",
+      "tags": ["memory", "local-first", "mcp"]
+    }
+  ]
+}

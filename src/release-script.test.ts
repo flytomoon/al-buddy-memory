@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — a plain .mjs script with no type declarations
 import * as lib from "../scripts/release-lib.mjs";
 
-const { nextVersion, unreleasedVersion, dateChangelog, releaseSummary, setVersion, pinnedVersion, movePin, preflight, nameScan } = lib as {
+const { nextVersion, unreleasedVersion, dateChangelog, releaseSummary, setVersion, pinnedVersion, movePin, movePluginPin, preflight, nameScan } = lib as {
+  movePluginPin(text: string, version: string): string;
   nextVersion(current: string, kind: string): string;
   unreleasedVersion(changelog: string): string | null;
   dateChangelog(changelog: string, version: string, date: string): string;
@@ -84,6 +85,16 @@ describe("the README pin", () => {
     expect(pinnedVersion(moved)).toBe("0.6.1");
     expect(moved).toContain("Drop the `@0.6.1`");
     expect(moved).toContain("al-buddy-memory-mcp");
+  });
+});
+
+describe("the plugin pins", () => {
+  it("moves every package pin, and plugin.json's version, and nothing else", () => {
+    const mcp = '{ "args": ["-y", "--package=al-buddy-memory@0.10.0", "al-buddy-memory-mcp"] }';
+    expect(movePluginPin(mcp, "0.11.0")).toBe('{ "args": ["-y", "--package=al-buddy-memory@0.11.0", "al-buddy-memory-mcp"] }');
+    const manifest = '{\n  "name": "al-buddy-memory",\n  "version": "0.10.0",\n  "license": "Apache-2.0"\n}';
+    expect(movePluginPin(manifest, "0.11.0")).toContain('"version": "0.11.0"');
+    expect(movePluginPin(manifest, "0.11.0")).toContain('"name": "al-buddy-memory"');
   });
 });
 

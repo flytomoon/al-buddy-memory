@@ -8,14 +8,15 @@
 //
 //   npm run release:pin [--dry-run]
 //     after that approval: once npm serves the new version, move the README's
-//     install line to it, test, commit and push. Never before — a pin to a
+//     install line and the Claude Code plugin's pins (plugin/) to it, test,
+//     commit and push. Never before — a pin to a
 //     version npm does not have yet is an install line that fails.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { dateChangelog, movePin, nextVersion, pinnedVersion, preflight, releaseSummary, setVersion, unreleasedVersion } from "./release-lib.mjs";
+import { dateChangelog, movePin, movePluginPin, nextVersion, pinnedVersion, PLUGIN_PIN_FILES, preflight, releaseSummary, setVersion, unreleasedVersion } from "./release-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -64,9 +65,11 @@ if (pinMode) {
   if (run("git", ["status", "--porcelain"]).trim() !== "") fail("The working tree has uncommitted changes.");
   step(`README install line: ${pinned} → ${current}`);
   write("README.md", movePin(read("README.md"), current));
+  step(`Claude Code plugin pins (${PLUGIN_PIN_FILES.join(", ")}) → ${current}`);
+  for (const file of PLUGIN_PIN_FILES) write(file, movePluginPin(read(file), current));
   gate("tests", "npx", ["vitest", "run"]);
-  step(`commit "The README's install line names ${current}"`);
-  if (!dryRun) run("git", ["commit", "-qam", `The README's install line names ${current}`]);
+  step(`commit "The README's install line and the plugin name ${current}"`);
+  if (!dryRun) run("git", ["commit", "-qam", `The README's install line and the plugin name ${current}`]);
   step("push main");
   if (!dryRun) run("git", ["push", "-q", "origin", "main"]);
   console.log(`\nDone: the README's install line names ${current}.`);
@@ -129,4 +132,4 @@ ${dryRun ? "Dry run complete — nothing was changed." : `Tagged v${target} and 
 Next, by hand:
   1. Wait for the "release" workflow (gh run list) — it stages ${target} on npm with provenance.
   2. Approve it: npmjs.com → al-buddy-memory → Staged Packages → Approve (2FA), or \`npm stage approve\`.
-  3. Then: npm run release:pin   (moves the README install line to ${target} once npm serves it)`);
+  3. Then: npm run release:pin   (moves the README install line and the Claude Code plugin to ${target} once npm serves it)`);
