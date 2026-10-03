@@ -10,8 +10,12 @@
   "homepage": "https://albuddy.com/claude.html",
   "repository": "https://github.com/flytomoon/al-buddy-memory",
   "license": "Apache-2.0",
-  "keywords": ["memory", "long-term-memory", "local-first", "sqlite", "provenance", "mcp"],
-  "documentationUrl": "https://albuddy.com/claude.html",
-  "supportUrl": "https://github.com/flytomoon/al-buddy-memory/issues",
-  "privacyPolicyUrl": "https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md"
+  "keywords": [
+    "memory",
+    "long-term-memory",
+    "local-first",
+    "sqlite",
+    "provenance",
+    "mcp"
+  ]
 }
