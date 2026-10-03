@@ -9,7 +9,7 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
-## 0.10.1 — unreleased
+## 0.10.1 — 2026-10-03
 
 The servers keep answering while they index, the Claude Code plugin gets its own name and slash
 commands, and `al-buddy-memory status`.
