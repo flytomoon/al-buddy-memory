@@ -66,9 +66,9 @@ Needs Node.js 22 or later on your `PATH`.
 
 ## Export, back up, remove
 
-- Run `/al-buddy:export`, or `npx -y al-buddy-memory@0.10.0 export --out ~/memory-backup.json`
+- Run `/al-buddy:export`, or `npx -y al-buddy-memory@0.10.1 export --out ~/memory-backup.json`
   for the complete owner backup (Sensitive facts included). `--format markdown` writes a readable
-  mirror instead. `npx -y al-buddy-memory@0.10.0 import <file>` restores a backup.
+  mirror instead. `npx -y al-buddy-memory@0.10.1 import <file>` restores a backup.
 - Uninstalling the plugin (`/plugin uninstall al-buddy@al-buddy`) does not delete your
   memory. To delete it, remove `~/.al-buddy-memory/`.
 

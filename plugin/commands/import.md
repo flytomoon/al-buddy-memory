@@ -10,7 +10,7 @@ Import the memory export at: $ARGUMENTS
 2. Run:
 
    ```
-   npx -y --package=al-buddy-memory@0.10.0 al-buddy-memory import <file>
+   npx -y --package=al-buddy-memory@0.10.1 al-buddy-memory import <file>
    ```
 
 3. Report its one-line result (facts and links imported, and into which database). Facts already present are left as they are, so running it again changes nothing. If it refuses the file, show the reason; nothing was written.
