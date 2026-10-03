@@ -1,16 +1,17 @@
 {
-  "name": "al-buddy-memory",
+  "name": "al-buddy",
   "displayName": "Al Buddy Memory",
   "version": "0.10.0",
-  "description": "Local-first, governed long-term memory for Claude Code: facts keep their provenance and validity, are retired rather than overwritten, never leave your machine, and export to one documented format.",
+  "description": "Your work with Claude, never lost: long-term memory that stays on your machine, keeps every fact with where it came from and what replaced it, and exports to one documented format you can take anywhere.",
   "author": {
     "name": "Chris Canfield",
     "url": "https://github.com/flytomoon"
   },
-  "homepage": "https://github.com/flytomoon/al-buddy-memory#use-it-as-a-claude-code-plugin",
+  "homepage": "https://albuddy.com/claude.html",
   "repository": "https://github.com/flytomoon/al-buddy-memory",
   "license": "Apache-2.0",
   "keywords": ["memory", "long-term-memory", "local-first", "sqlite", "provenance", "mcp"],
-  "documentationUrl": "https://github.com/flytomoon/al-buddy-memory#use-it-as-a-claude-code-plugin",
-  "supportUrl": "https://github.com/flytomoon/al-buddy-memory/issues"
+  "documentationUrl": "https://albuddy.com/claude.html",
+  "supportUrl": "https://github.com/flytomoon/al-buddy-memory/issues",
+  "privacyPolicyUrl": "https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md"
 }

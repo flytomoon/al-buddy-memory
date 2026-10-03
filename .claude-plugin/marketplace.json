@@ -7,9 +7,9 @@
   },
   "plugins": [
     {
-      "name": "al-buddy-memory",
+      "name": "al-buddy",
       "source": "./plugin",
-      "description": "Local-first, governed long-term memory: recall before answering, remember durable facts, export everything.",
+      "description": "Your work with Claude, never lost: local-first long-term memory you keep forever and take anywhere. /al-buddy:recall, /al-buddy:remember, /al-buddy:forget, /al-buddy:status, /al-buddy:export, /al-buddy:import, /al-buddy:help.",
       "category": "productivity",
       "tags": ["memory", "local-first", "mcp"]
     }

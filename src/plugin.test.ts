@@ -6,6 +6,8 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { PLUGIN_PIN_FILES } from "../scripts/release-lib.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginDir = join(root, "plugin");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
@@ -24,7 +26,8 @@ const first = (text: string, re: RegExp) => text.match(re)?.[1];
 
 describe("the plugin's pins", () => {
   const manifest = json("plugin/.claude-plugin/plugin.json");
-  const pinned = [read("plugin/.mcp.json"), read("plugin/hooks/hooks.json"), read("plugin/README.md")].flatMap(pinsIn);
+  const commands = readdirSync(join(pluginDir, "commands")).map((f) => read(`plugin/commands/${f}`));
+  const pinned = [read("plugin/.mcp.json"), read("plugin/hooks/hooks.json"), read("plugin/README.md"), ...commands].flatMap(pinsIn);
 
   it("every launch and example names the same exact version, and plugin.json says it too", () => {
     expect(pinned.length).toBeGreaterThanOrEqual(4);
@@ -37,6 +40,11 @@ describe("the plugin's pins", () => {
     // The release commit dates the CHANGELOG heading and bumps package.json before npm serves the version.
     const releasing = (json("package.json") as { version: string }).version;
     expect([readmePin, preparing, releasing]).toContain(manifest["version"]);
+  });
+
+  it("every plugin file that names a version is one the release's pin step moves", () => {
+    const withPins = filesUnder(pluginDir).filter((f) => pinsIn(readFileSync(f, "utf8")).length > 0).map((f) => relative(root, f));
+    for (const f of withPins) expect(PLUGIN_PIN_FILES).toContain(f);
   });
 
   it("launches with npx exact pins only — never a range, a tag or latest", () => {
@@ -96,6 +104,38 @@ describe("the plugin folder", () => {
       expect(first(fm, /^name: (.+)$/m)).toBe(s);
       expect(first(fm, /^description: (.+)$/m)?.length).toBeGreaterThan(40);
     }
+  });
+});
+
+describe("the slash commands", () => {
+  // Skills are commands too: /al-buddy:recall and /al-buddy:remember ARE the two
+  // skills. A command file with a skill's name would be shadowed by the skill.
+  const SKILLS = ["recall", "remember"];
+  const COMMANDS = ["export", "forget", "help", "import", "status"];
+
+  it("is the agreed set, namespaced under the plugin name al-buddy, with no name a skill already has", () => {
+    expect(json("plugin/.claude-plugin/plugin.json")["name"]).toBe("al-buddy");
+    const files = readdirSync(join(pluginDir, "commands")).sort();
+    expect(files).toEqual(COMMANDS.map((c) => `${c}.md`));
+    for (const c of COMMANDS) expect(SKILLS).not.toContain(c);
+  });
+
+  it("each has a description, and only the user starts them (they act on the whole memory)", () => {
+    for (const c of COMMANDS) {
+      const fm = first(read(`plugin/commands/${c}.md`), /^---\n([\s\S]*?)\n---\n/) ?? "";
+      expect(first(fm, /^description: (.+)$/m)?.length).toBeGreaterThan(30);
+      expect(fm).toMatch(/^disable-model-invocation: true$/m);
+    }
+  });
+
+  it("the two skills take the user's words as arguments", () => {
+    for (const s of SKILLS) expect(read(`plugin/skills/${s}/SKILL.md`)).toMatch(/^argument-hint: <\w+>$/m);
+  });
+
+  it("every command the help screen lists exists", () => {
+    const help = read("plugin/commands/help.md");
+    const listed = [...help.matchAll(/`\/al-buddy:(\w+)/g)].map((m) => m[1]!);
+    expect(new Set(listed)).toEqual(new Set([...SKILLS, ...COMMANDS]));
   });
 });
 

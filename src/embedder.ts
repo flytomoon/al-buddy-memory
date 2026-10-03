@@ -90,18 +90,22 @@ export class LocalEmbedder implements Embedder {
   }
 
   private loadPipeline(): Promise<FeatureExtractor> {
-    this.pipelinePromise ??= (async () => {
-      const { pipeline, env } = await import("@huggingface/transformers");
-      if (this.cacheDir) env.cacheDir = this.cacheDir;
-      return (await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
-        dtype: "fp32",
-      })) as unknown as FeatureExtractor;
-    })();
+    this.pipelinePromise ??= loadFeatureExtractor(this.cacheDir);
     return this.pipelinePromise;
   }
 }
 
-type FeatureExtractor = (
+/** The transformers.js pipeline behind {@link LocalEmbedder} (and the worker the shipped servers run it in). */
+export type FeatureExtractor = (
   texts: string[],
   options: { pooling: "mean"; normalize: boolean },
 ) => Promise<{ tolist(): number[][] }>;
+
+/** Load all-MiniLM-L6-v2 through transformers.js, keeping the model in `cacheDir` when given. */
+export async function loadFeatureExtractor(cacheDir?: string): Promise<FeatureExtractor> {
+  const { pipeline, env } = await import("@huggingface/transformers");
+  if (cacheDir) env.cacheDir = cacheDir;
+  return (await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
+    dtype: "fp32",
+  })) as unknown as FeatureExtractor;
+}

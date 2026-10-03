@@ -377,14 +377,23 @@ export function expandedQueries(query: string, cues: QueryCues): string[] {
  * `limit` bounds one pass (default: no bound): a server indexing in the
  * background at start embeds at most that many and leaves the rest for the
  * next start, so a large backlog never holds a CPU for minutes at a time.
+ *
+ * It shares the event loop with whatever else the process serves, so it gives
+ * the loop back between batches and after every `sliceMs` (default 20 ms) of
+ * writes: a server indexing 5,000 facts after start kept answering /health in
+ * 85 ms at p95 before this, 268 ms at worst (founder's Mac: seconds). An
+ * embedder that computes on this thread (LocalEmbedder) still blocks for one
+ * whole batch, so pass a small `batchSize` with it — or use WorkerEmbedder,
+ * which computes off the loop.
  */
 export async function indexMissingEmbeddings(
   store: MemoryStore,
   embedder: Embedder,
   batchSize = 32,
-  options: { limit?: number } = {},
+  options: { limit?: number; sliceMs?: number } = {},
 ): Promise<number> {
   const limit = options.limit ?? Infinity;
+  const sliceMs = options.sliceMs ?? 20;
   if (!(limit >= 0)) throw new Error(`indexMissingEmbeddings: limit must be >= 0 (got ${options.limit})`);
   const existing = new Set(
     (await store.listEmbeddings(embedder.model))
@@ -399,10 +408,19 @@ export async function indexMissingEmbeddings(
     .slice(0, limit === Infinity ? undefined : Math.floor(limit));
 
   let indexed = 0;
+  let slice = performance.now();
+  const giveBack = async (always = false) => {
+    if (!always && performance.now() - slice < sliceMs) return;
+    await yieldToLoop();
+    slice = performance.now();
+  };
+  await giveBack(true); // the two reads above are one slice
   for (let i = 0; i < missing.length; i += batchSize) {
     const batch = missing.slice(i, i + batchSize);
     const vectors = await embedder.embed(batch.map((n) => n.content.text));
+    await giveBack(true);
     for (let j = 0; j < batch.length; j += 1) {
+      await giveBack();
       const vector = vectors[j];
       if (!vector) continue;
       await store.setEmbedding({
@@ -417,4 +435,9 @@ export async function indexMissingEmbeddings(
     }
   }
   return indexed;
+}
+
+/** Let timers, I/O and queued requests run: a macrotask, not a microtask. */
+function yieldToLoop(): Promise<void> {
+  return new Promise((resolve) => (typeof setImmediate === "function" ? setImmediate(resolve) : setTimeout(resolve, 0)));
 }

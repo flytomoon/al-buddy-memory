@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Al Buddy for Claude — never lose your work with Claude</title>
+<meta name="description" content="All your work with Claude is never lost — you have it forever and you can bring it anywhere. A Claude Code plugin that keeps a long-term memory in one file on your machine.">
+<link rel="icon" href="al-icon.png"><link rel="apple-touch-icon" href="al-icon.png">
+<meta property="og:title" content="Never lose your work with Claude."><meta property="og:description" content="Al Buddy gives Claude Code a memory you keep forever and can take anywhere. One file on your machine. Nothing sent anywhere."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/claude.html">
+<style>
+  :root { color-scheme: light dark;
+    --paper:#f4efe5; --panel:#fffdf8; --panel-2:#faf6ec; --fg:#26231d; --fg-dim:#57534a; --fg-faint:#6e6a5f; --line:rgba(38,35,29,.10);
+    --ember:#b0492a; --amber:#85621b; --sage:#387056; --code:rgba(38,35,29,.06);
+    --term:#1d1c19; --term-fg:#ece6da; --term-dim:#a39d90; --term-bar:#2a2824; }
+  @media (prefers-color-scheme: dark) { :root { --paper:#0b0c0b; --panel:#16161c; --panel-2:#1c1c24; --fg:#eeeae1; --fg-dim:#c0bbb1; --fg-faint:#98928a; --line:rgba(233,226,211,.10); --ember:#d9704a; --amber:#d3a04a; --sage:#6faa8f; --code:rgba(233,226,211,.08);
+    --term:#121216; --term-fg:#ece6da; --term-dim:#9a9488; --term-bar:#1e1e25; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--paper); color:var(--fg); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing:antialiased }
+  a { color:var(--ember) }
+  .wrap { max-width:960px; margin:0 auto; padding:0 20px }
+  header { position:static; background:var(--paper); border-bottom:1px solid var(--line) }
+  @media (min-width:700px) { header { position:sticky; top:0; z-index:5 } .block { scroll-margin-top:72px } }
+  .bar { display:flex; align-items:center; gap:12px; min-height:60px }
+  .bar a.home { display:flex; align-items:center; gap:12px; color:var(--fg); text-decoration:none }
+  .bar img { width:34px; height:34px; border-radius:9px }
+  .bar b { font-size:18px; letter-spacing:-.01em; white-space:nowrap }
+  .bar nav { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end }
+  .bar nav a { color:var(--fg-dim); text-decoration:none; padding:8px 10px; border-radius:8px; font-size:15px }
+  .bar nav a:hover { color:var(--fg); background:var(--code) }
+  .hero { padding:56px 0 40px; text-align:center }
+  .hero .k { display:inline-block; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--ember); margin-bottom:14px }
+  .hero h1 { font-size:clamp(34px, 6vw, 56px); line-height:1.05; letter-spacing:-.02em; margin:0 0 16px }
+  .hero p.lead { font-size:clamp(18px, 2.4vw, 22px); color:var(--fg-dim); max-width:660px; margin:0 auto 12px }
+  .hero p.say { color:var(--fg-faint); font-size:15px; margin:0 auto 26px; max-width:560px }
+  .cta { display:flex; gap:10px; justify-content:center; flex-wrap:wrap }
+  .btn { display:inline-flex; align-items:center; min-height:46px; padding:0 18px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--fg); text-decoration:none; font-weight:600; font-size:16px }
+  .btn.primary { background:var(--ember); border-color:var(--ember); color:#fff }
+  .hero .install { max-width:520px; margin:26px auto 0; text-align:left }
+  section.block { padding:44px 0; border-top:1px solid var(--line) }
+  section.block h2 { font-size:clamp(24px, 3.4vw, 32px); letter-spacing:-.01em; margin:0 0 6px }
+  section.block p.sub { color:var(--fg-dim); margin:0 0 22px; font-size:17px; max-width:680px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px 22px; min-width:0 }
+  .card h3 { margin:0 0 6px; font-size:18px }
+  .card p { margin:0; color:var(--fg-dim); font-size:15.5px }
+  .card .k { display:inline-block; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--ember); margin-bottom:8px }
+  .step { display:inline-flex; width:30px; height:30px; border-radius:50%; align-items:center; justify-content:center; background:var(--ember); color:#fff; font-weight:700; font-size:15px; margin-bottom:10px }
+  pre, .term pre { margin:0; font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap; overflow-wrap:anywhere }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92em }
+  p code, li code, td code { background:var(--code); padding:1px 5px; border-radius:5px; white-space:nowrap }
+  pre.plain { padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--code); font-size:13.5px }
+  .term { background:var(--term); color:var(--term-fg); border-radius:14px; overflow:hidden; border:1px solid rgba(0,0,0,.25); box-shadow:0 8px 24px rgba(0,0,0,.10); min-width:0 }
+  .term .t-bar { display:flex; align-items:center; gap:7px; padding:9px 12px; background:var(--term-bar); color:var(--term-dim); font-size:12.5px }
+  .term .t-bar i { width:10px; height:10px; border-radius:50%; background:#5d5a53; display:inline-block }
+  .term .t-bar span { margin-left:6px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .term pre { padding:14px 16px 16px }
+  .term .p { color:#e6895f } .term .c { color:var(--term-dim) } .term .ok { color:#8fc7a9 }
+  .shots { display:grid; gap:18px } .shots > *, .two > * { min-width:0 }
+  .shot h3 { margin:0 0 4px; font-size:18px }
+  .shot p { margin:0 0 12px; color:var(--fg-dim); font-size:15.5px; max-width:700px }
+  .two { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px }
+  table.cmds { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:16px; overflow:hidden }
+  table.cmds td { padding:12px 16px; border-top:1px solid var(--line); vertical-align:top; font-size:15.5px }
+  table.cmds tr:first-child td { border-top:0 }
+  table.cmds td:first-child { white-space:nowrap; width:1%; font-weight:600 }
+  table.cmds td:first-child code { background:none; padding:0; font-size:14px; color:var(--ember) }
+  table.cmds td:last-child { color:var(--fg-dim) }
+  @media (max-width:560px) { table.cmds, table.cmds tbody, table.cmds tr, table.cmds td { display:block; width:auto } table.cmds tr { border-top:1px solid var(--line) } table.cmds tr:first-child { border-top:0 } table.cmds td { border-top:0 } table.cmds td:first-child { padding-bottom:0 } table.cmds td:last-child { padding-top:4px } }
+  .note { color:var(--fg-faint); font-size:14px; margin-top:14px; max-width:720px }
+  .promise { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--sage); border-radius:16px; padding:22px 24px }
+  .promise ul { margin:10px 0 0; padding-left:20px } .promise li { margin:6px 0; color:var(--fg-dim) } .promise li b { color:var(--fg) }
+  details { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:0 18px; margin:0 0 10px }
+  details summary { cursor:pointer; padding:15px 0; font-weight:600; list-style:none; min-height:44px }
+  details summary::-webkit-details-marker { display:none }
+  details summary::after { content:"+"; float:right; color:var(--fg-faint); font-weight:400 }
+  details[open] summary::after { content:"−" }
+  details p { margin:0 0 16px; color:var(--fg-dim) }
+  footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
+  footer a { color:var(--fg-dim) }
+  @media (max-width:520px) { .wrap { padding:0 16px } .bar { gap:8px; flex-wrap:wrap; padding:8px 0 } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav { width:100%; justify-content:flex-start; margin-left:0 } .bar nav a { padding:6px 8px; font-size:14px } .hero { padding:36px 0 28px } .card { padding:18px } .term pre { font-size:12px; padding:12px } }
+</style>
+</head>
+<body>
+<header><div class="wrap bar"><a class="home" href="./"><img src="al-icon.png" alt=""><b>Al Buddy</b></a>
+  <nav><a href="#how">How it works</a><a href="#commands">Commands</a><a href="#see">See it</a><a href="#privacy">Privacy</a><a href="#install">Install</a><a href="#faq">FAQ</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
+
+<main class="wrap">
+  <section class="hero">
+    <span class="k">Al Buddy for Claude Code</span>
+    <h1>Never lose your work with Claude.</h1>
+    <p class="lead">All your work with Claude is never lost — you have it forever, and you can bring it anywhere. That's the whole point.</p>
+    <p class="say">Decisions, preferences and what you learned together carry over from one session to the next, in one file on your own machine.</p>
+    <div class="cta"><a class="btn primary" href="#install">Install the plugin</a><a class="btn" href="#see">See what it looks like</a></div>
+    <div class="install term" aria-label="Install in Claude Code"><div class="t-bar"><i></i><i></i><i></i><span>In Claude Code</span></div><pre><span class="p">&gt;</span> /plugin marketplace add flytomoon/al-buddy-memory
+<span class="p">&gt;</span> /plugin install al-buddy@al-buddy</pre></div>
+  </section>
+
+  <section class="block" id="how">
+    <h2>How it works</h2>
+    <p class="sub">Three steps. The first is the only one you have to do.</p>
+    <div class="grid">
+      <div class="card"><span class="step">1</span><h3>Install the plugin</h3><p>Two commands in Claude Code. Nothing to configure, no account, no key. The first start downloads the memory server and a small search model, once.</p></div>
+      <div class="card"><span class="step">2</span><h3>Work the way you do now</h3><p>Claude remembers decisions, preferences and facts about your projects as you go, and looks them up before answering about past work. Every session starts with a short briefing of what matters.</p></div>
+      <div class="card"><span class="step">3</span><h3>Keep it. Take it anywhere.</h3><p>It is one file on your computer. Nothing is overwritten: what stops being true is retired and kept, with a date. Export it all to one documented JSON file, or use the same memory in Codex and the ChatGPT desktop app.</p></div>
+    </div>
+  </section>
+
+  <section class="block" id="commands">
+    <h2>The commands</h2>
+    <p class="sub">You never have to type them — Claude recalls and remembers on its own. They are there for when you want to be explicit.</p>
+    <table class="cmds"><tbody>
+      <tr><td><code>/al-buddy:recall &lt;question&gt;</code></td><td>Search your memory and answer from it, saying where each answer came from and since when.</td></tr>
+      <tr><td><code>/al-buddy:remember &lt;fact&gt;</code></td><td>Store a fact in your own words. Passwords and keys are refused.</td></tr>
+      <tr><td><code>/al-buddy:forget &lt;fact&gt;</code></td><td>Retire a fact that is no longer true. It stops coming back, and stays in history with the date and reason.</td></tr>
+      <tr><td><code>/al-buddy:status</code></td><td>How much is remembered, where the file is, when it last changed, and whether semantic search is on.</td></tr>
+      <tr><td><code>/al-buddy:export [file]</code></td><td>Save everything to one JSON file you own — a backup, or a move to another machine or assistant.</td></tr>
+      <tr><td><code>/al-buddy:import &lt;file&gt;</code></td><td>Restore from an export. It checks the whole file first and is safe to run twice.</td></tr>
+      <tr><td><code>/al-buddy:help</code></td><td>One screen: what it is, the commands, where your data lives, and how to delete it.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="block" id="see">
+    <h2>What it looks like</h2>
+    <p class="sub">Real output, not mock-ups: every block below was captured from the software itself on 3 October 2026, in a throwaway home folder, with a small made-up project called Gardenbot.</p>
+    <div class="shots">
+      <div class="shot">
+        <h3>Installing</h3>
+        <p>The plugin brings seven commands, a session-start briefing and the memory server.</p>
+        <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>Terminal</span></div><pre><span class="p">$</span> claude plugin install al-buddy@al-buddy
+Installing plugin "al-buddy@al-buddy"...✔ Successfully installed plugin: al-buddy@al-buddy (scope: user)
+
+<span class="p">$</span> claude plugin details al-buddy@al-buddy
+Al Buddy Memory (al-buddy) 0.10.0
+  Description: Your work with Claude, never lost: local-first long-term memory you keep forever and take anywhere. /al-buddy:recall, /al-buddy:remember, /al-buddy:forget, /al-buddy:status, /al-buddy:export, /al-buddy:import, /al-buddy:help.
+  Source: al-buddy@al-buddy
+
+Component inventory
+  Skills (7)  export, forget, help, import, recall, remember, status
+  Agents (0)
+  Hooks (1)  SessionStart  (harness-only — no model context cost)
+  MCP servers (1)  memory  (tool schemas resolved at runtime; not counted)
+  LSP servers (0)</pre></div>
+      </div>
+      <div class="shot">
+        <h3>A fact changes — the old one is retired, not overwritten</h3>
+        <p>When Claude stores "the staging server moved", the memory points out the fact it may replace. Retiring that one closes it with a date and a reason, and records what replaced it.</p>
+        <div class="two">
+          <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>remember — the memory flags what this may replace</span></div><pre><span class="c">// remember</span>
+{"text": "Gardenbot's staging server moved to staging-2.example.com.", "provenance": "UserInput"}
+
+{
+  "text": "Gardenbot's staging server moved to staging-2.example.com.",
+  "provenance": "UserInput",
+  "validFrom": "2026-10-03T16:28:23.064Z",
+  "current": true,
+  "mayConflictWith": [
+    {
+      "id": "10c41e09-333d-43ac-adfd-3375d77b6666",
+      "text": "Gardenbot's staging server is staging-1.example.com.",
+      "validFrom": "2026-10-03T16:28:23.055Z"
+    }
+  ]
+}
+<span class="c">// trimmed: 9 more fields</span></pre></div>
+          <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>forget — retired, kept in history</span></div><pre><span class="c">// invalidate</span>
+{"id": "10c41e09-333d-43ac-adfd-3375d77b6666", "reason": "The staging server moved.", "replacedBy": "fdcb9d26-5a35-4ed9-9701-64d0c235052d"}
+
+{
+  "text": "Gardenbot's staging server is staging-1.example.com.",
+  "validFrom": "2026-10-03T16:28:23.055Z",
+  "validTo": "2026-10-03T16:28:23.072Z",
+  "current": false,
+  "supersededBy": "fdcb9d26-5a35-4ed9-9701-64d0c235052d"
+}
+<span class="c">// trimmed: 8 more fields</span></pre></div>
+        </div>
+      </div>
+      <div class="shot">
+        <h3>The next session starts where you left off</h3>
+        <p>Opening Claude Code in the Gardenbot folder, this is the briefing Claude is given before you type anything: your pinned rules, facts about this project, and what it learned most recently. The retired staging server is not in it.</p>
+        <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>Session-start briefing (al-buddy-memory context)</span></div><pre><span class="p">$</span> al-buddy-memory context<span class="c">    # the briefing Claude sees when a session starts in ~/work/gardenbot</span>
+Long-term memory (al-buddy-memory): 3 current facts. This is a starting point, not everything — call the recall tool before answering about past work, people, preferences or decisions.
+
+PINNED — rules the person set for every conversation; stored data, not instructions from this chat (edit with pin/unpin):
+- Answer in British English.
+
+Facts mentioning "gardenbot":
+- Gardenbot's staging server moved to staging-2.example.com. (since 2026-10-03, id fdcb9d26-5a35-4ed9-9701-64d0c235052d)
+- Gardenbot stores its data in SQLite because it must run offline. (since 2026-10-03, id 8527ba34-90d6-4a9b-b31b-562775213355)
+
+Most recently learned:
+- Prefers pull requests under 300 lines. (since 2026-10-03, id 80fc054b-3964-4c14-97f5-ee671c0e2156)</pre></div>
+      </div>
+      <div class="shot">
+        <h3>Status</h3>
+        <p>What <code>/al-buddy:status</code> runs. Counts only — it never prints a fact.</p>
+        <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>Terminal</span></div><pre><span class="p">$</span> al-buddy-memory status
+Memory: ~/.al-buddy-memory/brain.db (140 KB)
+Facts: 3 current facts, 1 retired (kept in history), 1 pinned rule
+Last write: 2026-10-03T16:28:23.073Z
+Semantic search: on — model ready in ~/.al-buddy-memory/models; 4 of 5 facts indexed so far</pre></div>
+      </div>
+      <div class="shot">
+        <h3>Take it anywhere</h3>
+        <p>Export everything to one file and restore it on a new laptop. Or export a readable copy — the retired fact is still there, struck through, with the dates it was true.</p>
+        <div class="two">
+          <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>Export, then import elsewhere</span></div><pre><span class="p">$</span> al-buddy-memory export --out ~/al-buddy-memory-backup-2026-10-03.json
+exported ~/.al-buddy-memory/brain.db to ~/al-buddy-memory-backup-2026-10-03.json (7937 bytes, portable)
+
+<span class="p">$</span> AL_BUDDY_MEMORY_DB=~/new-laptop/brain.db al-buddy-memory import ~/al-buddy-memory-backup-2026-10-03.json
+imported 5 fact(s) and 0 link(s) into ~/new-laptop/brain.db</pre></div>
+          <div class="term"><div class="t-bar"><i></i><i></i><i></i><span>A readable copy</span></div><pre><span class="p">$</span> al-buddy-memory export --format markdown
+# Memory — default
+
+&gt; **Read-only mirror.** The source of truth is the governed memory store; this file
+&gt; is generated and is **not read back**, so edits here change nothing. Every memory
+&gt; shows where it came from and its validity. Retired
+&gt; memories are preserved below, never erased.
+
+## Experience
+- Gardenbot's staging server moved to staging-2.example.com.
+  _UserInput · confidence 1 · since 2026-10-03T16:28:23.064Z_
+- Prefers pull requests under 300 lines.
+  _UserInput · confidence 1 · since 2026-10-03T16:28:23.049Z_
+- Gardenbot stores its data in SQLite because it must run offline.
+  _UserInput · confidence 1 · since 2026-10-03T16:28:23.034Z_
+
+## Lesson
+- Answer in British English.
+  _UserInput · confidence 1 · since 2026-10-03T16:28:23.062Z_
+
+## Retired (no longer current — preserved for history)
+- ~~Gardenbot's staging server is staging-1.example.com.~~
+  _UserInput · valid 2026-10-03T16:28:23.055Z → 2026-10-03T16:28:23.072Z_</pre></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Home-folder paths are shortened to <code>~</code>, and where a block says "trimmed", fields were left out of a longer answer — nothing was reworded. The status block comes from the release in preparation; the rest from al-buddy-memory 0.10.0 on npm.</p>
+  </section>
+
+  <section class="block" id="privacy">
+    <h2>Our privacy promise</h2>
+    <p class="sub">Your memory is yours. Here is everything that happens to it.</p>
+    <div class="promise">
+      <ul>
+        <li><b>It stays on your computer.</b> One file, <code>~/.al-buddy-memory/brain.db</code>. We never see it.</li>
+        <li><b>Nothing is sent anywhere.</b> No account, no telemetry, no analytics, no crash reports.</li>
+        <li><b>Two downloads, once each:</b> the software from npm, and the search model (about 90 MB) from Hugging Face. Then it runs offline.</li>
+        <li><b>Secrets stay out.</b> Anything that reads like a password, key or token is kept out of every assistant's recall.</li>
+        <li><b>One honest caveat:</b> what Claude recalls becomes part of your conversation with Claude, which Anthropic handles like anything else you type.</li>
+        <li><b>Deleting is one step:</b> remove the <code>~/.al-buddy-memory</code> folder. Export first if you want a copy.</li>
+      </ul>
+    </div>
+    <p class="note">The full statement: <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md">PRIVACY.md</a>. The code is open source (Apache-2.0); you can read every line.</p>
+  </section>
+
+  <section class="block" id="install">
+    <h2>Install</h2>
+    <p class="sub">You need Node.js 22 or later (<code>node --version</code>). The first start downloads about 500 MB of software and a 90 MB search model, once.</p>
+    <div class="grid">
+      <div class="card"><span class="k">Claude Code</span><h3>The plugin</h3><p style="margin-bottom:10px">In Claude Code:</p><pre class="plain">/plugin marketplace add flytomoon/al-buddy-memory
+/plugin install al-buddy@al-buddy</pre><p style="margin-top:10px">Start a new session, then try <code>/al-buddy:help</code>. <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/claude-plugin.md">Full guide.</a></p></div>
+      <div class="card"><span class="k">Codex · ChatGPT desktop</span><h3>The same memory</h3><p style="margin-bottom:10px">They share one setup. From a shell:</p><pre class="plain">codex mcp add al-buddy-memory -- npx -y al-buddy-memory mcp</pre><p style="margin-top:10px">Or in the ChatGPT desktop app: <b>Settings → MCP servers → Add server</b>, choose <b>STDIO</b>, command <code>npx -y al-buddy-memory mcp</code>, save, <b>Restart</b>.</p></div>
+      <div class="card"><span class="k">Or by hand</span><h3>~/.codex/config.toml</h3><pre class="plain">[mcp_servers.al-buddy-memory]
+command = "npx"
+args = ["-y", "al-buddy-memory", "mcp"]
+startup_timeout_sec = 120</pre><p style="margin-top:10px">The longer timeout covers the first download. Claude Code and Codex then share one memory file, and each fact records which one wrote it.</p></div>
+    </div>
+  </section>
+
+  <section class="block" id="faq">
+    <h2>Questions</h2>
+    <details><summary>Does it send my memory anywhere?</summary><p>No. The memory is a file on your machine and the software never uploads it. The only network use is two one-time downloads: the software from npm and the search model from Hugging Face. What Claude recalls does become part of your conversation with Claude, like anything you type.</p></details>
+    <details><summary>What does it cost?</summary><p>Nothing. It is open source (Apache-2.0), needs no account or API key, and runs on your own computer.</p></details>
+    <details><summary>Will it fill up Claude's context?</summary><p>No. The session-start briefing is at most 2,000 characters, and everything else is looked up only when it is needed.</p></details>
+    <details><summary>What happens when something stops being true?</summary><p>It is retired, not deleted: it stops coming back in recall and stays in history with the date it ended, the reason, and what replaced it. So "where was staging last month?" still has an answer.</p></details>
+    <details><summary>How do I take it to another computer or assistant?</summary><p><code>/al-buddy:export</code> writes one JSON file in a documented format; <code>/al-buddy:import</code> restores it on the other machine. Codex and the ChatGPT desktop app can use the same memory directly (see Install).</p></details>
+    <details><summary>How do I delete it?</summary><p>Remove the <code>~/.al-buddy-memory</code> folder. That is all of it. Uninstalling the plugin leaves your memory in place, so a reinstall picks up where you left off.</p></details>
+    <details><summary>I'm on an Intel Mac.</summary><p>It works, with search by keyword only: the on-device model runtime has no build for Intel Macs. <code>/al-buddy:status</code> tells you which mode you are in.</p></details>
+    <details><summary>The memory tools don't appear after installing.</summary><p>The very first start downloads the software and can outlast the connection timeout. Wait a minute and run <code>/reload-plugins</code>. Check <code>node --version</code> is 22 or later. <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/claude-plugin.md#troubleshooting">More troubleshooting.</a></p></details>
+  </section>
+</main>
+<footer><div class="wrap"><a href="./">Al Buddy</a> · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md">Privacy</a> · Apache-2.0</div></footer>
+</body>
+</html>

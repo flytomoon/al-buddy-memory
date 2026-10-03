@@ -365,12 +365,12 @@ transaction as the fact.
 
 ```json
 { "mcpServers": { "memory": { "command": "npx",
-    "args": ["-y", "--package=al-buddy-memory@0.9.0", "al-buddy-memory-mcp"] } } }
+    "args": ["-y", "--package=al-buddy-memory@0.10.0", "al-buddy-memory-mcp"] } } }
 ```
 
 `al-buddy-memory-mcp` is an executable *inside* the `al-buddy-memory` package, not a
 package of its own, so `--package=` is what tells npx where to find it — `npx
-al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.9.0`
+al-buddy-memory-mcp` looks for a package by that name and gets a 404. Drop the `@0.10.0`
 to track the latest release instead of the one you tested.
 
 > **Releasing?** This pin is a documented version and goes stale the moment a new one
@@ -442,7 +442,9 @@ Face hub to `~/.al-buddy-memory/models` (`AL_BUDDY_MEMORY_MODEL_CACHE` moves it)
 offline; facts stored before it was there are embedded in the background, up to 5,000 per start
 (`AL_BUDDY_MEMORY_INDEX_LIMIT`). Where it cannot load — `@huggingface/transformers` not installed,
 no onnxruntime binary for the platform (Intel Macs, for one), no network on first run — recall
-stays keyword-only and the server says so once on stderr. `AL_BUDDY_MEMORY_SEMANTIC=off` never
+stays keyword-only and the server says so once on stderr. The model loads and runs in a worker
+thread, and the background pass gives the event loop back every 20 ms, so the server keeps
+answering while it indexes. `AL_BUDDY_MEMORY_SEMANTIC=off` never
 loads it. The cross-encoder reranker is not switched on: on the full LongMemEval run it moved the
 overall score by nothing (92.6% with and without) and costs a second model.
 
@@ -458,7 +460,8 @@ al-buddy-memory import ~/memory-backup.json              # checks the whole file
 ```
 
 Both read `AL_BUDDY_MEMORY_DB` (or `--db`) like the server. `al-buddy-memory context` prints the
-short briefing the Claude Code plugin shows at session start.
+short briefing the Claude Code plugin shows at session start, and `al-buddy-memory status` the
+counts, the database path, the last write and whether semantic search is available.
 
 ### As a remote connector in Claude and ChatGPT
 
@@ -485,12 +488,19 @@ The repository is also a Claude Code plugin marketplace. In Claude Code:
 
 ```text
 /plugin marketplace add flytomoon/al-buddy-memory
-/plugin install al-buddy-memory@al-buddy
+/plugin install al-buddy@al-buddy
 ```
 
 or from a shell, `claude plugin marketplace add flytomoon/al-buddy-memory` and
-`claude plugin install al-buddy-memory@al-buddy`. There is nothing to configure. The plugin
-([plugin/](plugin/README.md)) brings:
+`claude plugin install al-buddy@al-buddy`. There is nothing to configure. Getting started,
+commands and troubleshooting: [docs/claude-plugin.md](docs/claude-plugin.md) (and
+[albuddy.com/claude.html](https://albuddy.com/claude.html)); privacy: [docs/PRIVACY.md](docs/PRIVACY.md).
+
+Commands, all under the plugin's `al-buddy:` namespace: `/al-buddy:recall <question>`,
+`/al-buddy:remember <fact>`, `/al-buddy:forget <fact>` (retire it; kept in history),
+`/al-buddy:status`, `/al-buddy:export [file]`, `/al-buddy:import <file>` and `/al-buddy:help`.
+
+The plugin ([plugin/](plugin/README.md)) brings:
 
 - the governance MCP server above, started with `npx` and pinned to an exact version — the first
   start downloads the package (about 500 MB installed, most of it the optional model runtime);
@@ -508,11 +518,18 @@ machine except the two one-time downloads (the npm package and the model).
 
 **Export, back up, remove.** Ask Claude to export your memory (the `export` tool), or run
 `al-buddy-memory export --out <file>.json` for the complete owner backup. Uninstalling the plugin
-(`/plugin uninstall al-buddy-memory@al-buddy`) leaves your memory in place; delete
+(`/plugin uninstall al-buddy@al-buddy`) leaves your memory in place; delete
 `~/.al-buddy-memory/` to remove it, after exporting it if you want to keep it.
 
 **Hosts other than Claude Code.** The plugin is the same server: any MCP client can use the
-`npx` configuration in [The governance MCP server](#the-governance-mcp-server).
+`npx` configuration in [The governance MCP server](#the-governance-mcp-server). Codex and the
+ChatGPT desktop app share one configuration; from a shell,
+`codex mcp add al-buddy-memory -- npx -y al-buddy-memory mcp`, or in the desktop app *Settings → MCP
+servers → Add server → STDIO* with that command. Details in
+[docs/claude-plugin.md](docs/claude-plugin.md#codex-and-the-chatgpt-desktop-app).
+
+`al-buddy-memory status` prints how many facts are current, retired and pinned, where the database
+is, when it was last written, and whether semantic search can run on this machine (counts only).
 
 Needs Node.js 22 or later on the `PATH`; Node 20 works only where `better-sqlite3` can compile
 from source (it ships no Node 20 binary).

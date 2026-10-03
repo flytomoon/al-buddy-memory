@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CONTEXT_MAX_CHARS, exportMemory, importMemory, memoryDbPath, sessionContext, writeNewFile } from "./cli.js";
+import { CONTEXT_MAX_CHARS, exportMemory, formatStatus, importMemory, memoryDbPath, memoryStatus, semanticAvailability, sessionContext, writeNewFile } from "./cli.js";
 import { governanceTools, serverStore } from "./mcp/governance-server.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import { storeAudit } from "./governance/audit.js";
@@ -104,5 +104,46 @@ describe("context — the session-start briefing", () => {
     for (const line of out.split("\n").filter((l) => l.startsWith("- "))) expect(line).toMatch(/\(since \d{4}-\d{2}-\d{2}, id [^)]+\)$/);
     const capped = await sessionContext({ db, cwd: "/x/y", maxChars: 1_000_000, now });
     expect(capped.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+  });
+});
+
+describe("status — what is remembered, where, and whether recall reads meaning", () => {
+  const on = { state: "on" as const, detail: "model ready in /m" };
+
+  it("reports nothing yet, and creates nothing, when there is no memory", async () => {
+    const db = join(dir, "none.db");
+    const s = await memoryStatus({ db, semantic: on });
+    expect(s).toMatchObject({ exists: false, current: 0, lastWrite: null });
+    expect(existsSync(db)).toBe(false);
+    expect(formatStatus(s)).toMatch(/^Memory: none yet at /);
+  });
+
+  it("counts current, retired and pinned facts and the last write — and prints no fact's text", async () => {
+    const db = join(dir, "a.db");
+    await seed(db, ["Prefers tea", "Lives in Tokyo", "the wifi password is hunter2"], ["Always answer in British English"]);
+    const inner = new SqliteMemoryStore(db);
+    const t = governanceTools({ store: serverStore(inner, { audit: storeAudit(inner) }) });
+    const [tokyo] = (await t.recall({ query: "Tokyo" })).filter((r: { text: string }) => r.text === "Lives in Tokyo");
+    await t.invalidate({ id: tokyo!.id, reason: "moved" });
+    inner.close();
+
+    const s = await memoryStatus({ db, semantic: on });
+    expect(s).toMatchObject({ exists: true, current: 2, retired: 1, pinned: 1, indexed: 0 });
+    expect(s.sizeBytes).toBeGreaterThan(0);
+    expect(Date.parse(s.lastWrite!)).toBeGreaterThan(Date.now() - 60_000);
+    const text = formatStatus(s);
+    expect(text).toMatch(/Facts: 2 current facts, 1 retired \(kept in history\), 1 pinned rule/);
+    expect(text).toMatch(/Semantic search: on — model ready in \/m; 0 of 4 facts indexed so far/);
+    expect(text).not.toMatch(/tea|Tokyo|hunter2|British/);
+  });
+
+  it("says why semantic search is off: switched off, Intel Mac, runtime missing, model not downloaded", () => {
+    const base = { platform: "darwin", arch: "arm64", modelCacheDir: dir, hasRuntime: () => true };
+    expect(semanticAvailability({ ...base, env: { AL_BUDDY_MEMORY_SEMANTIC: "off" } }).state).toBe("off");
+    expect(semanticAvailability({ ...base, env: {}, arch: "x64" })).toMatchObject({ state: "unavailable", detail: expect.stringMatching(/Intel Mac/) });
+    expect(semanticAvailability({ ...base, env: {}, hasRuntime: () => false })).toMatchObject({ state: "unavailable", detail: expect.stringMatching(/not installed/) });
+    expect(semanticAvailability({ ...base, env: {} })).toMatchObject({ state: "not-downloaded", detail: expect.stringMatching(/90 MB/) });
+    mkdirSync(join(dir, "Xenova", "all-MiniLM-L6-v2"), { recursive: true });
+    expect(semanticAvailability({ ...base, env: {} }).state).toBe("on");
   });
 });

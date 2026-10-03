@@ -9,6 +9,42 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## 0.10.1 — unreleased
+
+The servers keep answering while they index, the Claude Code plugin gets its own name and slash
+commands, and `al-buddy-memory status`.
+
+### Fixed
+
+- **A server answered slowly for the first seconds to minutes after start** while it embedded an
+  existing memory: loading the on-device model and embedding with it are synchronous native work,
+  and the background pass ran them on the event loop. On a 5,000-fact database the HTTP connector's
+  `/health` took 36 ms at p50, 85 ms at p95 and up to 268 ms during the pass (1.4 ms otherwise), and
+  seconds on a larger real one. Now the shipped servers run the model in a worker thread
+  (`WorkerEmbedder`, same model tag, so existing vectors stay valid), and `indexMissingEmbeddings`
+  gives the loop back between batches and after every `sliceMs` (default 20) of writes: the same
+  pass measured 0.8 ms p50 and 1.5 ms p95. Model loading no longer stalls requests either.
+
+### Added
+
+- **`al-buddy-memory status [--json]`**: current, retired and pinned fact counts, the database path
+  and size, the last write, and whether semantic search can run here (switched off, Intel Mac,
+  runtime missing, model not downloaded yet, or on — with how many facts are indexed). Counts only;
+  never creates the database.
+- `WorkerEmbedder` (exported): LocalEmbedder's model in a worker thread.
+- **Claude Code plugin**: slash commands `/al-buddy:forget`, `/al-buddy:status`, `/al-buddy:export`,
+  `/al-buddy:import` and `/al-buddy:help`; the two skills take arguments as
+  `/al-buddy:recall <question>` and `/al-buddy:remember <fact>`. A getting-started guide
+  ([docs/claude-plugin.md](docs/claude-plugin.md), also albuddy.com/claude.html) and a privacy
+  statement ([docs/PRIVACY.md](docs/PRIVACY.md)).
+
+### Behaviour change
+
+- **The plugin is now `al-buddy`** (it was `al-buddy-memory`), so its commands read `/al-buddy:…`
+  and it installs as `/plugin install al-buddy@al-buddy`. Its MCP server is
+  `plugin:al-buddy:memory`, so tool permission rules name `mcp__plugin_al-buddy_memory__…`. The
+  memory file is unchanged.
+
 ## 0.10.0 — 2026-10-03
 
 The shipped servers recall the way the benchmark does, memory exports from the server and the

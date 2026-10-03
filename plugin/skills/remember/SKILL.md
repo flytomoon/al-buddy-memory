@@ -1,6 +1,7 @@
 ---
 name: remember
 description: Store a durable fact in the user's long-term memory — a decision, a preference, a convention, a fact about a person or project — when the user states one or asks you to remember something. Never for secrets, credentials, small talk, or one-off requests.
+argument-hint: <fact>
 ---
 
 # Remember durable facts, and nothing else
@@ -26,3 +27,5 @@ Use the `memory` server's `remember` tool when something will still matter in a 
 - Anything the user asks you not to keep.
 
 If you are unsure whether something is durable, ask the user before storing it.
+
+When the user runs `/al-buddy:remember <fact>`, the fact arrives as ARGUMENTS: store it with `provenance: "UserInput"`, in their words made to stand on its own, then confirm in one line and mention any `mayConflictWith` fact they may want retired. Refuse a secret, and say why.

@@ -12,6 +12,10 @@
 //   mentioning the project, the most recent facts), read as the assistant would
 //   see it. --hook reads a Claude Code hook's JSON from stdin for the working
 //   directory. Prints nothing when there is no memory yet; never creates it.
+// al-buddy-memory status [--json] [--db path]
+//   how many facts are current, retired and pinned, where the database is, when
+//   it was last written, and whether semantic search can run here. Counts only;
+//   never creates the database.
 // The database is AL_BUDDY_MEMORY_DB, else ~/.al-buddy-memory/brain.db — the
 // MCP server's. --db overrides both.
 // al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]
@@ -57,7 +61,7 @@ if (cmd === "verify-audit") {
   process.exit(checked.ok ? 0 : 1);
 }
 
-if (cmd === "export" || cmd === "import" || cmd === "context") {
+if (cmd === "export" || cmd === "import" || cmd === "context" || cmd === "status") {
   const cli = await import("../dist/cli.js");
   const db = flag("--db") ? cli.memoryDbPath({ AL_BUDDY_MEMORY_DB: flag("--db") }) : cli.memoryDbPath();
   const owner = process.env.AL_BUDDY_MEMORY_OWNER ?? "owner";
@@ -71,6 +75,9 @@ if (cmd === "export" || cmd === "import" || cmd === "context") {
         cli.writeNewFile(out, text);
         console.error(`exported ${db} to ${out} (${Buffer.byteLength(text)} bytes, ${format})`);
       } else process.stdout.write(text);
+    } else if (cmd === "status") {
+      const status = await cli.memoryStatus({ db, owner });
+      console.log(has("--json") ? JSON.stringify(status, null, 2) : cli.formatStatus(status));
     } else if (cmd === "import") {
       if (!args[1] || args[1].startsWith("--")) throw new Error("usage: al-buddy-memory import <export.json> [--db path]");
       const summary = await cli.importMemory({ db, owner, file: args[1] });
@@ -99,7 +106,7 @@ if (cmd === "export" || cmd === "import" || cmd === "context") {
 }
 
 if (cmd !== "conformance" && cmd !== "mcp") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory mcp");
+  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory status [--json] [--db path]\n       al-buddy-memory mcp");
   process.exit(2);
 }
 
