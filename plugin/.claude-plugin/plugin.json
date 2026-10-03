@@ -17,5 +17,6 @@
     "sqlite",
     "provenance",
     "mcp"
-  ]
+  ],
+  "supportUrl": "https://github.com/flytomoon/al-buddy-memory/issues"
 }
