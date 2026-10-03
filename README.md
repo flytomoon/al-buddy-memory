@@ -521,6 +521,13 @@ machine except the two one-time downloads (the npm package and the model).
 (`/plugin uninstall al-buddy@al-buddy`) leaves your memory in place; delete
 `~/.al-buddy-memory/` to remove it, after exporting it if you want to keep it.
 
+**The Claude desktop app.** A one-click extension, `al-buddy-memory.mcpb` (macOS), is attached to
+each [GitHub release](https://github.com/flytomoon/al-buddy-memory/releases/latest) from the next
+one on, built by `npm run build:mcpb`. It carries the server and its dependencies, including the
+SQLite engine compiled for the Node.js built into Claude Desktop, and it uses the same
+`~/.al-buddy-memory/brain.db` as the plugin, so the two apps share one memory. Steps in
+[docs/claude-plugin.md](docs/claude-plugin.md#the-claude-desktop-app).
+
 **Hosts other than Claude Code.** The plugin is the same server: any MCP client can use the
 `npx` configuration in [The governance MCP server](#the-governance-mcp-server). Codex and the
 ChatGPT desktop app share one configuration; from a shell,

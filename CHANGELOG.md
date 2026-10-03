@@ -32,6 +32,11 @@ commands, and `al-buddy-memory status`.
   runtime missing, model not downloaded yet, or on — with how many facts are indexed). Counts only;
   never creates the database.
 - `WorkerEmbedder` (exported): LocalEmbedder's model in a worker thread.
+- **Claude desktop app extension** (`al-buddy-memory.mcpb`, macOS): `npm run build:mcpb` bundles the
+  stdio server with its dependencies (MCP Bundle format), including better-sqlite3 compiled for
+  Claude Desktop's built-in Node (Electron 44, ABI 149) and the published builds for Node 22–26,
+  and the on-device model runtime for Apple silicon. Same database as the plugin by default. The
+  release workflow attaches it to the GitHub release.
 - **Claude Code plugin**: slash commands `/al-buddy:forget`, `/al-buddy:status`, `/al-buddy:export`,
   `/al-buddy:import` and `/al-buddy:help`; the two skills take arguments as
   `/al-buddy:recall <question>` and `/al-buddy:remember <fact>`. A getting-started guide

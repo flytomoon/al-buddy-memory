@@ -58,6 +58,7 @@
     "clean": "rm -rf dist",
     "release": "node scripts/release.mjs",
     "release:pin": "node scripts/release.mjs --pin",
+    "build:mcpb": "node scripts/build-mcpb.mjs",
     "build:demo": "esbuild src/conformance/browser.ts --bundle --format=esm --platform=browser --target=es2022 --minify --outfile=docs/demo/conformance.js"
   },
   "dependencies": {

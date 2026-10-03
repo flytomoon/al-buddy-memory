@@ -23,6 +23,8 @@
   .bar { display:flex; align-items:center; gap:12px; min-height:60px }
   .bar a.home { display:flex; align-items:center; gap:12px; color:var(--fg); text-decoration:none }
   .bar img { width:34px; height:34px; border-radius:9px }
+  .bar .home-link { color:var(--fg-dim); text-decoration:none; font-size:14px; padding:6px 10px; border:1px solid var(--line); border-radius:999px; white-space:nowrap }
+  .bar .home-link:hover { color:var(--fg); background:var(--code) }
   .bar b { font-size:18px; letter-spacing:-.01em; white-space:nowrap }
   .bar nav { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end }
   .bar nav a { color:var(--fg-dim); text-decoration:none; padding:8px 10px; border-radius:8px; font-size:15px }
@@ -66,6 +68,7 @@
   table.cmds td:first-child code { background:none; padding:0; font-size:14px; color:var(--ember) }
   table.cmds td:last-child { color:var(--fg-dim) }
   @media (max-width:560px) { table.cmds, table.cmds tbody, table.cmds tr, table.cmds td { display:block; width:auto } table.cmds tr { border-top:1px solid var(--line) } table.cmds tr:first-child { border-top:0 } table.cmds td { border-top:0 } table.cmds td:first-child { padding-bottom:0 } table.cmds td:last-child { padding-top:4px } }
+  ol.steps { margin:6px 0 12px; padding-left:20px; color:var(--fg-dim); font-size:15.5px } ol.steps li { margin:6px 0 }
   .note { color:var(--fg-faint); font-size:14px; margin-top:14px; max-width:720px }
   .promise { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--sage); border-radius:16px; padding:22px 24px }
   .promise ul { margin:10px 0 0; padding-left:20px } .promise li { margin:6px 0; color:var(--fg-dim) } .promise li b { color:var(--fg) }
@@ -78,11 +81,28 @@
   footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
   footer a { color:var(--fg-dim) }
   @media (max-width:520px) { .wrap { padding:0 16px } .bar { gap:8px; flex-wrap:wrap; padding:8px 0 } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav { width:100%; justify-content:flex-start; margin-left:0 } .bar nav a { padding:6px 8px; font-size:14px } .hero { padding:36px 0 28px } .card { padding:18px } .term pre { font-size:12px; padding:12px } }
+
+  /* Top menu (2026-10-03): at most six items on desktop; a menu button at phone widths.
+     Without JS the list stays visible (wrapped), so nothing is unreachable. */
+  .bar { position:relative }
+  .menu-btn { display:none; margin-left:auto; align-items:center; justify-content:center; width:44px; height:44px; padding:0; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--fg); cursor:pointer }
+  .menu-btn svg { width:20px; height:20px }
+  .menu-btn .x { display:none } .menu-btn[aria-expanded="true"] .x { display:block } .menu-btn[aria-expanded="true"] .burger { display:none }
+  @media (max-width:720px) {
+    .js .menu-btn { display:inline-flex }
+    .js .bar nav { display:none; width:auto; position:absolute; top:100%; left:0; right:0; margin:0; padding:8px 12px 14px; flex-direction:column; align-items:stretch; gap:2px; background:var(--paper); border-bottom:1px solid var(--line); box-shadow:0 14px 24px rgba(0,0,0,.10); z-index:20 }
+    .js .bar nav.open { display:flex }
+    .js .bar nav a { padding:12px 10px; font-size:16px; border-radius:10px }
+    .bar { flex-wrap:nowrap }
+  }
+  /* The phone bar keeps the page's side gutter (an older rule zeroed it). */
+  @media (max-width:520px) { .wrap.bar { padding:8px 16px } }
 </style>
 </head>
 <body>
-<header><div class="wrap bar"><a class="home" href="./"><img src="al-icon.png" alt=""><b>Al Buddy</b></a>
-  <nav><a href="#how">How it works</a><a href="#commands">Commands</a><a href="#see">See it</a><a href="#privacy">Privacy</a><a href="#install">Install</a><a href="#faq">FAQ</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
+<header><div class="wrap bar"><a class="home" href="./" aria-label="Al Buddy home"><img src="al-icon.png" alt=""><b>Al Buddy</b></a><a class="home-link" href="./">← Home</a>
+  <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu" hidden><svg class="burger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <nav id="site-nav" aria-label="On this page"><a href="#how">How it works</a><a href="#commands">Commands</a><a href="#desktop">Desktop</a><a href="#install">Install</a><a href="#faq">FAQ</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
 <main class="wrap">
   <section class="hero">
@@ -99,7 +119,7 @@
     <h2>How it works</h2>
     <p class="sub">Three steps. The first is the only one you have to do.</p>
     <div class="grid">
-      <div class="card"><span class="step">1</span><h3>Install the plugin</h3><p>Two commands in Claude Code. Nothing to configure, no account, no key. The first start downloads the memory server and a small search model, once.</p></div>
+      <div class="card"><span class="step">1</span><h3>Install it</h3><p>Two commands in Claude Code, or one click in the Claude desktop app. Nothing to configure, no account, no key. The first start downloads the memory server and a small search model, once.</p></div>
       <div class="card"><span class="step">2</span><h3>Work the way you do now</h3><p>Claude remembers decisions, preferences and facts about your projects as you go, and looks them up before answering about past work. Every session starts with a short briefing of what matters.</p></div>
       <div class="card"><span class="step">3</span><h3>Keep it. Take it anywhere.</h3><p>It is one file on your computer. Nothing is overwritten: what stops being true is retired and kept, with a date. Export it all to one documented JSON file, or use the same memory in Codex and the ChatGPT desktop app.</p></div>
     </div>
@@ -117,6 +137,29 @@
       <tr><td><code>/al-buddy:import &lt;file&gt;</code></td><td>Restore from an export. It checks the whole file first and is safe to run twice.</td></tr>
       <tr><td><code>/al-buddy:help</code></td><td>One screen: what it is, the commands, where your data lives, and how to delete it.</td></tr>
     </tbody></table>
+  </section>
+
+  <section class="block" id="desktop">
+    <h2>The Claude desktop app</h2>
+    <p class="sub">The same memory, one click to install. It uses the same file as Claude Code, so what you work out in one app is there in the other.</p>
+    <div class="grid">
+      <div class="card"><span class="k">One click · macOS</span><h3>Install the extension</h3>
+        <ol class="steps">
+          <li>Download <a href="https://github.com/flytomoon/al-buddy-memory/releases/latest/download/al-buddy-memory.mcpb"><code>al-buddy-memory.mcpb</code></a> (about 80 MB — everything is inside, no Node.js needed).</li>
+          <li>Double-click it, or drag it into the Claude window, or use <b>Settings → Extensions → Advanced settings → Install Extension…</b></li>
+          <li>Review and choose <b>Install</b>. Leave <b>Memory file</b> as it is to share one memory with Claude Code.</li>
+        </ol>
+        <p>The first start downloads the search model (about 90 MB) once. Then just talk: "remember that…", "what did we decide about…". The <code>/al-buddy:</code> commands are Claude Code's; in the app you ask in your own words.</p></div>
+      <div class="card"><span class="k">Or by hand</span><h3>claude_desktop_config.json</h3><p style="margin-bottom:10px">Needs Node.js 22 or later. In Claude: <b>Settings → Developer → Edit config</b>, add this, and restart Claude:</p><pre class="plain">{
+  "mcpServers": {
+    "al-buddy-memory": {
+      "command": "npx",
+      "args": ["-y", "al-buddy-memory", "mcp"]
+    }
+  }
+}</pre><p style="margin-top:10px">If the file already has an <code>"mcpServers"</code> block, add only the <code>"al-buddy-memory"</code> entry to it.</p></div>
+    </div>
+    <p class="note">Windows: use the manual setup for now; a one-click Windows build is on the way. On an Intel Mac, search works by keyword only.</p>
   </section>
 
   <section class="block" id="see">
@@ -270,6 +313,7 @@ startup_timeout_sec = 120</pre><p style="margin-top:10px">The longer timeout cov
 
   <section class="block" id="faq">
     <h2>Questions</h2>
+    <details><summary>Does it work in the desktop app, on the web, or on my phone?</summary><p><b>Claude Code</b> — yes, everywhere it runs. <b>The Claude desktop app</b> — yes, with the one-click extension above, and it shares one memory with Claude Code. <b>claude.ai on the web and the phone apps</b> — not directly: they can only reach servers on the internet, and we don't host your memory. If you are technical, you can run your own connector — the package's HTTP server, with a sign-in only you know — behind your own private tunnel, and add it in Claude as a custom connector. <a href="https://github.com/flytomoon/al-buddy-memory#as-a-remote-connector-in-claude-and-chatgpt">How.</a></p></details>
     <details><summary>Does it send my memory anywhere?</summary><p>No. The memory is a file on your machine and the software never uploads it. The only network use is two one-time downloads: the software from npm and the search model from Hugging Face. What Claude recalls does become part of your conversation with Claude, like anything you type.</p></details>
     <details><summary>What does it cost?</summary><p>Nothing. It is open source (Apache-2.0), needs no account or API key, and runs on your own computer.</p></details>
     <details><summary>Will it fill up Claude's context?</summary><p>No. The session-start briefing is at most 2,000 characters, and everything else is looked up only when it is needed.</p></details>
@@ -280,6 +324,20 @@ startup_timeout_sec = 120</pre><p style="margin-top:10px">The longer timeout cov
     <details><summary>The memory tools don't appear after installing.</summary><p>The very first start downloads the software and can outlast the connection timeout. Wait a minute and run <code>/reload-plugins</code>. Check <code>node --version</code> is 22 or later. <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/claude-plugin.md#troubleshooting">More troubleshooting.</a></p></details>
   </section>
 </main>
-<footer><div class="wrap"><a href="./">Al Buddy</a> · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md">Privacy</a> · Apache-2.0</div></footer>
+<footer><div class="wrap"><a href="./">Al Buddy home</a> · <a href="#see">What it looks like</a> · <a href="#privacy">Privacy promise</a> · <a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a> · <a href="https://www.npmjs.com/package/al-buddy-memory">npm</a> · <a href="https://github.com/flytomoon/al-buddy-memory/blob/main/docs/PRIVACY.md">Privacy</a> · Apache-2.0</div></footer>
+<script>
+  // The menu button: open/close, Esc and outside-click close, a chosen link closes.
+  (function () {
+    document.documentElement.classList.add("js");
+    var btn = document.querySelector(".menu-btn"), nav = document.getElementById("site-nav");
+    if (!btn || !nav) return;
+    btn.hidden = false;
+    var set = function (open) { nav.classList.toggle("open", open); btn.setAttribute("aria-expanded", open ? "true" : "false"); btn.setAttribute("aria-label", open ? "Close menu" : "Open menu"); };
+    btn.addEventListener("click", function (e) { e.stopPropagation(); set(btn.getAttribute("aria-expanded") !== "true"); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && nav.classList.contains("open")) { set(false); btn.focus(); } });
+    document.addEventListener("click", function (e) { if (nav.classList.contains("open") && !nav.contains(e.target)) set(false); });
+    nav.addEventListener("click", function (e) { if (e.target.closest("a")) set(false); });
+  })();
+</script>
 </body>
 </html>

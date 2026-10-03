@@ -93,6 +93,32 @@ reinstall picks up where you left off.
 
 The full statement: [PRIVACY.md](PRIVACY.md).
 
+## The Claude desktop app
+
+The same memory installs in the Claude desktop app (macOS) as a one-click extension, and it uses
+the same `~/.al-buddy-memory/brain.db` as Claude Code, so the two apps share one memory.
+
+1. Download [`al-buddy-memory.mcpb`](https://github.com/flytomoon/al-buddy-memory/releases/latest/download/al-buddy-memory.mcpb)
+   (about 80 MB: the server and everything it needs, so no Node.js is required).
+2. Double-click it, drag it into the Claude window, or use **Settings → Extensions → Advanced
+   settings → Install Extension…**
+3. Review and choose **Install**. Leave **Memory file** as it is to share memory with Claude Code.
+
+In the app there are no slash commands; ask in your own words ("remember that…", "what did we
+decide about…"). The first start downloads the search model (about 90 MB) once.
+
+**By hand, or on Windows for now** (needs Node.js 22+): **Settings → Developer → Edit config**, add
+this to `claude_desktop_config.json`, and restart Claude:
+
+```json
+{ "mcpServers": { "al-buddy-memory": { "command": "npx", "args": ["-y", "al-buddy-memory", "mcp"] } } }
+```
+
+**claude.ai on the web and the phone apps** can only reach servers on the internet, and we do not
+host your memory. To use it there you would run your own connector — `al-buddy-memory-http`, with
+a passphrase only you know — behind your own private tunnel; see
+[the README](../README.md#as-a-remote-connector-in-claude-and-chatgpt).
+
 ## Codex and the ChatGPT desktop app
 
 The same memory works in Codex and the ChatGPT desktop app, which share one MCP configuration.
