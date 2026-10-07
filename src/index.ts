@@ -11,6 +11,8 @@ export * from "./types/memory.js";
 export { InMemoryStore } from "./in-memory-store.js";
 export { SqliteMemoryStore, DEFAULT_DB_PATH, readRecordedScope } from "./sqlite-memory-store.js";
 export type { SqliteMemoryStoreOptions } from "./sqlite-memory-store.js";
+export { PostgresMemoryStore } from "./postgres-memory-store.js";
+export type { PostgresMemoryStoreOptions, PostgresQueryClient } from "./postgres-memory-store.js";
 export { ProjectMemory, projectDbPath, canonicalProjectDbPath, legacyProjectDbPath, DEFAULT_MEMORY_DIR } from "./project-memory.js";
 export type { CaptureInput, ProjectMemoryOptions } from "./project-memory.js";
 export { renderMemoryBlock } from "./memory-block.js";

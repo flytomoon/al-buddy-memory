@@ -286,6 +286,14 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     });
   }
 
+  /** Hydrate a version already validated when it was committed by a durable store. */
+  loadStoredVersion(version: NodeVersion): void {
+    assertVersion(version);
+    if (!this.nodes.has(version.nodeId)) throw new Error(`stored version ${version.versionId} has no node`);
+    if (this.versionIds.has(version.versionId)) throw new Error(`duplicate stored version ${version.versionId}`);
+    this.recordVersion(copy(version));
+  }
+
   /** The same referential rule SQLite's foreign keys enforce, so the stores agree. */
   private assertEndpoints(edge: Pick<MemoryEdge, "sourceNodeId" | "targetNodeId">): void {
     for (const id of [edge.sourceNodeId, edge.targetNodeId]) {
