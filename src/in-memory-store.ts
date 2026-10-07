@@ -2,7 +2,7 @@ import { dependentsOf, isInvalidation, retractionsFor, sourceRetraction } from "
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, stampAfter } from "./instant.js";
-import { normaliseLimit, queryTokens, visibleRelevance } from "./query-filter.js";
+import { matchesLabels, mentionsAny, normaliseLimit, queryTokens, visibleRelevance } from "./query-filter.js";
 import { assertVersion, assertVersionFitsNode, buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf, orderVersions, versionsEqual } from "./history.js";
 import type {
   AsOfFact,
@@ -147,6 +147,10 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
         return Array.isArray(tags) && wanted.some((t) => (tags as unknown[]).includes(t));
       });
     }
+    if (options.labels !== undefined) {
+      const labels = options.labels;
+      results = results.filter((n) => matchesLabels(n, labels));
+    }
     if (options.minConfidence !== undefined) {
       const min = options.minConfidence;
       results = results.filter((n) => n.confidenceWeight >= min);
@@ -158,10 +162,10 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     // here that SQLite found (Astra A10; Fable, 2026-09-15).
     let tokens: string[] | undefined;
     if (options.query !== undefined) {
-      tokens = queryTokens(options.query).map((t) => t.toLowerCase());
-      if (tokens.length === 0) return [];
-      const wanted = new Set(tokens);
-      results = results.filter((n) => (n.content.text.match(/[\p{L}\p{N}]+/gu) ?? []).some((w) => wanted.has(w.toLowerCase())));
+      const words = queryTokens(options.query).map((t) => t.toLowerCase());
+      if (words.length === 0) return [];
+      tokens = words;
+      results = results.filter((n) => mentionsAny(n.content.text, words));
     }
     if (options.validAt !== undefined) {
       const at = canonicalInstant(options.validAt, "validAt");
