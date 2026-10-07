@@ -160,6 +160,38 @@ ethical behaviour, user sovereignty and privacy, lifecycle and guardians, data s
 [an honest ledger](docs/policies/ENFORCEMENT.md) of what the code enforces, what a prompt carries, and
 what is still a person's decision. They change in the open.
 
+## Enterprise
+
+The same store for an organisation: a shared database, rules about who sees what, encryption
+the operator controls, and erasure on request. SQLite stays the default, and nothing here changes
+a local setup.
+
+- **Postgres.** `PostgresMemoryStore` (pgvector 0.8 or newer) sits behind the same
+  `MemoryStore` interface and passes the same conformance suite. Every read and write is confined
+  to one tenant key, and the audit chain is kept per tenant in the same transaction as each
+  governed write; `verify-audit --postgres --tenant <key>` checks it. A write rebuilds that
+  tenant's graph, so benchmark your tenant sizes before high-write use.
+  [docs/POSTGRES.md](docs/POSTGRES.md)
+- **Boundaries.** A policy can declare who sees what as data: `readBoundary`, fact labels
+  against the asking actor's attributes, with equality, membership, AND and OR. SQLite and
+  Postgres compile it into their own `WHERE`, before ranking and before any `limit`, so facts
+  outside it never take a place in a page. It fails closed, and `beforeRead` still has the final
+  word. [docs/policies/boundaries.md](docs/policies/boundaries.md)
+- **Encryption at rest** is not something this library does. On Postgres it belongs to the
+  database: storage encryption with KMS-managed keys, encrypted backups, TLS. Locally the SQLite
+  file is plaintext, owner-only (0600 in a 0700 directory), so use full-disk encryption
+  (FileVault, BitLocker, LUKS). For file-level encryption, a SQLCipher build of SQLite is the
+  route, but it is **not built or tested here**. `encryptionKeyRef` names a key you manage; it
+  encrypts nothing.
+- **Erasure.** `eraseWhere({ label: "subject", equals: "person-42" })` erases every fact
+  carrying that label that the actor can see, along with what was concluded from them. Each
+  fact goes through the erase policies, so a memory lock still refuses and Recently deleted
+  still holds. The call returns a receipt: selector, actor and time; counts erased, refused
+  (with reasons) and held; ids hashed. Its digest is chained into the audit trail, so
+  `verify-audit memory.db --receipt receipt.json` checks it. **Backups and exports made before
+  the erasure are outside it**, and the receipt says so. It behaves the same on SQLite and
+  Postgres. [docs/ERASURE.md](docs/ERASURE.md)
+
 ## Limits, measured
 
 One SQLite file, one process, one writer. Measured on an M1 Pro laptop with 100,000

@@ -5,7 +5,8 @@ import { compareRecency, effectiveConfidence } from "./decay.js";
 import { canonicalInstant } from "./instant.js";
 import { normaliseLimit, queryTokens } from "./query-filter.js";
 import { canonical, chainDigest, GENESIS, linkFault, EVENT_LABELS } from "./governance/chain.js";
-import type { AuditCapable, AuditEvent } from "./governance/audit.js";
+import type { AuditCapable, AuditEvent, AuditVerifiable, AuditVisitor } from "./governance/audit.js";
+import type { AuditTableResult } from "./governance/audit-table.js";
 import type { AsOfFact, AsOfOptions, AsOfSnapshot, GraphSnapshot, HistoryCapable, LabelFilter, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryQueryOptions, MemoryStore, NewMemoryNode, NodeVersion, SnapshotCapable } from "./types/memory.js";
 
 /** The small query shape shared by node-postgres and PGlite. Production uses Pool. */
@@ -52,7 +53,7 @@ const object = <T>(v: unknown): T => (typeof v === "string" ? JSON.parse(v) : v)
  * changed rows. Invalidation is an UPDATE, never a physical delete. Explicit
  * `deleteNode` is the governed erasure operation and removes dependent rows.
  */
-export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable, AuditCapable {
+export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable, AuditCapable, AuditVerifiable {
   private readonly pool: Pool | undefined;
   private readonly client: PostgresQueryClient;
   private readonly context = new AsyncLocalStorage<PostgresQueryClient>();
@@ -121,6 +122,25 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
       await db.query("SET LOCAL hnsw.iterative_scan = strict_order");
       return work(db);
     });
+    if (this.client.transaction) return this.client.transaction(run);
+    const connection = await this.pool!.connect();
+    try {
+      await connection.query("BEGIN");
+      const result = await run(connection);
+      await connection.query("COMMIT");
+      return result;
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally { connection.release(); }
+  }
+
+  /** One snapshot that writes nothing — not even the tenant row `transaction` ensures. */
+  private async readOnly<T>(work: (db: PostgresQueryClient) => Promise<T>): Promise<T> {
+    const run = async (db: PostgresQueryClient): Promise<T> => {
+      await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      return work(db);
+    };
     if (this.client.transaction) return this.client.transaction(run);
     const connection = await this.pool!.connect();
     try {
@@ -307,5 +327,36 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
   }
   async auditHead(): Promise<string> {
     return this.transaction(async db => (await db.query("SELECT audit_head FROM memory_tenants WHERE tenant_key=$1", [this.tenantId])).rows[0]?.audit_head ?? GENESIS);
+  }
+
+  /**
+   * Check this tenant's chain with the store's key, in one read-only snapshot:
+   * every link, then the tenant row's count and head, which catch events cut
+   * from the end. `head` is a value anchored outside the database. A tenant
+   * with no row is reported, never created: a verifier must not call a
+   * mistyped tenant "intact: 0 events".
+   */
+  async verifyAudit(opts: { head?: string; visit?: AuditVisitor } = {}): Promise<AuditTableResult> {
+    return this.readOnly(async db => {
+      const tenant = (await db.query("SELECT audit_count,audit_head FROM memory_tenants WHERE tenant_key=$1", [this.tenantId])).rows[0];
+      if (tenant === undefined) return { ok: false, count: 0, line: 0, reason: `no tenant ${JSON.stringify(this.tenantId)} in this database` };
+      const rows = (await db.query("SELECT seq,prev,hash,event FROM memory_audit_events WHERE tenant_key=$1 ORDER BY seq", [this.tenantId])).rows;
+      let prev = GENESIS;
+      for (const [i, row] of rows.entries()) {
+        const event = object<AuditEvent>(row.event);
+        const fault = linkFault({ prev: row.prev, hash: row.hash, event }, prev, this.auditKey, i + 1, EVENT_LABELS);
+        if (fault) return { ok: false, count: rows.length, line: i + 1, reason: `${fault} (seq ${row.seq})` };
+        opts.visit?.(event, i + 1);
+        prev = row.hash;
+      }
+      const recorded = Number(tenant.audit_count);
+      if (recorded !== rows.length || tenant.audit_head !== prev) {
+        return { ok: false, count: rows.length, line: rows.length, reason: `the tenant row records ${recorded} event(s) and its own head, and the table does not end there: events were removed from the end, or the chain was rewritten` };
+      }
+      if (opts.head !== undefined && prev !== opts.head) {
+        return { ok: false, count: rows.length, line: rows.length, reason: "the newest event does not match the anchored head: the trail was cut short or has diverged" };
+      }
+      return { ok: true, count: rows.length, head: prev };
+    });
   }
 }

@@ -24,6 +24,10 @@ A policy's [data boundary](policies/boundaries.md) reaches Postgres as the `labe
 
 `validTo` invalidation updates the original row and records a version. Physical deletion occurs only through the explicit erasure API and removes dependent edges, versions, and embeddings. `storeAudit(store)` appends events in the same transaction as a governed mutation. Audit hashes are tenant-specific. A count and head on the tenant row detect accidental row or tail deletion before the next append. Anchor `auditHead()` outside the database if a database owner's deliberate rewrite must be detectable.
 
+`verifyAudit({ head? })` checks one tenant's chain from an open store, in a read-only snapshot: every link, then the tenant row's count and head. It writes nothing, and a tenant with no row is reported rather than created. From the command line: `DATABASE_URL=... al-buddy-memory verify-audit --postgres --tenant <key>` (the HMAC key, if any, from `AL_BUDDY_MEMORY_AUDIT_KEY`).
+
+[Erasure by label](ERASURE.md) (`eraseWhere`) works the same on Postgres as on SQLite — the parity test holds the receipts equal — and its receipt checks against the tenant's chain with `verifyErasureReceipt(receipt, store)` or `verify-audit --postgres --tenant <key> --receipt receipt.json`. Erased rows stay in the table's dead tuples until VACUUM, and in any backup or replica taken before; the receipt says so.
+
 At-rest encryption is the database operator's responsibility: configure Aurora or Postgres storage encryption with KMS-managed keys, encrypted backups, and TLS connections. `encryptionKeyRef` remains immutable provenance metadata; this backend does not add column encryption.
 
 `initialize()` creates the extension, tables, and indexes and must run before using a new database. It requires schema-creation privileges; grant the runtime role only the permissions it needs after migration. The current write path reconstructs one tenant's graph to apply the same domain rules as the in-memory store, then persists changed rows in one transaction. Its mutation cost grows with tenant size; benchmark representative tenant sizes before using it for high-write workloads.

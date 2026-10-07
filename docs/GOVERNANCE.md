@@ -22,7 +22,7 @@ A policy is a plain object with up to five hooks:
 | `beforeUpdate(existing, patch, ctx)` | before a change or invalidation, and when an import overwrites a fact | refuse it |
 | `beforeRead(node, ctx)` | on the way out of `getNode`, `searchNodes`, `listNodes`, and for the endpoints of `getEdges` and the facts behind embeddings | hide it (`null`) or redact it |
 | `beforeExport(node, ctx)` | when an `exportView` is being exported; without it, that policy's `beforeRead` decides, and with it `beforeRead` does not run on export, so repeat any hiding rule | allow or refuse |
-| `beforeErase(subject, ctx)` | before `deleteNode` / `deleteEdge` | return `true` to allow, throw to refuse, return nothing to abstain; erasure needs one allow and no refusal |
+| `beforeErase(subject, ctx)` | before `deleteNode` / `deleteEdge`, and for each fact `eraseWhere` selects | return `true` to allow, throw to refuse, return nothing to abstain; erasure needs one allow and no refusal |
 | `readBoundary` (data, not a hook) | first, on every read (export included, which `beforeExport` does not replace), and inside the store's own query for `searchNodes` | admit only facts whose labels match the actor's attributes; see [policies/boundaries.md](policies/boundaries.md) |
 
 `ctx` carries `actor`, optional `audience`, optional `attributes` (what the application knows about the actor, for boundaries), `purpose` (write / recall / invalidate / export /
@@ -310,6 +310,17 @@ handle the policies see all of it first, as ONE decision:
   and a purge makes them final together — never a conclusion on its own. Binning and restoring
   write one fact after another inside the handle's queue, under one audit event; erasing is one
   store transaction.
+
+## Erasure by label, with a receipt (unreleased)
+
+`eraseWhere(selector)` on a governed handle erases every fact the actor can see whose labels
+match — the [boundary](policies/boundaries.md) language, literal values only — each through the
+same path as `deleteNode`: the erase policies judge the fact and its conclusions as one decision,
+a memory lock refuses, Recently deleted holds. It returns a receipt (selector, actor, time,
+counts erased / refused with reasons / held in Recently deleted, every id hashed, and what it
+does not reach: backups, earlier exports, facts the actor cannot see) whose digest is recorded
+in the audit trail as one event, so `verify-audit --receipt` and `verifyErasureReceipt` can
+check it. It needs an audit sink. Full detail: [ERASURE.md](ERASURE.md).
 
 ## Explaining a fact (0.6.0)
 
