@@ -62,7 +62,8 @@
     "build:demo": "esbuild src/conformance/browser.ts --bundle --format=esm --platform=browser --target=es2022 --minify --outfile=docs/demo/conformance.js"
   },
   "dependencies": {
-    "better-sqlite3": "^12.8.0"
+    "better-sqlite3": "^12.8.0",
+    "pg": "^8.23.1"
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -71,12 +72,15 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
     "@langchain/core": "^1.2.12",
     "@langchain/langgraph": "^1.4.17",
     "@mastra/core": "^1.70.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "ai": "^7.0.114",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
