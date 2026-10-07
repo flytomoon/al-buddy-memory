@@ -23,8 +23,9 @@ A policy is a plain object with up to five hooks:
 | `beforeRead(node, ctx)` | on the way out of `getNode`, `searchNodes`, `listNodes`, and for the endpoints of `getEdges` and the facts behind embeddings | hide it (`null`) or redact it |
 | `beforeExport(node, ctx)` | when an `exportView` is being exported; without it, that policy's `beforeRead` decides, and with it `beforeRead` does not run on export, so repeat any hiding rule | allow or refuse |
 | `beforeErase(subject, ctx)` | before `deleteNode` / `deleteEdge` | return `true` to allow, throw to refuse, return nothing to abstain; erasure needs one allow and no refusal |
+| `readBoundary` (data, not a hook) | first, on every read (export included, which `beforeExport` does not replace), and inside the store's own query for `searchNodes` | admit only facts whose labels match the actor's attributes; see [policies/boundaries.md](policies/boundaries.md) |
 
-`ctx` carries `actor`, optional `audience`, `purpose` (write / recall / invalidate / export /
+`ctx` carries `actor`, optional `audience`, optional `attributes` (what the application knows about the actor, for boundaries), `purpose` (write / recall / invalidate / export /
 import / erase) and `now`. Policies compose in order. Refusals throw `PolicyDenied` with the
 policy's name and reason. When an audit sink is supplied, every allow, hide and refusal lands
 in it as an append-only event; embedding calls are not audited. **When** the event is written
@@ -193,10 +194,14 @@ Hidden facts cannot change what a governed read returns or in what order. A gove
 search reads every match, keeps the visible ones and ranks them by word rarity counted over
 those visible matches alone, then confidence, then recency — not by the store's BM25, whose
 word weights come from all facts, hidden ones included, and so let a hidden fact reorder
-visible results. Ranking uses the text the actor sees; but which facts match is decided from
-the stored words, so a redacting `beforeRead` still lets a search for a redacted word find
-the fact — and a redacted match still counts toward the word weights, so it can move the
-order of other results. To keep content out of search, hide the fact; do not merely redact it. One side channel
+visible results. Ranking uses the text the actor sees, and so does matching, where a policy
+redacted: the store matches the stored words, and a fact whose visible text no longer holds any
+of the query's words is dropped — from the results and from the word weights. Until 2026-10-07
+a search for a redacted word still found the fact, which told the actor it held that word. Two
+edges, stated: a redacted fact is re-matched by whole words, case-insensitive, so one the store
+matched only through folding (FTS5 matches "cafe" to "café") is dropped rather than kept; and
+redacting labels or tags does not change which facts a tag or label filter admits — hide the
+fact, or use a [data boundary](policies/boundaries.md), for those. One side channel
 remains and is inherent: a governed read that steps past many hidden facts takes longer. It
 never shows a hidden fact or its text. Where even a timing hint is unacceptable, give that
 audience a separate store.
