@@ -83,6 +83,25 @@ describe("PostgresMemoryStore", () => {
     expect((await store.listNodes()).map(n => n.nodeId)).toEqual([node.nodeId]);
   });
 
+  it("verifyAudit checks a tenant's chain without writing anything, and catches a cut tail", async () => {
+    const store = new PostgresMemoryStore({ tenantId: "verify", client: db, auditKey: "k" });
+    await store.initialize();
+    const event = { at: "2026-10-07T00:00:00.000Z", actor: "tester", purpose: "write" as const, outcome: "allowed" as const, nodeIds: [], count: 0 };
+    await store.recordAuditEvent(event);
+    await store.recordAuditEvent({ ...event, reason: "second" });
+    const seen: number[] = [];
+    expect(await store.verifyAudit({ visit: (_e, position) => seen.push(position) })).toEqual({ ok: true, count: 2, head: await store.auditHead() });
+    expect(seen).toEqual([1, 2]);
+    expect(await new PostgresMemoryStore({ tenantId: "verify", client: db, auditKey: "wrong" }).verifyAudit()).toMatchObject({ ok: false, reason: expect.stringMatching(/edited/) });
+
+    const ghost = new PostgresMemoryStore({ tenantId: "no-such-tenant", client: db });
+    expect(await ghost.verifyAudit()).toMatchObject({ ok: false, reason: expect.stringMatching(/no tenant/) });
+    expect((await db.query("SELECT 1 FROM memory_tenants WHERE tenant_key=$1", ["no-such-tenant"])).rows).toHaveLength(0);
+
+    await db.query("DELETE FROM memory_audit_events WHERE tenant_key=$1 AND seq = (SELECT MAX(seq) FROM memory_audit_events WHERE tenant_key=$1)", ["verify"]);
+    expect(await store.verifyAudit()).toMatchObject({ ok: false, reason: expect.stringMatching(/removed from the end/) });
+  });
+
   it("governed keyword order depends only on visible matches", async () => {
     const inner = new PostgresMemoryStore({ tenantId: "visible-rank", client: db });
     await inner.initialize();
