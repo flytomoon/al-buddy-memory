@@ -198,8 +198,9 @@ difference does not show, and a test holds its quality: twelve facts asked for i
 questions ("what is the wifi login") among two hundred distractors all land on the first page.
 
 What that means: a personal assistant or a single-tenant service will not notice the
-store; a multi-tenant SaaS needs the Postgres backend on the roadmap. Node/TypeScript
-only for now; the optional on-device embedder is a 25 MB model download.
+store. Hosted deployments can use `PostgresMemoryStore` with explicit tenant keys;
+SQLite remains the default. Node/TypeScript only for now; the optional on-device
+embedder is a 25 MB model download.
 
 ### The semantic path costs more
 
@@ -550,7 +551,7 @@ from source (it ships no Node 20 binary).
 - [x] The audit event committed in the same transaction as the fact it describes, as one chain many processes share (v0.4.2)
 - [x] A comparison table and a live paste-your-export demo (albuddy.com)
 - [x] Transaction time, the second half of bi-temporal: "what did we believe at X", including a fact held wrongly and later corrected (v0.5.0)
-- [ ] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the interface is small and the conformance suite is what a backend must pass)
+- [x] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the backend runs the shared conformance suite)
 - [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
 
 ## Development
