@@ -6,7 +6,7 @@ import { canonicalInstant } from "./instant.js";
 import { normaliseLimit, queryTokens } from "./query-filter.js";
 import { canonical, chainDigest, GENESIS, linkFault, EVENT_LABELS } from "./governance/chain.js";
 import type { AuditCapable, AuditEvent } from "./governance/audit.js";
-import type { AsOfFact, AsOfOptions, AsOfSnapshot, GraphSnapshot, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryQueryOptions, MemoryStore, NewMemoryNode, NodeVersion, SnapshotCapable } from "./types/memory.js";
+import type { AsOfFact, AsOfOptions, AsOfSnapshot, GraphSnapshot, HistoryCapable, LabelFilter, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryQueryOptions, MemoryStore, NewMemoryNode, NodeVersion, SnapshotCapable } from "./types/memory.js";
 
 /** The small query shape shared by node-postgres and PGlite. Production uses Pool. */
 export interface PostgresQueryClient {
@@ -23,6 +23,23 @@ export interface PostgresMemoryStoreOptions {
   /** Fixed dimension indexed with HNSW. Other model dimensions remain storable and scanable. */
   indexedDimensions?: number;
   auditKey?: string;
+}
+
+/**
+ * A {@link LabelFilter} as a WHERE condition over a node's `contextualMetadata`,
+ * labels and values bound as parameters. The same rule as `matchesLabels`: the
+ * label is one of the strings, or an array holding one (`jsonb_exists_any`
+ * matches a scalar string or a top-level array element; an object's keys are
+ * excluded by the type check).
+ */
+function labelCondition(filter: LabelFilter, values: unknown[], column: string): string {
+  if ("all" in filter) return filter.all.length === 0 ? "TRUE" : `(${filter.all.map(f => labelCondition(f, values, column)).join(" AND ")})`;
+  if ("any" in filter) return filter.any.length === 0 ? "FALSE" : `(${filter.any.map(f => labelCondition(f, values, column)).join(" OR ")})`;
+  if (filter.in.length === 0) return "FALSE";
+  values.push(filter.label);
+  const label = `${column}->'contextualMetadata'->$${values.length}::text`;
+  values.push([...filter.in]);
+  return `(jsonb_typeof(${label}) IN ('string','array') AND jsonb_exists_any(${label}, $${values.length}::text[]))`;
 }
 
 type Item = { id: string; kind: string; metadata: unknown };
@@ -191,6 +208,7 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
       else where += " AND metadata->>'retentionTier' NOT IN ('Archived','PendingDeletion')";
       if (options.tags?.length) add("(jsonb_typeof(metadata->'contextualMetadata'->'tags') = 'array' AND jsonb_exists_any(metadata->'contextualMetadata'->'tags', ?::text[]))", options.tags);
       if (options.minConfidence !== undefined) add("(metadata->>'confidenceWeight')::double precision >= ?", options.minConfidence);
+      if (options.labels !== undefined) where += ` AND ${labelCondition(options.labels, values, "metadata")}`;
       if (options.validAt !== undefined) {
         const at = canonicalInstant(options.validAt, "validAt");
         add("(metadata->>'validFrom')::timestamptz <= ?::timestamptz", at);
@@ -254,6 +272,7 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
       else where += " AND n.metadata->>'retentionTier' NOT IN ('Archived','PendingDeletion')";
       if (options.tags?.length) add("(jsonb_typeof(n.metadata->'contextualMetadata'->'tags') = 'array' AND jsonb_exists_any(n.metadata->'contextualMetadata'->'tags', ?::text[]))", options.tags);
       if (options.minConfidence !== undefined) add("(n.metadata->>'confidenceWeight')::double precision >= ?", options.minConfidence);
+      if (options.labels !== undefined) where += ` AND ${labelCondition(options.labels, values, "n.metadata")}`;
       if (options.validAt !== undefined) {
         const at = canonicalInstant(options.validAt, "validAt");
         add("(n.metadata->>'validFrom')::timestamptz <= ?::timestamptz", at);

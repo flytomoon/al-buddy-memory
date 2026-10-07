@@ -255,7 +255,27 @@ export interface MemoryQueryOptions {
    * has nothing after it: the answer is `[]`, never a restart from the top.
    */
   after?: string;
+  /**
+   * Only facts whose labels (keys of `contextualMetadata`) pass this filter.
+   * Applied inside the store's query, before ranking and before `limit`. See
+   * {@link LabelFilter}.
+   */
+  labels?: LabelFilter;
 }
+
+/**
+ * A filter over fact labels — the keys of `contextualMetadata` — with
+ * equality/membership, AND and OR only, so every store can run it inside its
+ * own query. `{ label, in }` holds when the label's value is one of the
+ * strings, or is an array holding at least one of them; a missing label, or a
+ * value of any other type, matches nothing. `{ all: [] }` holds for every
+ * fact, `{ any: [] }` for none. There is no NOT: a filter can only admit facts
+ * by what they carry, so a fact missing a label fails closed.
+ */
+export type LabelFilter =
+  | { readonly label: string; readonly in: readonly string[] }
+  | { readonly all: readonly LabelFilter[] }
+  | { readonly any: readonly LabelFilter[] };
 
 /** A whole memory graph as one state of a store: every node, every edge. */
 export interface GraphSnapshot {

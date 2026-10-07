@@ -18,6 +18,7 @@ import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immut
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, instantMs, stampAfter } from "./instant.js";
 import type {
   EmbeddingVector,
+  LabelFilter,
   AsOfFact,
   AsOfOptions,
   AsOfSnapshot,
@@ -132,6 +133,28 @@ function toFtsMatch(query: string): string | null {
   // Capped by queryTokens to keep the query bounded; quote each term (a quoted
   // FTS5 string is a literal, immune to operator characters).
   return tokens.map((t) => `"${t}"`).join(" OR ");
+}
+
+/**
+ * A {@link LabelFilter} as a WHERE condition over `contextual_metadata`, with
+ * every label and value bound as a parameter. The same rule as `matchesLabels`:
+ * the label's value is one of the strings, or an array holding one of them.
+ * Labels are looked up by key through `json_each`, so a label is never spliced
+ * into a JSON path.
+ */
+function labelCondition(filter: LabelFilter, params: Record<string, unknown>): string {
+  if ("all" in filter) return filter.all.length === 0 ? "1" : `(${filter.all.map((f) => labelCondition(f, params)).join(" AND ")})`;
+  if ("any" in filter) return filter.any.length === 0 ? "0" : `(${filter.any.map((f) => labelCondition(f, params)).join(" OR ")})`;
+  if (filter.in.length === 0) return "0";
+  const n = Object.keys(params).length;
+  params[`lk${n}`] = filter.label;
+  const values = filter.in.map((v, i) => {
+    params[`lv${n}_${i}`] = v;
+    return `@lv${n}_${i}`;
+  }).join(", ");
+  return `EXISTS (SELECT 1 FROM json_each(contextual_metadata) lb WHERE lb.key = @lk${n} AND (
+    (lb.type = 'text' AND lb.value IN (${values}))
+    OR (lb.type = 'array' AND EXISTS (SELECT 1 FROM json_each(lb.value) le WHERE le.type = 'text' AND le.value IN (${values})))))`;
 }
 
 /**
@@ -997,6 +1020,11 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       conditions.push(
         `json_type(contextual_metadata, '$.tags') = 'array' AND EXISTS (SELECT 1 FROM json_each(contextual_metadata, '$.tags') WHERE json_each.value IN (${placeholders}))`,
       );
+    }
+
+    if (options.labels !== undefined) {
+      // In SQL with the other filters, so it applies before the pool and the LIMIT.
+      conditions.push(labelCondition(options.labels, params));
     }
 
     if (options.validAt !== undefined) {

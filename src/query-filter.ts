@@ -6,12 +6,27 @@
  * active context unless named. One definition, so a filter can never mean one
  * thing on the keyword path and another on the vector path.
  */
-import type { MemoryNode, MemoryQueryOptions } from "./types/memory.js";
+import type { LabelFilter, MemoryNode, MemoryQueryOptions } from "./types/memory.js";
 
 export type NodeFilter = Pick<
   MemoryQueryOptions,
-  "memoryType" | "privacyClassification" | "retentionTier" | "tags" | "minConfidence" | "validAt"
+  "memoryType" | "privacyClassification" | "retentionTier" | "tags" | "minConfidence" | "validAt" | "labels"
 >;
+
+/** Whether a fact's labels pass a {@link LabelFilter} — the one definition the SQL in both stores compiles. */
+export function matchesLabels(node: Pick<MemoryNode, "contextualMetadata">, filter: LabelFilter): boolean {
+  if ("all" in filter) return filter.all.every((f) => matchesLabels(node, f));
+  if ("any" in filter) return filter.any.some((f) => matchesLabels(node, f));
+  if (!Object.prototype.hasOwnProperty.call(node.contextualMetadata, filter.label)) return false;
+  const value = node.contextualMetadata[filter.label];
+  if (typeof value === "string") return filter.in.includes(value);
+  return Array.isArray(value) && value.some((v) => typeof v === "string" && filter.in.includes(v));
+}
+
+/** AND of two optional filters; undefined when neither is given. */
+export function bothLabels(a: LabelFilter | undefined, b: LabelFilter | undefined): LabelFilter | undefined {
+  return a === undefined ? b : b === undefined ? a : { all: [a, b] };
+}
 
 export function matchesFilter(node: MemoryNode, filter: NodeFilter): boolean {
   if (filter.memoryType !== undefined) {
@@ -32,6 +47,7 @@ export function matchesFilter(node: MemoryNode, filter: NodeFilter): boolean {
     const tags = node.contextualMetadata["tags"];
     if (!Array.isArray(tags) || !filter.tags.some((t) => (tags as unknown[]).includes(t))) return false;
   }
+  if (filter.labels !== undefined && !matchesLabels(node, filter.labels)) return false;
   if (filter.minConfidence !== undefined && node.confidenceWeight < filter.minConfidence) return false;
   if (filter.validAt !== undefined) {
     if (node.validFrom > filter.validAt) return false;
@@ -58,6 +74,12 @@ export const MAX_QUERY_TOKENS = 16;
 /** The words of a keyword query, as both stores and the governed ranking read it: letters and digits, at most 16. */
 export function queryTokens(query: string): string[] {
   return (query.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, MAX_QUERY_TOKENS);
+}
+
+/** Whether the text holds any of the words, whole and case-insensitive: how InMemoryStore matches a query. */
+export function mentionsAny(text: string, tokens: readonly string[]): boolean {
+  const wanted = new Set(tokens.map((t) => t.toLowerCase()));
+  return (text.match(/[\p{L}\p{N}]+/gu) ?? []).some((w) => wanted.has(w.toLowerCase()));
 }
 
 /**
