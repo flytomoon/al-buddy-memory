@@ -27,13 +27,18 @@
 //   file or a directory of files and it checks those. The HMAC key, if the trail
 //   has one, comes from AL_BUDDY_MEMORY_AUDIT_KEY (never the command line, which
 //   lands in shell history). --head anchors ONE chain, so it names a database or a
-//   file, not a directory of files.
+//   file, not a directory of files. --receipt <receipt.json> also checks an
+//   erasure receipt (eraseWhere): its digest matches its content and exactly one
+//   event in the verified trail carries it.
+// al-buddy-memory verify-audit --postgres --tenant <key> [--head <hash>] [--receipt <receipt.json>]
+//   the same for one tenant's chain in Postgres. The connection string comes from
+//   DATABASE_URL (never the command line); nothing is written.
 // al-buddy-memory mcp
 //   the stdio MCP server, exactly as `al-buddy-memory-mcp` (same env vars). This
 //   is the form the MCP Registry listing (server.json) starts: a client runs
 //   `npx al-buddy-memory@X.Y.Z mcp`, and npx runs the bin named like the package.
 import { readFileSync } from "node:fs";
-import { InMemoryStore, exportPortable, verifyAuditLogs } from "../dist/index.js";
+import { InMemoryStore, PostgresMemoryStore, exportPortable, verifyAuditLogs, verifyErasureReceipt } from "../dist/index.js";
 import { toConformanceInput, scoreConformance, formatReport, fromPortable } from "../dist/conformance/index.js";
 
 const args = process.argv.slice(2);
@@ -42,12 +47,45 @@ const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 
 const has = (name) => args.includes(name);
 
 if (cmd === "verify-audit") {
-  if (!args[1]) {
-    console.error("usage: al-buddy-memory verify-audit <memory.db | audit.jsonl | <db>.audit> [--head <hash>]");
+  const postgres = has("--postgres");
+  if ((!postgres && (!args[1] || args[1].startsWith("--"))) || (postgres && !flag("--tenant"))) {
+    console.error("usage: al-buddy-memory verify-audit <memory.db | audit.jsonl | <db>.audit> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory verify-audit --postgres --tenant <key> [--head <hash>] [--receipt <receipt.json>]   (DATABASE_URL)");
     process.exit(2);
   }
   const key = process.env.AL_BUDDY_MEMORY_AUDIT_KEY;
-  const checked = await verifyAuditLogs(args[1], { ...(key ? { key } : {}), ...(flag("--head") ? { head: flag("--head") } : {}) });
+  const head = flag("--head");
+  let receipt;
+  if (flag("--receipt")) {
+    try {
+      receipt = JSON.parse(readFileSync(flag("--receipt"), "utf8"));
+    } catch (err) {
+      console.error(`NOT VERIFIED: cannot read the receipt (${err instanceof Error ? err.message : String(err)})`);
+      process.exit(1);
+    }
+  }
+  const receiptLine = (check) => {
+    if (check.ok) console.log(`receipt ${receipt.id}: recorded as entry ${check.event.position}${check.event.file ? ` of ${check.event.file}` : ""} of a trail that verifies, unchanged since (${receipt.erased.count} erased, ${receipt.refused.count} refused, ${receipt.heldInRecentlyDeleted.count} held)`);
+    else console.error(`receipt NOT VERIFIED: ${check.reason}`);
+    return check.ok;
+  };
+  if (postgres) {
+    if (!process.env.DATABASE_URL) {
+      console.error("NOT VERIFIED: set DATABASE_URL to the Postgres connection string");
+      process.exit(2);
+    }
+    const store = new PostgresMemoryStore({ connectionString: process.env.DATABASE_URL, tenantId: flag("--tenant"), ...(key ? { auditKey: key } : {}) });
+    try {
+      const result = await store.verifyAudit(head ? { head } : {});
+      if (result.ok) console.log(`intact: ${result.count} events, head ${result.head}`);
+      else console.error(`${result.line > 0 ? `BROKEN at event ${result.line} of ${result.count}` : "NOT VERIFIED"}: ${result.reason}`);
+      const receiptOk = receipt === undefined || receiptLine(await verifyErasureReceipt(receipt, store, head ? { head } : {}));
+      process.exitCode = result.ok && receiptOk ? 0 : 1;
+    } finally {
+      await store.close();
+    }
+    process.exit(process.exitCode);
+  }
+  const checked = await verifyAuditLogs(args[1], { ...(key ? { key } : {}), ...(head ? { head } : {}) });
   // One line per chain. A database has exactly one, however many processes
   // wrote it; a directory of JSONL logs has one per writer, each standing on its
   // own, and the set is intact only when every one of them is.
@@ -58,7 +96,8 @@ if (cmd === "verify-audit") {
     else console.error(`${label}${result.line > 0 ? `BROKEN at ${unit} ${result.line} of ${result.count}` : "NOT VERIFIED"}: ${result.reason}`);
   }
   if (checked.reason) console.error(`NOT VERIFIED: ${checked.reason}`);
-  process.exit(checked.ok ? 0 : 1);
+  const receiptOk = receipt === undefined || receiptLine(await verifyErasureReceipt(receipt, args[1], { ...(key ? { key } : {}), ...(head ? { head } : {}) }));
+  process.exit(checked.ok && receiptOk ? 0 : 1);
 }
 
 if (cmd === "export" || cmd === "import" || cmd === "context" || cmd === "status") {
@@ -106,7 +145,7 @@ if (cmd === "export" || cmd === "import" || cmd === "context" || cmd === "status
 }
 
 if (cmd !== "conformance" && cmd !== "mcp") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory status [--json] [--db path]\n       al-buddy-memory mcp");
+  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory verify-audit --postgres --tenant <key> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory status [--json] [--db path]\n       al-buddy-memory mcp");
   process.exit(2);
 }
 

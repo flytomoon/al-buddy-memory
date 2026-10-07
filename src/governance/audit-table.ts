@@ -33,7 +33,7 @@
  */
 import type Database from "better-sqlite3";
 
-import type { AuditEvent } from "./audit.js";
+import type { AuditEvent, AuditVisitor } from "./audit.js";
 import { EVENT_LABELS, GENESIS, chainDigest, linkFault, type ChainRecord } from "./chain.js";
 
 /** Added by schema v7. `AUTOINCREMENT` so a deleted seq is never handed out again. */
@@ -75,7 +75,7 @@ export type AuditTableResult =
  * 5" can still name the whole table when the walk stops early. It is one
  * `COUNT(*)` against the primary key.
  */
-function walk(records: Iterable<{ seq: number; prev: string; hash: string; event: string }>, total: number, key: string | undefined, head?: string): AuditTableResult {
+function walk(records: Iterable<{ seq: number; prev: string; hash: string; event: string }>, total: number, key: string | undefined, head?: string, visit?: AuditVisitor): AuditTableResult {
   let prev = GENESIS;
   let seen = 0;
   for (const row of records) {
@@ -88,6 +88,7 @@ function walk(records: Iterable<{ seq: number; prev: string; hash: string; event
     }
     const fault = linkFault({ prev: row.prev, hash: row.hash, event: parsed } satisfies ChainRecord, prev, key, seen, EVENT_LABELS);
     if (fault !== null) return { ok: false, count: total, line: seen, reason: `${fault} (seq ${row.seq})` };
+    visit?.(parsed as AuditEvent, seen);
     prev = row.hash;
   }
   if (head !== undefined && prev !== head) {
@@ -231,8 +232,8 @@ export class AuditEventTable {
     this.#checked = true;
   }
 
-  verify(opts: { head?: string } = {}): AuditTableResult {
-    return verifyOpenTable(this.db, this.key, opts.head);
+  verify(opts: { head?: string; visit?: AuditVisitor } = {}): AuditTableResult {
+    return verifyOpenTable(this.db, this.key, opts.head, opts.visit);
   }
 }
 
@@ -255,11 +256,11 @@ export class AuditEventTable {
  * refused 12 times in a row. In one transaction, 15/15 clean under the same
  * load. Readers hold no lock in WAL, so the snapshot blocks nobody.
  */
-function verifyOpenTable(db: Database.Database, key: string | undefined, head?: string): AuditTableResult {
+function verifyOpenTable(db: Database.Database, key: string | undefined, head?: string, visit?: AuditVisitor): AuditTableResult {
   return db.transaction((): AuditTableResult => {
     const bounds = db.prepare(`SELECT COUNT(*) AS n, MIN(seq) AS lo, MAX(seq) AS hi FROM audit_events`).get() as { n: number; lo: number | null; hi: number | null };
     const rows = db.prepare(`SELECT seq, prev, hash, event FROM audit_events ORDER BY seq`).iterate() as Iterable<EventRow>;
-    const walked = walk(rows, bounds.n, key, head);
+    const walked = walk(rows, bounds.n, key, head, visit);
     if (!walked.ok) return walked;
     const cut = tailFault(db, bounds.n, bounds.hi, bounds.lo);
     return cut === null ? walked : { ok: false, count: bounds.n, line: bounds.n, reason: cut };
@@ -271,7 +272,7 @@ function verifyOpenTable(db: Database.Database, key: string | undefined, head?: 
  * `al-buddy-memory verify-audit <db>` calls. Read-only, so it cannot migrate a
  * file it was pointed at by mistake.
  */
-export async function verifyAuditTable(dbPath: string, opts: { key?: string; head?: string } = {}): Promise<AuditTableResult> {
+export async function verifyAuditTable(dbPath: string, opts: { key?: string; head?: string; visit?: AuditVisitor } = {}): Promise<AuditTableResult> {
   const { default: Sqlite } = await import("better-sqlite3");
   let db: Database.Database | undefined;
   try {
@@ -281,7 +282,7 @@ export async function verifyAuditTable(dbPath: string, opts: { key?: string; hea
       // Never call a database with no trail "intact: 0 events".
       return { ok: false, count: 0, line: 0, reason: `${dbPath} has no audit_events table: it was written before the table existed, or it is not an al-buddy-memory database` };
     }
-    return verifyOpenTable(db, opts.key, opts.head);
+    return verifyOpenTable(db, opts.key, opts.head, opts.visit);
   } catch (err) {
     return { ok: false, count: 0, line: 0, reason: `cannot read ${dbPath}: ${(err as Error).message}` };
   } finally {

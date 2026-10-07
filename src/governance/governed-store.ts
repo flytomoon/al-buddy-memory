@@ -20,8 +20,9 @@ import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "..
 import type { AsOfFact, AsOfOptions, EmbeddingVector, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { closureOf, judgeErase, judgeInvalidation } from "./cascade.js";
-import { DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type DeletionRequest, type RecentlyDeletedCapable } from "./recently-deleted.js";
+import { DAY_MS, DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type DeletionRequest, type RecentlyDeletedCapable } from "./recently-deleted.js";
 export { DELETION_REQUEST, isRecentlyDeletedCapable, type DeletedFact, type RecentlyDeletedCapable } from "./recently-deleted.js";
+import { RECEIPT_FORMAT, RECEIPT_ID_HASH, RECEIPT_OUTSIDE, assertErasureSelector, erasedIdHash, receiptEvent, sealReceipt, selectorFilter, type ErasureReceipt, type ErasureSelector, type SubjectErasureCapable } from "./erasure.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
 
 export interface GovernOptions {
@@ -141,6 +142,29 @@ function auditEvent(ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden"
 }
 
 /**
+ * Append one event to the sink, latching it if it fails (see `POISONED_AUDIT`).
+ *
+ * Reads and refusals come through here too, and on the store's own table
+ * neither can leave an unrecorded write: a read changes nothing, a refusal
+ * refuses, and a mutation's event is inside the mutation's transaction. The
+ * latch exists to bound unrecorded writes, so with none possible it would only
+ * brick a store that lost nothing — which is what a disk-full during a governed
+ * SEARCH used to do (Fable 5.1, reviewing the merge, 2026-09-19). The error
+ * still propagates; it is the caller's problem, not the store's.
+ */
+async function recordEvent(opts: ActiveOptions, event: AuditEvent): Promise<void> {
+  if (!opts.audit) return;
+  try {
+    await opts.audit.record(event);
+  } catch (err) {
+    if (!opts.selfCommitting && !POISONED_AUDIT.has(opts.audit)) {
+      POISONED_AUDIT.set(opts.audit, new Error(`the audit sink failed (${err instanceof Error ? err.message : String(err)}); this store is not changing anything more until the log is checked with \`al-buddy-memory verify-audit\` and the process restarts`));
+    }
+    throw err;
+  }
+}
+
+/**
  * The store's own `audit_events` table, when the caller asked for it AND it
  * belongs to the store being governed. Both halves matter: a `StoreAudit` built
  * over a DIFFERENT store is a sink like any other and must not be handed this
@@ -196,25 +220,7 @@ async function commitAudited<T>(
 }
 
 async function record(opts: ActiveOptions, ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): Promise<void> {
-  if (!opts.audit) return;
-  try {
-    await opts.audit.record(auditEvent(ctx, outcome, ids, extra));
-  } catch (err) {
-    // Reads and refusals come through here too, and on the store's own table
-    // neither can leave an unrecorded write: a read changes nothing, a refusal
-    // refuses, and a mutation's event is inside the mutation's transaction. The
-    // latch exists to bound unrecorded writes, so with none possible it would
-    // only brick a store that lost nothing — which is what a disk-full during a
-    // governed SEARCH used to do (Fable 5.1, reviewing the merge, 2026-09-19).
-    // The error still propagates; it is the caller's problem, not the store's.
-    if (opts.audit && !opts.selfCommitting && !POISONED_AUDIT.has(opts.audit)) {
-      POISONED_AUDIT.set(
-        opts.audit,
-        new Error(`the audit sink failed (${err instanceof Error ? err.message : String(err)}); this store is not changing anything more until the log is checked with \`al-buddy-memory verify-audit\` and the process restarts`),
-      );
-    }
-    throw err;
-  }
+  await recordEvent(opts, auditEvent(ctx, outcome, ids, extra));
 }
 
 /**
@@ -314,6 +320,14 @@ async function guarded<T>(opts: ActiveOptions, ctx: PolicyContext, ids: string[]
   }
 }
 
+/** `text` with each of `ids` written as its receipt hash, in one pass (a hash must never be rewritten by a shorter id inside it). */
+function hashIdsIn(text: string, ids: readonly string[]): string {
+  const named = [...new Set(ids)].filter((id) => id !== "").sort((a, b) => b.length - a.length);
+  if (named.length === 0) return text;
+  const pattern = new RegExp(named.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g");
+  return text.replace(pattern, (id) => erasedIdHash(id));
+}
+
 /** The mutable part of a restored fact, as the patch an update would carry. */
 function asPatch(node: MemoryNode): NodePatch {
   return {
@@ -344,8 +358,8 @@ const snapshot = <T>(value: T): T => (value === undefined ? value : (JSON.parse(
 const snapshotOptions = <T extends object>(options: T): T =>
   Object.fromEntries(Object.entries(options).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v])) as T;
 
-export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable : MemoryStore;
-export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore {
+export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable & SubjectErasureCapable : MemoryStore & SubjectErasureCapable;
+export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore & SubjectErasureCapable {
   for (const p of options.policies) if (p.readBoundary !== undefined) assertReadBoundary(p.readBoundary, p.name);
   // Resolved once, here, because it is the only place `inner` and the sink are
   // both in scope; everything below reads it off `opts`.
@@ -383,13 +397,69 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     if (!allowed) throw new PolicyDenied("govern", "erasure is not enabled: no policy allows it");
   }
 
+  /**
+   * Erase one fact this actor can see — `deleteNode`'s work, shared with
+   * `eraseWhere` so the two can never judge differently. Must run inside the
+   * queue. A refusal is audited and thrown as PolicyDenied. `because` is added
+   * to the events' reason (eraseWhere names its receipt there).
+   */
+  async function eraseNode(node: MemoryNode, ctx: PolicyContext, because?: string): Promise<{ erased: string[] } | { held: string[]; finalAfter: string | null }> {
+    const nodeId = node.nodeId;
+    const reason = (own?: string): { reason?: string } => {
+      const text = own === undefined ? because : because === undefined ? own : `${own} (${because})`;
+      return text === undefined ? {} : { reason: text };
+    };
+    // The fact goes with everything concluded from it, so every one of them
+    // is asked about now — one decision, before anything changes (cascade.ts).
+    const closure = await closureOf(inner, nodeId);
+    await guarded(opts, ctx, [nodeId], () => judgeErase(node, closure, ctx, erasePolicies));
+    assertAuditUsable(opts);
+    const grace = opts.recentlyDeleted;
+    if (grace === undefined) {
+      const ids = [nodeId, ...closure.map((n) => n.nodeId)];
+      await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids, ...reason() }));
+      return { erased: ids };
+    }
+    const finalAfter = (at: string | null) => (at === null ? null : new Date(Date.parse(at) + grace.days * DAY_MS).toISOString());
+    // Already waiting: a second delete is not "delete harder". It keeps the
+    // first request and its clock; purgeDeleted is the way to make it final.
+    // It is still an erase request that was allowed, so it is recorded.
+    const pending = deletionRequest(node);
+    if (pending !== null && pending.at !== null) {
+      await record(opts, ctx, "allowed", [nodeId], reason("already in Recently deleted; the first request's clock stands"));
+      return { held: [nodeId], finalAfter: finalAfter(pending.at) };
+    }
+    // In PendingDeletion with no recorded request (put there some other way):
+    // this request starts the clock, instead of leaving it waiting for ever.
+    const request: DeletionRequest = { at: ctx.now.toISOString(), from: pending?.from ?? node.retentionTier };
+    // Its conclusions wait in the bin with it, marked with the fact they rest
+    // on, so they come back — and go — together. One after another in this
+    // queue; the first write carries the event naming them all.
+    const joining = closure.filter((n) => n.retentionTier !== "PendingDeletion");
+    const ids = [nodeId, ...joining.map((n) => n.nodeId)];
+    await commitAudited(
+      opts,
+      inner,
+      ctx,
+      async () => {
+        await inner.updateNode(nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...node.contextualMetadata, [DELETION_REQUEST]: request } }, "archived");
+        for (const n of joining) {
+          const withRoot: DeletionRequest = { at: request.at, from: n.retentionTier, with: nodeId };
+          await inner.updateNode(n.nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...n.contextualMetadata, [DELETION_REQUEST]: withRoot } }, "archived");
+        }
+      },
+      () => ({ ids, ...reason(`moved to Recently deleted; final after ${grace.days} days`) }),
+    );
+    return { held: ids, finalAfter: finalAfter(request.at) };
+  }
+
   // A plain object holding exactly the MemoryStore methods — typed as the full
   // interface so a new store method cannot be forgotten here. It used to be a
   // Proxy over the inner store that forwarded every other property, so
   // `governed.db` (SQLite) and `governed.nodes` (in-memory) handed a stranger
   // the raw data (Fable re-review, 2026-09-15). Whoever should close or tune the
   // store holds the inner one.
-  const governed: MemoryStore & Partial<HistoryCapable> = {
+  const governed: MemoryStore & SubjectErasureCapable & Partial<HistoryCapable> = {
     async addNode(input: NewMemoryNode): Promise<MemoryNode> {
       const node = snapshot(input);
       const authorised = authorise(opts, "write");
@@ -486,44 +556,72 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         assertAuditUsable(opts);
         const ctx = authorised();
         const { node } = await visibleOrNotFound(nodeId, ctx);
-        // The fact goes with everything concluded from it, so every one of them
-        // is asked about now — one decision, before anything changes (cascade.ts).
-        const closure = await closureOf(inner, nodeId);
-        await guarded(opts, ctx, [nodeId], () => judgeErase(node, closure, ctx, erasePolicies));
+        await eraseNode(node, ctx);
+      });
+    },
+
+    async eraseWhere(input: ErasureSelector): Promise<ErasureReceipt> {
+      const selector = snapshot(input);
+      // Refused before the queue, so nothing is read, let alone erased.
+      assertErasureSelector(selector);
+      if (!opts.audit) throw new Error("eraseWhere needs an audit sink: its receipt is chained into the audit trail (govern(store, { audit }))");
+      const filter = selectorFilter(selector);
+      const authorised = authorise(opts, "erase");
+      return serialise(inner, async () => {
         assertAuditUsable(opts);
-        const grace = opts.recentlyDeleted;
-        if (grace === undefined) {
-          await commitAudited(opts, inner, ctx, () => inner.deleteNode(nodeId), () => ({ ids: [nodeId, ...closure.map((n) => n.nodeId)] }));
-          return;
+        const ctx = authorised();
+        const id = globalThis.crypto.randomUUID();
+        // Every tier, every classification: an erasure must reach archived and
+        // sealed facts too. But a fact this actor cannot read is not theirs to
+        // erase, and not theirs to learn about — it is neither touched nor counted.
+        const selected: MemoryNode[] = [];
+        for (const node of await inner.listNodes()) {
+          if (matchesLabels(node, filter) && (await view(opts, node, { ...ctx, purpose: "recall" }))) selected.push(node);
         }
-        // Already waiting: a second delete is not "delete harder". It keeps the
-        // first request and its clock; purgeDeleted is the way to make it final.
-        // It is still an erase request that was allowed, so it is recorded.
-        const pending = deletionRequest(node);
-        if (pending !== null && pending.at !== null) {
-          await record(opts, ctx, "allowed", [nodeId], { reason: "already in Recently deleted; the first request's clock stands" });
-          return;
+        // In id order, so the receipt does not depend on how a store lists facts.
+        selected.sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
+        const erased = new Set<string>();
+        const held = new Map<string, string | null>();
+        const refused: { id: string; policy: string; reason: string }[] = [];
+        let matched = 0;
+        for (const chosen of selected) {
+          // Already gone, or binned, with a fact it was concluded from.
+          if (erased.has(chosen.nodeId) || held.has(chosen.nodeId)) { matched++; continue; }
+          const node = await inner.getNode(chosen.nodeId);
+          if (node === undefined) continue; // removed through the raw store since the list: not in the live store, and not erased by this request
+          matched++;
+          try {
+            const done = await eraseNode(node, ctx, `eraseWhere ${id}`);
+            if ("erased" in done) for (const n of done.erased) erased.add(n);
+            else for (const n of done.held) held.set(n, done.finalAfter);
+          } catch (err) {
+            if (!(err instanceof PolicyDenied)) throw err;
+            // A refusal may name the fact and the conclusion that stood in the way; the receipt names neither in the clear.
+            const named = [node.nodeId, ...(await closureOf(inner, node.nodeId)).map((n) => n.nodeId)];
+            refused.push({ id: erasedIdHash(node.nodeId), policy: err.policy, reason: hashIdsIn(err.reason, named) });
+          }
         }
-        // In PendingDeletion with no recorded request (put there some other way):
-        // this request starts the clock, instead of leaving it waiting for ever.
-        const request: DeletionRequest = { at: ctx.now.toISOString(), from: pending?.from ?? node.retentionTier };
-        // Its conclusions wait in the bin with it, marked with the fact they rest
-        // on, so they come back — and go — together. One after another in this
-        // queue; the first write carries the event naming them all.
-        const joining = closure.filter((n) => n.retentionTier !== "PendingDeletion");
-        await commitAudited(
-          opts,
-          inner,
-          ctx,
-          async () => {
-            await inner.updateNode(nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...node.contextualMetadata, [DELETION_REQUEST]: request } }, "archived");
-            for (const n of joining) {
-              const withRoot: DeletionRequest = { at: request.at, from: n.retentionTier, with: nodeId };
-              await inner.updateNode(n.nodeId, { retentionTier: "PendingDeletion", contextualMetadata: { ...n.contextualMetadata, [DELETION_REQUEST]: withRoot } }, "archived");
-            }
-          },
-          () => ({ ids: [nodeId, ...joining.map((n) => n.nodeId)], reason: `moved to Recently deleted; final after ${grace.days} days` }),
-        );
+        const chosenErased = selected.filter((n) => erased.has(n.nodeId)).length;
+        const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        const receipt = sealReceipt({
+          format: RECEIPT_FORMAT,
+          id,
+          selector,
+          actor: ctx.actor,
+          ...(ctx.audience === undefined ? {} : { audience: ctx.audience }),
+          at: ctx.now.toISOString(),
+          matched,
+          erased: { count: erased.size, matched: chosenErased, concluded: erased.size - chosenErased, ids: [...erased].map(erasedIdHash).sort() },
+          refused: { count: refused.length, facts: refused.sort(byId) },
+          heldInRecentlyDeleted: { count: held.size, facts: [...held].map(([n, finalAfter]) => ({ id: erasedIdHash(n), finalAfter })).sort(byId) },
+          idHash: RECEIPT_ID_HASH,
+          outside: [...RECEIPT_OUTSIDE],
+        });
+        // Each erasure above has its own event; this one attests to the whole
+        // request. Not atomic with them: a failure part-way leaves those events
+        // and no receipt, and running the request again erases the rest.
+        await recordEvent(opts, receiptEvent(receipt));
+        return receipt;
       });
     },
 
@@ -872,6 +970,7 @@ export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore
     addNode: refuse,
     updateNode: refuse,
     deleteNode: refuse,
+    eraseWhere: refuse,
     restoreNode: refuse,
     restoreEdge: refuse,
     addEdge: refuse,

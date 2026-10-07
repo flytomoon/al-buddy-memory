@@ -8,8 +8,8 @@ import { homedir } from "node:os";
 
 import Database from "better-sqlite3";
 
-import { AUDIT_EVENTS_SCHEMA, AuditEventTable } from "./governance/audit-table.js";
-import type { AuditCapable, AuditEvent } from "./governance/audit.js";
+import { AUDIT_EVENTS_SCHEMA, AuditEventTable, type AuditTableResult } from "./governance/audit-table.js";
+import type { AuditCapable, AuditEvent, AuditVerifiable, AuditVisitor } from "./governance/audit.js";
 import { normaliseLimit, queryTokens } from "./query-filter.js";
 import { buildSnapshotAsOf, mutableState, mutableStatesEqual, nodeAsOf, orderVersions } from "./history.js";
 import { MIGRATION_V8, insertVersion, readAllVersions, readNodeVersions, restoreSqliteVersion } from "./sqlite-history.js";
@@ -507,7 +507,7 @@ const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
 const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 
-export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCapable, HistoryCapable {
+export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCapable, AuditVerifiable, HistoryCapable {
   private readonly db: Database.Database;
   /** The `audit_events` chain on this connection. Built after migration, so the table exists. */
   private readonly auditTable: AuditEventTable;
@@ -640,6 +640,11 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
 
   async auditHead(): Promise<string> {
     return this.auditTable.head();
+  }
+
+  /** Check this database's chain with the store's key: what `verify-audit` does to the file, on an open store. */
+  async verifyAudit(opts: { head?: string; visit?: AuditVisitor } = {}): Promise<AuditTableResult> {
+    return this.auditTable.verify(opts);
   }
 
   /**
