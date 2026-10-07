@@ -9,6 +9,27 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## Unreleased
+
+### Added
+
+- **Data boundaries.** A policy may declare its read rule as data: `readBoundary`, a filter over
+  fact labels (keys of `contextualMetadata`) and the asking actor's new optional `attributes`,
+  with equality, membership, AND and OR only. The governed handle resolves it per actor and sends
+  it into the store's query as the new `labels` option of `searchNodes` (and Postgres's
+  `searchSimilar`), where SQLite and Postgres compile it into the `WHERE`, before ranking and any
+  `limit`. Every other read applies the same rule, and `beforeRead` runs afterwards with the final
+  word. A policy without one behaves exactly as before. An example policy and how to map an
+  organisation's own rules: `docs/policies/boundaries.md`. `matchesLabels` and the `LabelFilter`,
+  `ReadBoundary` and `ActorAttribute` types are exported.
+
+### Behaviour change
+
+- **A governed keyword search no longer finds a fact by a word a policy redacted.** The store
+  matches stored words; a fact whose visible text holds none of the query's words is now dropped
+  from the result and from the word weights. It used to come back (redacted), which told the actor
+  it held the word, and it could move the order of the other results.
+
 ## 0.10.1 — 2026-10-03
 
 The servers keep answering while they index, the Claude Code plugin gets its own name and slash

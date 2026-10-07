@@ -14,7 +14,8 @@
  * the re-review the embedding cache did, and it confirmed which hidden ids exist.
  */
 import { compareRecency, effectiveConfidence } from "../decay.js";
-import { queryTokens, visibleRelevance } from "../query-filter.js";
+import { bothLabels, matchesLabels, mentionsAny, queryTokens, visibleRelevance } from "../query-filter.js";
+import { assertReadBoundary, boundaryFor } from "./boundary.js";
 import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
 import type { AsOfFact, AsOfOptions, EmbeddingVector, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
@@ -65,7 +66,7 @@ function touchesDeletion(
 
 function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
   const c = opts.context(purpose);
-  return { actor: c.actor, audience: c.audience, purpose, now: c.now ?? new Date() };
+  return { actor: c.actor, audience: c.audience, attributes: c.attributes, purpose, now: c.now ?? new Date() };
 }
 
 /**
@@ -87,7 +88,7 @@ function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
  */
 function authorise(opts: GovernOptions, purpose: Purpose): () => PolicyContext {
   const c = opts.context(purpose);
-  return () => ({ actor: c.actor, audience: c.audience, purpose, now: c.now ?? new Date() });
+  return () => ({ actor: c.actor, audience: c.audience, attributes: c.attributes, purpose, now: c.now ?? new Date() });
 }
 
 /**
@@ -246,8 +247,17 @@ function serialise<T>(inner: object, step: () => Promise<T>): Promise<T> {
   return next;
 }
 
-/** One fact as this actor would see it on a read: the node (possibly redacted), or null. No audit. */
+/**
+ * One fact as this actor would see it on a read: the node (possibly redacted), or null. No audit.
+ *
+ * The declared boundaries come first, on the stored fact, exactly as a store
+ * applies them inside its query, so a read that never reaches the store's
+ * filter (getNode, listNodes, edges, embeddings, export) draws the same line.
+ * Then the hooks, which have the final word.
+ */
 async function view(opts: ActiveOptions, node: MemoryNode, ctx: PolicyContext): Promise<MemoryNode | null> {
+  const boundary = boundaryFor(opts.policies, ctx);
+  if (boundary !== undefined && !matchesLabels(node, boundary)) return null;
   let current: MemoryNode | null = node;
   for (const p of opts.policies) {
     if (current === null) break;
@@ -336,6 +346,7 @@ const snapshotOptions = <T extends object>(options: T): T =>
 
 export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable : MemoryStore;
 export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore {
+  for (const p of options.policies) if (p.readBoundary !== undefined) assertReadBoundary(p.readBoundary, p.name);
   // Resolved once, here, because it is the only place `inner` and the sink are
   // both in scope; everything below reads it off `opts`.
   const opts = activate(inner, options);
@@ -615,8 +626,14 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     },
 
     async searchNodes(input): Promise<MemoryNode[]> {
-      const options = snapshotOptions(input);
       const ctx = readCtx();
+      // The declared boundaries go INTO the store's query, ANDed with any label
+      // filter the caller asked for (which can narrow, never widen), so facts
+      // outside them are filtered before the store ranks or limits anything.
+      // view() still applies them, for a store that ignores `labels`.
+      const asked = snapshotOptions(input);
+      const labels = bothLabels(asked.labels === undefined ? undefined : snapshot(asked.labels), boundaryFor(opts.policies, ctx));
+      const options = labels === undefined ? asked : { ...asked, labels };
       // A cursor this actor cannot see is a missing cursor: the page after it is
       // empty. It used to answer differently for a hidden id than a missing one.
       if (options.after !== undefined) {
@@ -649,8 +666,15 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         const hidden: string[] = [];
         for (const node of matches) {
           const seen = await view(opts, node, ctx);
-          if (seen) seenNodes.push(seen);
-          else hidden.push(node.nodeId);
+          if (!seen) hidden.push(node.nodeId);
+          // The store matched the STORED words. A fact whose words the actor sees
+          // no longer include any of the query's was matched by what a policy
+          // redacted, so returning it said the fact holds that word: a search for
+          // a redacted word found the fact (documented until 2026-10-07). It is
+          // not a match for this actor, and is not counted among the matches.
+          // An unredacted text stays matched however its store matched it.
+          else if (seen.content.text !== node.content.text && !mentionsAny(seen.content.text, tokens)) continue;
+          else seenNodes.push(seen);
         }
         // Scored from the text the actor sees (a redacting policy's view, not the
         // stored words), with word rarity counted over these visible matches only.
