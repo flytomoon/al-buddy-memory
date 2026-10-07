@@ -20,6 +20,23 @@ export interface AuditEvent {
   count: number;
   policy?: string | undefined;
   reason?: string | undefined;
+  /**
+   * The digest of the erasure receipt this event attests to (`eraseWhere`).
+   * The chain covers it like every other field, so `verifyErasureReceipt` can
+   * find the event and know nothing about it was changed.
+   */
+  receipt?: string | undefined;
+}
+
+/** Called with each event of a trail as it is checked, in order: how a receipt finds the event that attests to it. */
+export type AuditVisitor = (event: AuditEvent, position: number, file?: string) => void;
+
+/**
+ * A store that can check its own audit chain — `SqliteMemoryStore` and
+ * `PostgresMemoryStore` — for a trail that is not a file `verify-audit` can open.
+ */
+export interface AuditVerifiable {
+  verifyAudit(opts?: { head?: string; visit?: AuditVisitor }): Promise<{ ok: true; count: number; head: string } | { ok: false; count: number; line: number; reason: string }>;
 }
 
 export interface AuditSink {
@@ -275,7 +292,7 @@ export interface AuditLogsResult {
  * `al-buddy-memory verify-audit` calls. Each file is verified on its own,
  * because each is one writer's chain; the set is intact when all of them are.
  */
-export async function verifyAuditLogs(path: string, opts: { key?: string; head?: string } = {}): Promise<AuditLogsResult> {
+export async function verifyAuditLogs(path: string, opts: { key?: string; head?: string; visit?: AuditVisitor } = {}): Promise<AuditLogsResult> {
   const { readdir, stat } = await import("node:fs/promises");
   let directory = false;
   try {
@@ -291,7 +308,10 @@ export async function verifyAuditLogs(path: string, opts: { key?: string; head?:
       // logs beside it from before it did, and those cover a period the table
       // cannot attest to — so both are reported, and switching to the table
       // cannot quietly retire the files.
-      const logs: AuditLogsResult["logs"] = [{ file: path, form: "table", result: await verifyAuditTable(path, opts) }];
+      const { visit } = opts;
+      const logs: AuditLogsResult["logs"] = [
+        { file: path, form: "table", result: await verifyAuditTable(path, { ...opts, ...(visit === undefined ? {} : { visit: (event, position) => visit(event, position, path) }) }) },
+      ];
       // `head` anchors ONE chain — the table's. The files are checked on their own terms.
       const { head: _pinned, ...withoutHead } = opts;
       // Both shapes a log beside a database has ever had: 0.4.2's directory of
@@ -329,7 +349,7 @@ export async function verifyAuditLogs(path: string, opts: { key?: string; head?:
 }
 
 /** Check a ChainedAudit file line by line. `head`: the last hash you anchored elsewhere. */
-export async function verifyAuditChain(path: string, opts: { key?: string; head?: string } = {}): Promise<AuditChainResult> {
+export async function verifyAuditChain(path: string, opts: { key?: string; head?: string; visit?: AuditVisitor } = {}): Promise<AuditChainResult> {
   const { readFile } = await import("node:fs/promises");
   let text: string;
   try {
@@ -339,10 +359,11 @@ export async function verifyAuditChain(path: string, opts: { key?: string; head?
     const missing = (err as { code?: string }).code === "ENOENT";
     return { ok: false, count: 0, line: 0, reason: missing ? `no such file: ${path}` : `cannot read ${path}: ${(err as Error).message}` };
   }
-  return verifyChainText(text, opts);
+  const { visit, ...rest } = opts;
+  return verifyChainText(text, visit === undefined ? rest : { ...rest, visit: (event, position) => visit(event, position, path) });
 }
 
-async function verifyChainText(text: string, opts: { key?: string; head?: string }): Promise<AuditChainResult> {
+async function verifyChainText(text: string, opts: { key?: string; head?: string; visit?: AuditVisitor }): Promise<AuditChainResult> {
   // Line numbers are physical lines of the file, blank ones included, so the number
   // a person is told is the line their editor shows.
   const physical = text.split("\n");
@@ -363,6 +384,7 @@ async function verifyChainText(text: string, opts: { key?: string; head?: string
     const rec = parsed as { prev?: unknown; hash?: unknown; event?: unknown };
     const fault = linkFault(rec, prev, opts.key, i + 1, LINE_LABELS);
     if (fault !== null) return { ...at, reason: fault };
+    opts.visit?.(rec.event as AuditEvent, i + 1);
     prev = rec.hash as string;
   }
   if (opts.head !== undefined && prev !== opts.head) {

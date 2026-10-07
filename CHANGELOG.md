@@ -22,6 +22,23 @@ earlier were GitHub releases only.
   word. A policy without one behaves exactly as before. An example policy and how to map an
   organisation's own rules: `docs/policies/boundaries.md`. `matchesLabels` and the `LabelFilter`,
   `ReadBoundary` and `ActorAttribute` types are exported.
+- **Erasure by label, with a receipt.** `eraseWhere(selector)` on every governed handle erases
+  every fact the actor can see whose labels match (the boundary language, literal values only).
+  Each goes through the same path as `deleteNode`: the erase policies judge it and its conclusions
+  as one decision, a memory lock refuses, and Recently deleted holds. It returns an
+  `ErasureReceipt` (selector, actor, time, counts erased / refused with reasons / held in Recently
+  deleted, every id hashed, and what it does not reach: backups, earlier exports, facts the actor
+  cannot see). The receipt's digest is recorded in the audit trail as one event.
+  `verifyErasureReceipt` and `al-buddy-memory verify-audit … --receipt receipt.json` check it.
+  It needs an audit sink. The receipts are equal on SQLite, Postgres and in-memory.
+  `docs/ERASURE.md`.
+- **Checking a chain from an open store.** `SqliteMemoryStore.verifyAudit()` and
+  `PostgresMemoryStore.verifyAudit()` (read-only; a missing tenant is reported, never created),
+  and `al-buddy-memory verify-audit --postgres --tenant <key>` with `DATABASE_URL`.
+  `AuditEvent` gains an optional `receipt` field, and the verifiers an optional `visit` callback.
+- **README: an Enterprise section** covering Postgres, boundaries, encryption at rest (the
+  database's KMS on Postgres; full-disk encryption or a SQLCipher build locally, which is not
+  built here) and erasure.
 
 ### Behaviour change
 

@@ -241,6 +241,7 @@ describe("the governed handle exposes nothing but governed methods", () => {
     "addNode", "getNode", "searchNodes", "listNodes", "updateNode", "deleteNode", "restoreNode", "restoreEdge",
     "addEdge", "getEdges", "deleteEdge", "setEmbedding", "getEmbeddings", "listEmbeddings", "deleteEmbeddings",
     "history", "getNodeAsOf", "snapshotAsOf", "historySnapshot", "restoreVersion",
+    "eraseWhere", // erasure by label with a receipt (2026-10-07): governed like deleteNode, through the same path
   ].sort();
 
   for (const [label, make] of [
