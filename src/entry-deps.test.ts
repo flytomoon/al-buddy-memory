@@ -49,4 +49,8 @@ describe("the main entry", () => {
   it("still publishes the MCP server at its own subpath", () => {
     expect(pkg.exports["./mcp"]?.import).toBe("./dist/mcp/governance-server.js");
   });
+
+  it("publishes the HTTP server, with identity-provider sign-in, at its own subpath", () => {
+    expect(pkg.exports["./http"]?.import).toBe("./dist/mcp/http-server.js");
+  });
 });

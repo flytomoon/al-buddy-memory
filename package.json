@@ -15,6 +15,10 @@
       "types": "./dist/mcp/governance-server.d.ts",
       "import": "./dist/mcp/governance-server.js"
     },
+    "./http": {
+      "types": "./dist/mcp/http-server.d.ts",
+      "import": "./dist/mcp/http-server.js"
+    },
     "./conformance": {
       "types": "./dist/conformance/index.d.ts",
       "import": "./dist/conformance/index.js"
@@ -69,6 +73,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "express": "^5.2.1",
+    "jose": "^6.2.12",
     "zod": "^4.6.2"
   },
   "devDependencies": {
