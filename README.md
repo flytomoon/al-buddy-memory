@@ -178,6 +178,11 @@ a local setup.
   Postgres compile it into their own `WHERE`, before ranking and before any `limit`, so facts
   outside it never take a place in a page. It fails closed, and `beforeRead` still has the final
   word. [docs/policies/boundaries.md](docs/policies/boundaries.md)
+- **Sign-in.** The HTTP server can accept OIDC/JWT bearer tokens from your own identity provider
+  (Okta, Microsoft Entra, Google Workspace, any OIDC issuer) instead of the owner's passphrase.
+  Signature (the issuer's JWKS), issuer, audience and expiry are checked with jose; configured
+  claims become the actor attributes boundaries read, and one claim can name the tenant. Any
+  failed check is a 401. [docs/SIGN-IN.md](docs/SIGN-IN.md)
 - **Encryption at rest** is not something this library does. On Postgres it belongs to the
   database: storage encryption with KMS-managed keys, encrypted backups, TLS. Locally the SQLite
   file is plaintext, owner-only (0600 in a 0700 directory), so use full-disk encryption
@@ -514,7 +519,8 @@ In Claude: *Customize → Connectors → Add custom connector*, URL `https://…
 ChatGPT: *Settings → Security and login → Developer mode*, then add the same URL. Each app
 opens a consent page once; the passphrase allows it. Only hashes of codes and tokens are
 kept on disk, and five wrong passphrases lock the page for 15 minutes. Facts an app writes
-carry its name in the audit trail, as over stdio.
+carry its name in the audit trail, as over stdio. For an organisation, the same server can be
+signed in by your own identity provider instead: [docs/SIGN-IN.md](docs/SIGN-IN.md).
 
 ## Use it as a Claude Code plugin
 

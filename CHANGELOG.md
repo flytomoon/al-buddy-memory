@@ -13,6 +13,15 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **Sign-in with your identity provider.** `startHttpConnector({ oidc, deps })` accepts OIDC/JWT
+  bearer tokens from a configured issuer instead of the owner's passphrase: the signature is
+  checked against the issuer's JWKS (from `jwksUri`, discovery, or a given key set), and `iss`,
+  `aud`, `exp` and `nbf` with jose (new optional dependency). `oidc.claims` maps claims onto the
+  actor attributes a `readBoundary` reads, `tenantClaim` names the tenant and `actorClaim` the
+  actor (default `sub`); `deps(who)` gives each verified person their governed store. Any failed
+  check is a 401 that never reaches `deps`. The server is now importable as
+  `al-buddy-memory/http`. The owner's passphrase server and `al-buddy-memory-http` are unchanged.
+  Okta, Microsoft Entra and Google Workspace examples: `docs/SIGN-IN.md`.
 - **Data boundaries.** A policy may declare its read rule as data: `readBoundary`, a filter over
   fact labels (keys of `contextualMetadata`) and the asking actor's new optional `attributes`,
   with equality, membership, AND and OR only. The governed handle resolves it per actor and sends

@@ -10,12 +10,23 @@
  *
  * One owner, one store. The app a fact came from is the client that connected
  * (its MCP handshake name), exactly as over stdio.
+ *
+ * Or, for an organisation, signed in by its own identity provider (oidc.ts):
+ * no passphrase and no sign-in of its own. Every request's bearer token is
+ * checked against the issuer's keys, and `deps` is asked for the tools of the
+ * person it names, with their tenant and attributes. A token that does not
+ * verify gets the 401 and never reaches `deps`.
  */
 import type { Server } from "node:http";
 
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+
 import type { GovernanceDeps } from "./governance-server.js";
 import { createGovernanceMcpServer } from "./governance-server.js";
+import { oidcVerifier, OidcTokenRefused, type OidcIdentity, type OidcOptions } from "./oidc.js";
 import { OwnerOAuthProvider } from "./owner-oauth.js";
+
+export { ASYMMETRIC_ALGORITHMS, oidcVerifier, OidcTokenRefused, type OidcIdentity, type OidcOptions } from "./oidc.js";
 
 export interface HttpConnectorOptions {
   deps: GovernanceDeps;
@@ -29,51 +40,103 @@ export interface HttpConnectorOptions {
   log?: (line: string) => void;
 }
 
-export async function startHttpConnector(opts: HttpConnectorOptions): Promise<{ server: Server; url: string; close: () => Promise<void> }> {
+/** The server signed in by an organisation's identity provider instead of the owner's passphrase. */
+export interface OidcConnectorOptions {
+  /** The identity provider whose bearer tokens are accepted. */
+  oidc: OidcOptions;
+  /**
+   * The tools' dependencies for one verified person, asked on every request:
+   * pick the tenant's store and govern it with `{ actor, attributes }` from
+   * `who`. Throwing refuses the request (500); nothing is served without it.
+   */
+  deps: (who: OidcIdentity) => GovernanceDeps | Promise<GovernanceDeps>;
+  /** The public origin the apps reach; `/mcp` under it is the resource the tokens are for. */
+  publicUrl: string;
+  port: number;
+  /** Default 127.0.0.1. */
+  host?: string;
+  log?: (line: string) => void;
+}
+
+const isOidc = (o: HttpConnectorOptions | OidcConnectorOptions): o is OidcConnectorOptions => "oidc" in o && o.oidc !== undefined;
+
+export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnectorOptions): Promise<{ server: Server; url: string; close: () => Promise<void> }> {
   const express = (await import("express")).default;
   const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
   const { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } = await import("@modelcontextprotocol/sdk/server/auth/router.js");
   const { requireBearerAuth } = await import("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js");
+  const { InvalidTokenError } = await import("@modelcontextprotocol/sdk/server/auth/errors.js");
   const log = opts.log ?? (() => undefined);
 
   const issuer = new URL(opts.publicUrl);
   const mcpUrl = new URL("/mcp", issuer);
-  const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash });
 
   const app = express();
   // Behind Tailscale Funnel: the client's address arrives in X-Forwarded-For (the SDK's rate limits key on it).
   app.set("trust proxy", 1);
-  app.use(
-    mcpAuthRouter({
-      provider,
-      issuerUrl: issuer,
-      resourceServerUrl: mcpUrl,
-      resourceName: "al-buddy-memory",
-      scopesSupported: ["memory"],
-    }),
-  );
 
-  app.post(provider.consentPath, express.urlencoded({ extended: false, limit: "8kb" }), (req, res) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const out = provider.consent(String(body["pending"] ?? ""), String(body["passphrase"] ?? ""));
-    if ("redirect" in out) {
-      log("connector: an app was allowed");
-      res.redirect(302, out.redirect);
-    } else {
-      res.status(out.status).type("html").send(out.page);
-    }
-  });
+  let verifier: { verifyAccessToken: (token: string) => Promise<AuthInfo> };
+  let depsFor: (auth: AuthInfo | undefined) => GovernanceDeps | Promise<GovernanceDeps>;
+  if (isOidc(opts)) {
+    const oidc = oidcVerifier(opts.oidc);
+    verifier = {
+      async verifyAccessToken(token) {
+        try {
+          const who = await oidc.verify(token);
+          return { token, clientId: who.actor, scopes: who.scopes, expiresAt: who.expiresAt, extra: { identity: who } };
+        } catch (err) {
+          // Fails closed: whatever went wrong, the caller gets the 401 and the pointer to sign in.
+          log(`connector: token refused: ${err instanceof OidcTokenRefused ? err.reason : "verification failed"}`);
+          throw new InvalidTokenError("invalid or expired token");
+        }
+      },
+    };
+    depsFor = (auth) => {
+      const who = auth?.extra?.["identity"] as OidcIdentity | undefined;
+      if (!who) throw new Error("no verified identity on the request");
+      return opts.deps(who);
+    };
+    // Where to sign in (RFC 9728): the organisation's identity provider, not this server.
+    const metadata = { resource: mcpUrl.href, authorization_servers: [opts.oidc.issuer], bearer_methods_supported: ["header"], resource_name: "al-buddy-memory" };
+    app.get(new URL(getOAuthProtectedResourceMetadataUrl(mcpUrl)).pathname, (_req, res) => { res.json(metadata); });
+  } else {
+    const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash });
+    app.use(
+      mcpAuthRouter({
+        provider,
+        issuerUrl: issuer,
+        resourceServerUrl: mcpUrl,
+        resourceName: "al-buddy-memory",
+        scopesSupported: ["memory"],
+      }),
+    );
 
-  const bearer = requireBearerAuth({ verifier: provider, resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpUrl) });
+    app.post(provider.consentPath, express.urlencoded({ extended: false, limit: "8kb" }), (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const out = provider.consent(String(body["pending"] ?? ""), String(body["passphrase"] ?? ""));
+      if ("redirect" in out) {
+        log("connector: an app was allowed");
+        res.redirect(302, out.redirect);
+      } else {
+        res.status(out.status).type("html").send(out.page);
+      }
+    });
+    verifier = provider;
+    const deps = opts.deps;
+    depsFor = () => deps;
+  }
+
+  const bearer = requireBearerAuth({ verifier, resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpUrl) });
   app.post("/mcp", bearer, express.json({ limit: "1mb" }), async (req, res) => {
-    const { server } = await createGovernanceMcpServer(opts.deps);
+    let server: { connect: (t: unknown) => Promise<void>; close: () => Promise<void> } | undefined;
     const transport = new StreamableHTTPServerTransport({});
     res.on("close", () => {
       void transport.close();
-      void (server as { close: () => Promise<void> }).close();
+      void server?.close();
     });
     try {
-      await (server as { connect: (t: unknown) => Promise<void> }).connect(transport);
+      server = (await createGovernanceMcpServer(await depsFor((req as { auth?: AuthInfo }).auth))).server as unknown as typeof server;
+      await server!.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       log(`connector: request failed: ${err instanceof Error ? err.message : String(err)}`);
