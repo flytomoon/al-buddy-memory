@@ -22,7 +22,7 @@ import { dirname } from "node:path";
 import type { Response } from "express";
 
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
-import { InvalidGrantError, InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { InvalidClientMetadataError, InvalidGrantError, InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
@@ -73,15 +73,39 @@ export interface OwnerOAuthOptions {
   passphraseHash: string;
   /** Path the consent form posts to, mounted by the HTTP server. */
   consentPath?: string;
+  /**
+   * Origins an app may send the sign-in code back to. Registration with any other redirect is
+   * refused, and the consent page names the destination — so a page posing as "Claude" cannot
+   * collect a code for itself (security review 2026-10-08, H1). Loopback (localhost, 127.0.0.1,
+   * [::1], any port) is always allowed: a desktop app's callback on this machine.
+   */
+  allowedRedirectOrigins?: readonly string[];
   now?: () => number;
+}
+
+/** The assistants this connector is for: Claude (web and app) and ChatGPT. */
+export const DEFAULT_REDIRECT_ORIGINS: readonly string[] = ["https://claude.ai", "https://claude.com", "https://chatgpt.com", "https://chat.openai.com"];
+
+/** Whether `uri` may receive a sign-in code: an allowed origin, or this machine. */
+export function redirectAllowed(uri: string, allowed: readonly string[] = DEFAULT_REDIRECT_ORIGINS): boolean {
+  let u: URL;
+  try {
+    u = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)) return true;
+  return u.protocol === "https:" && allowed.includes(u.origin);
 }
 
 export class OwnerOAuthProvider implements OAuthServerProvider {
   readonly consentPath: string;
+  private readonly allowedOrigins: readonly string[];
   private readonly now: () => number;
 
   constructor(private readonly opts: OwnerOAuthOptions) {
     this.consentPath = opts.consentPath ?? "/consent";
+    this.allowedOrigins = opts.allowedRedirectOrigins ?? DEFAULT_REDIRECT_ORIGINS;
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
   }
 
@@ -110,6 +134,8 @@ export class OwnerOAuthProvider implements OAuthServerProvider {
     return {
       getClient: (id: string) => this.load().clients[id],
       registerClient: (client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">) => {
+        const bad = (client.redirect_uris ?? []).map(String).filter((u) => !redirectAllowed(u, this.allowedOrigins));
+        if (bad.length > 0) throw new InvalidClientMetadataError(`redirect not allowed for this connector: ${bad[0]} (allowed: ${this.allowedOrigins.join(", ")}, or this machine)`);
         const s = this.load();
         const full: OAuthClientInformationFull = { ...client, client_id: randomBytes(16).toString("hex"), client_id_issued_at: this.now() };
         s.clients[full.client_id] = full;
@@ -121,6 +147,11 @@ export class OwnerOAuthProvider implements OAuthServerProvider {
 
   /** Step 1: show the owner a consent page; the code is only issued after the passphrase. */
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    // A client registered before the allowlist existed is held to it here too.
+    if (!redirectAllowed(params.redirectUri, this.allowedOrigins)) {
+      res.status(400).type("html").send(this.consentPage("", client.client_name ?? "An app", "This app asked to send your sign-in somewhere this connector does not allow.", ""));
+      return;
+    }
     const s = this.load();
     const id = token();
     s.pending[id] = {
@@ -135,10 +166,16 @@ export class OwnerOAuthProvider implements OAuthServerProvider {
       expiresAt: this.now() + PENDING_TTL_S,
     };
     this.save(s);
-    res.status(200).type("html").send(this.consentPage(id, client.client_name ?? "An app", ""));
+    res.status(200).type("html").send(this.consentPage(id, client.client_name ?? "An app", "", params.redirectUri));
   }
 
-  consentPage(pendingId: string, appName: string, error: string): string {
+  consentPage(pendingId: string, appName: string, error: string, redirectUri = ""): string {
+    let dest = "";
+    try {
+      dest = redirectUri ? new URL(redirectUri).host : "";
+    } catch {
+      dest = "";
+    }
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connect your memory</title><style>
 body{font:16px -apple-system,system-ui,sans-serif;margin:0;padding:24px;background:#f6f7f9;color:#1d2733}
@@ -148,6 +185,7 @@ input{border:1px solid #cfd6de;margin-bottom:12px}button{border:0;background:#0f
 @media (prefers-color-scheme:dark){body{background:#101418;color:#e6e9ee}main{background:#1a2027}input{background:#101418;color:#e6e9ee;border-color:#334}}
 </style></head><body><main><h1>Connect ${esc(appName)} to your memory</h1>
 <p>${esc(appName)} will be able to read and add to your al-buddy-memory. Every change it makes is recorded in the audit trail under its name.</p>
+${dest ? `<p>Access goes to <strong>${esc(dest)}</strong>. Only allow it if that is where you started.</p>` : ""}
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="${esc(this.consentPath)}"><input type="hidden" name="pending" value="${esc(pendingId)}">
 <input type="password" name="passphrase" autocomplete="current-password" placeholder="Passphrase" required autofocus>
@@ -165,13 +203,13 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
     if (!pending || pending.expiresAt <= t) return { page: this.consentPage("", "This app", "This sign-in expired. Start again from the app."), status: 400 };
     const appName = s.clients[pending.clientId]?.client_name ?? "An app";
     if (s.failures.lockedUntil > t) {
-      return { page: this.consentPage(pendingId, appName, "Too many wrong passphrases. Try again in 15 minutes."), status: 429 };
+      return { page: this.consentPage(pendingId, appName, "Too many wrong passphrases. Try again in 15 minutes.", pending.params.redirectUri), status: 429 };
     }
     if (!checkPassphrase(passphrase, this.opts.passphraseHash)) {
       s.failures.count += 1;
       if (s.failures.count >= LOCK_AFTER_FAILURES) s.failures = { count: 0, lockedUntil: t + LOCK_S };
       this.save(s);
-      return { page: this.consentPage(pendingId, appName, "That passphrase is not right."), status: 401 };
+      return { page: this.consentPage(pendingId, appName, "That passphrase is not right.", pending.params.redirectUri), status: 401 };
     }
     s.failures = { count: 0, lockedUntil: 0 };
     delete s.pending[pendingId];

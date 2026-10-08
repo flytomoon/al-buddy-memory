@@ -37,6 +37,8 @@ export interface HttpConnectorOptions {
   host?: string;
   oauthStatePath: string;
   passphraseHash: string;
+  /** Origins apps may send the sign-in code to (default: Claude and ChatGPT; this machine always). */
+  allowedRedirectOrigins?: readonly string[];
   log?: (line: string) => void;
 }
 
@@ -100,7 +102,7 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
     const metadata = { resource: mcpUrl.href, authorization_servers: [opts.oidc.issuer], bearer_methods_supported: ["header"], resource_name: "al-buddy-memory" };
     app.get(new URL(getOAuthProtectedResourceMetadataUrl(mcpUrl)).pathname, (_req, res) => { res.json(metadata); });
   } else {
-    const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash });
+    const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash, ...(opts.allowedRedirectOrigins && { allowedRedirectOrigins: opts.allowedRedirectOrigins }) });
     app.use(
       mcpAuthRouter({
         provider,

@@ -82,5 +82,7 @@ await startHttpConnector({
   port: Number(process.env.AL_BUDDY_MEMORY_PORT ?? 8787),
   oauthStatePath: join(dir, "oauth.json"),
   passphraseHash,
+  // AL_BUDDY_MEMORY_REDIRECT_ORIGINS="https://claude.ai,https://chatgpt.com" overrides the allowed sign-in destinations.
+  ...(process.env.AL_BUDDY_MEMORY_REDIRECT_ORIGINS && { allowedRedirectOrigins: process.env.AL_BUDDY_MEMORY_REDIRECT_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean) }),
   log: (line) => console.log(`${new Date().toISOString()} ${line}`),
 });

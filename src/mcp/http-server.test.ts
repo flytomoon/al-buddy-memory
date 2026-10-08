@@ -93,6 +93,27 @@ async function rpcJson(token: string, body: unknown): Promise<{ result?: Record<
 }
 
 describe("remote connector over HTTPS", () => {
+  it("refuses an app that wants its sign-in sent anywhere but Claude, ChatGPT or this machine, and names the destination on consent (review 2026-10-08 H1)", async () => {
+    const bad = await fetch(`${base}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Claude", redirect_uris: ["https://evil.example/cb"], token_endpoint_auth_method: "none", grant_types: ["authorization_code"], response_types: ["code"] }),
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toMatch(/redirect not allowed/);
+    const local = await fetch(`${base}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Claude Code", redirect_uris: ["http://localhost:33418/callback"], token_endpoint_auth_method: "none", grant_types: ["authorization_code"], response_types: ["code"] }),
+    });
+    expect(local.status).toBe(201);
+    const clientId = await register();
+    const challenge = createHash("sha256").update("v".repeat(43)).digest("base64url");
+    const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256" });
+    const page = await (await fetch(`${base}/authorize?${q}`)).text();
+    expect(page).toMatch(/Access goes to <strong>claude\.ai<\/strong>/);
+  });
+
   it("an unsigned request is told where to sign in", async () => {
     const r = await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(r.status).toBe(401);
@@ -151,5 +172,19 @@ describe("remote connector over HTTPS", () => {
     expect(statSync(statePath).mode & 0o777).toBe(0o600);
     const bad = await rpc("not-a-token", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
     expect(bad.status).toBe(401);
+  });
+});
+
+describe("redirectAllowed", () => {
+  it("allows the default assistants and loopback, refuses everything else", async () => {
+    const { redirectAllowed } = await import("./owner-oauth.js");
+    expect(redirectAllowed("https://claude.ai/api/mcp/auth_callback")).toBe(true);
+    expect(redirectAllowed("https://chatgpt.com/connector_platform_oauth_redirect")).toBe(true);
+    expect(redirectAllowed("http://127.0.0.1:5555/cb")).toBe(true);
+    expect(redirectAllowed("http://claude.ai/cb")).toBe(false);
+    expect(redirectAllowed("https://claude.ai.evil.example/cb")).toBe(false);
+    expect(redirectAllowed("https://evil.example/?x=https://claude.ai")).toBe(false);
+    expect(redirectAllowed("not a url")).toBe(false);
+    expect(redirectAllowed("https://intranet.example/cb", ["https://intranet.example"])).toBe(true);
   });
 });
