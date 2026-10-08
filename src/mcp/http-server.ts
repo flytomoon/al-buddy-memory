@@ -102,7 +102,7 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
     const metadata = { resource: mcpUrl.href, authorization_servers: [opts.oidc.issuer], bearer_methods_supported: ["header"], resource_name: "al-buddy-memory" };
     app.get(new URL(getOAuthProtectedResourceMetadataUrl(mcpUrl)).pathname, (_req, res) => { res.json(metadata); });
   } else {
-    const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash, ...(opts.allowedRedirectOrigins && { allowedRedirectOrigins: opts.allowedRedirectOrigins }) });
+    const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash, log, ...(opts.allowedRedirectOrigins && { allowedRedirectOrigins: opts.allowedRedirectOrigins }) });
     app.use(
       mcpAuthRouter({
         provider,
