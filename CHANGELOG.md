@@ -86,6 +86,11 @@ earlier were GitHub releases only.
   erase or an invalidation refused because of a conclusion the actor cannot see no longer names
   that conclusion or the policy's reason about it, in the error or in an erasure receipt, and
   `docs/SIGN-IN.md`'s example now refuses tenants the server does not serve.
+- **A stranger's wrong passphrases no longer lock the owner out of the connector** (review
+  2026-10-08, M3). Five from one app lock that app for 15 minutes; twenty from all apps within
+  15 minutes still lock every app, so registering fresh apps buys no extra guesses. Each lock
+  writes one line to the connector log (the app's name, which lock, until when). It used to be
+  one counter: five wrong passphrases from anyone locked the page for everyone, silently.
 - **Dependency advisories.** The optional `@modelcontextprotocol/sdk` now needs `^1.32.1` (was
   `^1.30.0`; GHSA-6qxp-vccf-f47h, its OAuth client could send credentials to an authorisation
   server the MCP server chose). The lockfile moves `proxy-addr` to 2.0.8 (GHSA-jqcg-44mw-7w3h,

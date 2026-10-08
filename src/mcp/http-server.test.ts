@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { InMemoryStore } from "../in-memory-store.js";
 import { TOOL_ANNOTATIONS } from "./governance-server.js";
@@ -21,6 +21,7 @@ const dir = mkdtempSync(join(tmpdir(), "mem-http-"));
 const statePath = join(dir, "oauth.json");
 let base = "";
 let close: () => Promise<void> = async () => undefined;
+const logged: string[] = [];
 
 beforeAll(async () => {
   const c = await startHttpConnector({
@@ -29,6 +30,7 @@ beforeAll(async () => {
     port: 0,
     oauthStatePath: statePath,
     passphraseHash: hashPassphrase(PASS),
+    log: (line) => logged.push(line),
   });
   base = c.url;
   close = c.close;
@@ -38,23 +40,37 @@ afterAll(async () => { await close(); });
 const form = (o: Record<string, string>) => new URLSearchParams(o).toString();
 const FORM = { "content-type": "application/x-www-form-urlencoded" };
 
-async function register(): Promise<string> {
+async function register(name = "claude-test"): Promise<string> {
   const r = await fetch(`${base}/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client_name: "claude-test", redirect_uris: [REDIRECT], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }),
+    body: JSON.stringify({ client_name: name, redirect_uris: [REDIRECT], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }),
   });
   expect(r.status).toBe(201);
   return ((await r.json()) as { client_id: string }).client_id;
 }
 
-async function startAuthorize(clientId: string, challenge: string): Promise<string> {
+async function startAuthorize(clientId: string, challenge: string, name = "claude-test"): Promise<string> {
   const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256", state: "s1" });
   const r = await fetch(`${base}/authorize?${q}`, { redirect: "manual" });
   expect(r.status).toBe(200);
   const html = await r.text();
-  expect(html).toMatch(/Connect claude-test to your memory/);
+  expect(html).toContain(`Connect ${name} to your memory`);
   return html.match(/name="pending" value="([^"]+)"/)![1]!;
+}
+
+/** One passphrase on the consent page for `clientId`; the response status (302 allowed, 401 wrong, 429 locked). */
+async function tryPassphrase(clientId: string, passphrase: string, name = "claude-test"): Promise<number> {
+  const pending = await startAuthorize(clientId, "x".repeat(43), name);
+  const r = await fetch(`${base}/consent`, { method: "POST", headers: FORM, body: form({ pending, passphrase }), redirect: "manual" });
+  return r.status;
+}
+
+/** Lift every lock and forget every wrong passphrase, so each test starts clean. */
+function clearLocks(): void {
+  const s = JSON.parse(readFileSync(statePath, "utf8")) as { failures: unknown };
+  s.failures = { byClient: {}, recent: [], lockedUntil: 0 };
+  writeFileSync(statePath, JSON.stringify(s));
 }
 
 async function signIn(): Promise<{ access: string; refresh: string; clientId: string }> {
@@ -122,20 +138,60 @@ describe("remote connector over HTTPS", () => {
     expect(((await meta.json()) as { code_challenge_methods_supported: string[] }).code_challenge_methods_supported).toContain("S256");
   });
 
-  it("a wrong passphrase issues no code, and five lock the page", async () => {
-    const clientId = await register();
-    for (let i = 0; i < 5; i++) {
-      const pending = await startAuthorize(clientId, "x".repeat(43));
-      const r = await fetch(`${base}/consent`, { method: "POST", headers: FORM, body: form({ pending, passphrase: "nope" }), redirect: "manual" });
-      expect(r.status).toBe(401);
-    }
-    const pending = await startAuthorize(clientId, "x".repeat(43));
-    const locked = await fetch(`${base}/consent`, { method: "POST", headers: FORM, body: form({ pending, passphrase: PASS }), redirect: "manual" });
-    expect(locked.status).toBe(429);
-    // Clear the lock for the other tests.
-    const s = JSON.parse(readFileSync(statePath, "utf8")) as { failures: unknown };
-    s.failures = { count: 0, lockedUntil: 0 };
-    writeFileSync(statePath, JSON.stringify(s));
+  describe("wrong passphrases (review 2026-10-08 M3)", () => {
+    // Registration is rate-limited (20 an hour), so the owner's app is registered once and shared.
+    let owner = "";
+    beforeAll(async () => { owner = await register(); });
+    beforeEach(() => {
+      clearLocks();
+      logged.length = 0;
+    });
+    afterAll(() => { clearLocks(); });
+
+    it("five from one app lock that app out, but not the owner's own app", async () => {
+      const stranger = await register("mallory");
+      for (let i = 0; i < 5; i++) expect(await tryPassphrase(stranger, "nope", "mallory")).toBe(401);
+      expect(await tryPassphrase(stranger, PASS, "mallory")).toBe(429);
+      expect(await tryPassphrase(owner, PASS)).toBe(302);
+      expect(logged.filter((l) => l.includes("locked"))).toHaveLength(1);
+      expect(logged.find((l) => l.includes("locked"))).toMatch(/^connector: consent locked for "mallory" \(client [0-9a-f]{8}\) until \d{4}-\d\d-\d\dT[\d:.]+Z: 5 wrong passphrases from it$/);
+      expect(logged.join("\n")).not.toMatch(/nope|correct horse/);
+    });
+
+    it("twenty across many fresh apps lock every app, the owner's too", async () => {
+      for (let a = 0; a < 4; a++) {
+        const stranger = await register(`stranger ${a}`);
+        for (let i = 0; i < 5; i++) expect(await tryPassphrase(stranger, `guess ${a}-${i}`, `stranger ${a}`)).toBe(401);
+      }
+      expect(await tryPassphrase(owner, PASS)).toBe(429);
+      const locks = logged.filter((l) => l.includes("locked"));
+      expect(locks.filter((l) => l.includes("from it"))).toHaveLength(4);
+      expect(locks.filter((l) => l.startsWith("connector: consent locked for every app until "))).toHaveLength(1);
+      expect(locks.at(-1)).toMatch(/20 wrong passphrases in 15 minutes, the last from "stranger 3"/);
+      expect(logged.join("\n")).not.toMatch(/guess|correct horse/);
+    });
+
+    it("a right passphrase resets that app's count", async () => {
+      for (let i = 0; i < 4; i++) expect(await tryPassphrase(owner, "nope")).toBe(401);
+      expect(await tryPassphrase(owner, PASS)).toBe(302);
+      for (let i = 0; i < 4; i++) expect(await tryPassphrase(owner, "nope")).toBe(401);
+      expect(await tryPassphrase(owner, PASS)).toBe(302);
+      expect(logged.filter((l) => l.includes("locked"))).toEqual([]);
+    });
+
+    it("forgets an app's wrong passphrases on disk once they are old, like every other entry", async () => {
+      expect(await tryPassphrase(owner, "nope")).toBe(401);
+      const s = JSON.parse(readFileSync(statePath, "utf8")) as { failures: { byClient: Record<string, { expiresAt: number }>; recent: number[] } };
+      expect(Object.keys(s.failures.byClient)).toEqual([owner]);
+      expect(s.failures.recent).toHaveLength(1);
+      // Age them past the lock time; the next write drops them.
+      s.failures.byClient[owner]!.expiresAt = 1;
+      s.failures.recent = [1];
+      writeFileSync(statePath, JSON.stringify(s));
+      await register("anything");
+      const after = JSON.parse(readFileSync(statePath, "utf8")) as { failures: { byClient: Record<string, unknown>; recent: number[] } };
+      expect(after.failures).toMatchObject({ byClient: {}, recent: [] });
+    });
   });
 
   it("signs in, lists every tool with its read/write annotations, and remembers then recalls", async () => {
