@@ -10,7 +10,7 @@ Export the user's complete memory to a new file.
 2. Run:
 
    ```
-   npx -y --package=al-buddy-memory@0.10.1 al-buddy-memory export --out <file>
+   npx -y --package=al-buddy-memory@0.11.0 al-buddy-memory export --out <file>
    ```
 
    Add `--format markdown` (and a `.md` name) only if the user asked for something readable rather than a backup.

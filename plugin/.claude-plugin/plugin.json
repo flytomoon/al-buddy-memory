@@ -1,7 +1,7 @@
 {
   "name": "al-buddy",
   "displayName": "Al Buddy Memory",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Your work with Claude, never lost: long-term memory that stays on your machine, keeps every fact with where it came from and what replaced it, and exports to one documented format you can take anywhere.",
   "author": {
     "name": "Chris Canfield",
