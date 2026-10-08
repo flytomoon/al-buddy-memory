@@ -11,8 +11,12 @@ import { startHttpConnector } from "al-buddy-memory/http";
 import { PostgresMemoryStore, govern, storeAudit } from "al-buddy-memory";
 import { boundaries } from "./boundaries.js"; // your policy, e.g. docs/policies/boundaries.ts
 
+// The tenants this server serves. The tenant claim says which one a token is for;
+// it does not limit who can sign in (see "What to know").
+const TENANTS = new Set(["<tenant-id>"]);
 const stores = new Map<string, Promise<PostgresMemoryStore>>();
 const storeFor = (tenantId: string) => {
+  if (!TENANTS.has(tenantId)) throw new Error("not a tenant this server serves");
   if (!stores.has(tenantId)) {
     const s = new PostgresMemoryStore({ connectionString: process.env.DATABASE_URL!, tenantId });
     stores.set(tenantId, s.initialize().then(() => s));
@@ -50,9 +54,9 @@ await startHttpConnector({
 | `claims` | claim name → attribute name. A dotted name is read as written first (`https://example.com/roles`), then as a path (`realm_access.roles`). Two claims may feed one attribute; their values are merged. |
 | `tenantClaim` | the claim naming the tenant. When set, a token without it is refused. |
 | `actorClaim` | the claim naming the actor (default `sub`); it is who the audit trail records |
-| `jwksUri` / `jwks` | where the signing keys are. Default: the `jwks_uri` in `<issuer>/.well-known/openid-configuration`, which must name the same issuer. `jwks` takes the key set itself and fetches nothing. |
+| `jwksUri` / `jwks` | where the signing keys are. Default: the `jwks_uri` in `<issuer>/.well-known/openid-configuration`, which must name the same issuer. `jwks` takes the key set itself and fetches nothing. Keys are fetched over https only (plain http only from this machine, for development): whoever answers that fetch decides which tokens verify. |
 | `algorithms` | default every asymmetric JWS algorithm. `HS*` and `none` are never accepted. |
-| `clockToleranceSeconds` | skew allowed on `exp` and `nbf` (default 30) |
+| `clockToleranceSeconds` | skew allowed on `exp` and `nbf`, 0 to 300 (default 30) |
 
 ## It fails closed
 
@@ -122,6 +126,15 @@ oidc: {
 
 - **One issuer per server.** A multi-tenant Entra application sees a different issuer per
   directory; run a server (or a verifier) per issuer you accept.
+- **The tenant claim picks a store; it does not choose who may sign in.** Every account the
+  issuer will sign a token for, for your audience, gets in, with its own tenant value. Google's
+  issuer signs for every Workspace domain (and `hd` is any of them), so a `deps` that opens a
+  store for whatever tenant arrives gives any organisation its own memory on your database.
+  Refuse the tenants you do not serve in `deps`, as the example does.
+- **Name the actor by an identifier the person cannot change.** `sub`, Entra's `oid` and
+  Okta's `uid` are assigned by the provider; `email`, `preferred_username` and `upn` can be
+  edited, reused or unverified at some providers, and whoever holds the name holds that actor's
+  facts and audit identity.
 - **Attributes come only from the token**, unless `deps` adds more. Whoever can change a claim at
   your provider can change what that person sees here.
 - **The audit trail records `actorClaim`'s value** as the actor, and the connecting app's name as

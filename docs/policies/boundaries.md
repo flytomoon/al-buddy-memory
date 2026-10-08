@@ -58,7 +58,9 @@ readBoundary: {
 - **Every read, not only search.** `getNode`, `listNodes`, edges, embeddings, history and
   export apply the same boundary, and a fact outside it is "not found" to updates, erasures and
   links. Several policies' boundaries all apply. A caller may pass its own `labels` filter to
-  `searchNodes` to narrow a search; it cannot widen the boundary.
+  `searchNodes` to narrow a search; it cannot widen the boundary. Nor can it probe what
+  `beforeRead` redacts: a `labels` or `tags` filter is met by the fact as the actor sees it, so a
+  filter on a redacted label finds nothing.
 - **No policy, no change.** A policy without `readBoundary` behaves exactly as before.
 - **Labels are written by whoever writes the fact.** A boundary decides who reads; deciding who
   may label a fact for which team is a `beforeWrite` rule, and the example does not make one.
