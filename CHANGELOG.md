@@ -47,6 +47,16 @@ earlier were GitHub releases only.
   from the result and from the word weights. It used to come back (redacted), which told the actor
   it held the word, and it could move the order of the other results.
 
+### Security
+
+- **Dependency advisories.** The optional `@modelcontextprotocol/sdk` now needs `^1.32.1` (was
+  `^1.30.0`; GHSA-6qxp-vccf-f47h, its OAuth client could send credentials to an authorisation
+  server the MCP server chose). The lockfile moves `proxy-addr` to 2.0.8 (GHSA-jqcg-44mw-7w3h,
+  under the HTTP connector's express), `sharp` to 0.35.5 (GHSA-wq5f-xc86-pv6w, under the
+  on-device embedder), and `ip-address`, `fast-uri` and `source-map-js` to their fixed patches.
+  Still reported, dev-only: `sprintf-js` under `@mastra/core`'s `gray-matter` (no fixed version
+  exists) and a low `esbuild` advisory for its Windows dev server, which the build does not run.
+
 ## 0.10.1 — 2026-10-03
 
 The servers keep answering while they index, the Claude Code plugin gets its own name and slash
