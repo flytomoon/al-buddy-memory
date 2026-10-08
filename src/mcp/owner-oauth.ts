@@ -12,8 +12,11 @@
  * What is kept, in one 0600 JSON file: registered clients, and SHA-256 hashes
  * of codes and tokens — never a token itself, so a copied state file signs
  * nobody in. The passphrase is kept only as a scrypt hash. Wrong passphrases
- * lock the consent page for a while; nothing else is rate-limited here (the
- * SDK's handlers rate-limit their own endpoints).
+ * lock the consent page for a while — for the app that sent them, and for
+ * every app once there are too many in all — so a stranger guessing through
+ * one app does not lock the owner's own app out (security review 2026-10-08,
+ * M3). Nothing else is rate-limited here (the SDK's handlers rate-limit their
+ * own endpoints).
  */
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -31,12 +34,25 @@ export const ACCESS_TTL_S = 60 * 60;
 export const REFRESH_TTL_S = 90 * 24 * 60 * 60;
 const CODE_TTL_S = 5 * 60;
 const PENDING_TTL_S = 10 * 60;
-const LOCK_AFTER_FAILURES = 5;
+/** Wrong passphrases from one app before that app is locked out. */
+const LOCK_CLIENT_AFTER = 5;
+/** Wrong passphrases from all apps together, within LOCK_S, before every app is locked out. */
+const LOCK_ALL_AFTER = 20;
 const LOCK_S = 15 * 60;
 
 interface Grant { clientId: string; scopes: string[]; resource?: string; expiresAt: number }
 interface CodeGrant extends Grant { challenge: string; redirectUri: string }
 interface PendingConsent { clientId: string; params: { state?: string; scopes?: string[]; codeChallenge: string; redirectUri: string; resource?: string }; expiresAt: number }
+/** One app's wrong passphrases; forgotten LOCK_S after the last one (or after its lock ends). */
+interface ClientFailures { count: number; lockedUntil: number; expiresAt: number }
+
+interface Failures {
+  byClient: Record<string, ClientFailures>;
+  /** When each recent wrong passphrase came, from any app; only the last LOCK_S are kept. */
+  recent: number[];
+  /** Every app locked out until then. */
+  lockedUntil: number;
+}
 
 interface OAuthState {
   clients: Record<string, OAuthClientInformationFull>;
@@ -44,10 +60,11 @@ interface OAuthState {
   access: Record<string, Grant>;
   refresh: Record<string, Grant>;
   pending: Record<string, PendingConsent>;
-  failures: { count: number; lockedUntil: number };
+  failures: Failures;
 }
 
-const empty = (): OAuthState => ({ clients: {}, codes: {}, access: {}, refresh: {}, pending: {}, failures: { count: 0, lockedUntil: 0 } });
+const noFailures = (): Failures => ({ byClient: {}, recent: [], lockedUntil: 0 });
+const empty = (): OAuthState => ({ clients: {}, codes: {}, access: {}, refresh: {}, pending: {}, failures: noFailures() });
 const hash = (s: string): string => createHash("sha256").update(s).digest("hex");
 const token = (): string => randomBytes(32).toString("base64url");
 
@@ -65,6 +82,9 @@ export function checkPassphrase(passphrase: string, stored: string): boolean {
 }
 
 const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+/** An app's self-chosen name, safe for one log line: no control characters, not too long. */
+const logName = (s: string): string => JSON.stringify(s.replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, " ").slice(0, 80));
+const iso = (t: number): string => new Date(t * 1000).toISOString();
 
 export interface OwnerOAuthOptions {
   /** Where clients and token hashes live (created 0600). */
@@ -80,6 +100,8 @@ export interface OwnerOAuthOptions {
    * [::1], any port) is always allowed: a desktop app's callback on this machine.
    */
   allowedRedirectOrigins?: readonly string[];
+  /** The connector log: one line whenever wrong passphrases lock the consent page. */
+  log?: (line: string) => void;
   now?: () => number;
 }
 
@@ -110,19 +132,25 @@ export class OwnerOAuthProvider implements OAuthServerProvider {
   }
 
   private load(): OAuthState {
+    let s: OAuthState;
     try {
-      return { ...empty(), ...(JSON.parse(readFileSync(this.opts.statePath, "utf8")) as Partial<OAuthState>) };
+      s = { ...empty(), ...(JSON.parse(readFileSync(this.opts.statePath, "utf8")) as Partial<OAuthState>) };
     } catch {
       return empty();
     }
+    // A file from before per-app locks held one { count, lockedUntil }: keep its lock, as a lock on every app.
+    const f = s.failures as Partial<Failures> | undefined;
+    s.failures = { byClient: f?.byClient ?? {}, recent: Array.isArray(f?.recent) ? f.recent : [], lockedUntil: f?.lockedUntil ?? 0 };
+    return s;
   }
 
   private save(s: OAuthState): void {
     const t = this.now();
     // Expired entries go on every write, so the file never grows without bound.
-    for (const bag of [s.codes, s.access, s.refresh, s.pending] as Record<string, { expiresAt: number }>[]) {
+    for (const bag of [s.codes, s.access, s.refresh, s.pending, s.failures.byClient] as Record<string, { expiresAt: number }>[]) {
       for (const [k, v] of Object.entries(bag)) if (v.expiresAt <= t) delete bag[k];
     }
+    s.failures.recent = s.failures.recent.filter((at) => at > t - LOCK_S);
     mkdirSync(dirname(this.opts.statePath), { recursive: true, mode: 0o700 });
     const tmp = `${this.opts.statePath}.tmp`;
     writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 });
@@ -194,7 +222,9 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
 
   /**
    * Step 2, the consent form's POST: right passphrase → a one-time code on the
-   * app's redirect URI; wrong → the page again, and after five misses a lock.
+   * app's redirect URI; wrong → the page again. Five misses from one app lock
+   * that app out; twenty from all apps within the lock time lock out every app
+   * (so registering fresh apps does not buy more guesses). A lock is logged.
    */
   consent(pendingId: string, passphrase: string): { redirect: string } | { page: string; status: number } {
     const s = this.load();
@@ -202,16 +232,35 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
     const pending = s.pending[pendingId];
     if (!pending || pending.expiresAt <= t) return { page: this.consentPage("", "This app", "This sign-in expired. Start again from the app."), status: 400 };
     const appName = s.clients[pending.clientId]?.client_name ?? "An app";
-    if (s.failures.lockedUntil > t) {
-      return { page: this.consentPage(pendingId, appName, "Too many wrong passphrases. Try again in 15 minutes.", pending.params.redirectUri), status: 429 };
+    const mine = s.failures.byClient[pending.clientId];
+    const lockedUntil = Math.max(s.failures.lockedUntil, mine?.lockedUntil ?? 0);
+    if (lockedUntil > t) {
+      const minutes = Math.ceil((lockedUntil - t) / 60);
+      const who = s.failures.lockedUntil > t ? "" : " from this app";
+      return { page: this.consentPage(pendingId, appName, `Too many wrong passphrases${who}. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`, pending.params.redirectUri), status: 429 };
     }
     if (!checkPassphrase(passphrase, this.opts.passphraseHash)) {
-      s.failures.count += 1;
-      if (s.failures.count >= LOCK_AFTER_FAILURES) s.failures = { count: 0, lockedUntil: t + LOCK_S };
+      const log = this.opts.log ?? (() => undefined);
+      const name = `${logName(appName)} (client ${pending.clientId.slice(0, 8)})`;
+      const c = mine ?? { count: 0, lockedUntil: 0, expiresAt: 0 };
+      c.count += 1;
+      c.expiresAt = t + LOCK_S;
+      if (c.count >= LOCK_CLIENT_AFTER) {
+        c.count = 0;
+        c.lockedUntil = t + LOCK_S;
+        log(`connector: consent locked for ${name} until ${iso(c.lockedUntil)}: ${LOCK_CLIENT_AFTER} wrong passphrases from it`);
+      }
+      s.failures.byClient[pending.clientId] = c;
+      s.failures.recent = [...s.failures.recent.filter((at) => at > t - LOCK_S), t];
+      if (s.failures.recent.length >= LOCK_ALL_AFTER) {
+        s.failures.recent = [];
+        s.failures.lockedUntil = t + LOCK_S;
+        log(`connector: consent locked for every app until ${iso(s.failures.lockedUntil)}: ${LOCK_ALL_AFTER} wrong passphrases in ${LOCK_S / 60} minutes, the last from ${name}`);
+      }
       this.save(s);
       return { page: this.consentPage(pendingId, appName, "That passphrase is not right.", pending.params.redirectUri), status: 401 };
     }
-    s.failures = { count: 0, lockedUntil: 0 };
+    delete s.failures.byClient[pending.clientId];
     delete s.pending[pendingId];
     const code = token();
     s.codes[hash(code)] = {
