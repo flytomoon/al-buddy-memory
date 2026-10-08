@@ -80,6 +80,11 @@ earlier were GitHub releases only.
 
 ### Security
 
+- **The connector's sign-in only sends codes to Claude, ChatGPT or this machine** (security review
+  2026-10-08). Registering an app whose redirect is anywhere else is refused, a client registered
+  earlier is held to the same list at sign-in, and the consent page says where access goes.
+  `allowedRedirectOrigins` (or `AL_BUDDY_MEMORY_REDIRECT_ORIGINS`) sets the list.
+
 - **Security review of the enterprise surface** (Postgres store, data boundaries, erasure
   receipts, incremental writes, OIDC sign-in): `docs/SECURITY-REVIEW-2026-10.md` lists what was
   checked, found and fixed, and what was not covered. Besides the two behaviour changes above, an
