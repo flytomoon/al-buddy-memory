@@ -167,7 +167,7 @@ export function recentlyDeletedMethods(d: RecentlyDeletedDeps): RecentlyDeletedC
           if (!due) { waiting.push(node.nodeId); continue; }
           const closure = await closureOf(d.inner, node.nodeId);
           try {
-            await d.guarded(ctx, [node.nodeId], () => judgeErase(node, closure, ctx, d.erasePolicies));
+            await d.guarded(ctx, [node.nodeId], () => judgeErase(node, closure, ctx, d.erasePolicies, async (n) => (await d.view(n, { ...ctx, purpose: "recall" })) !== null));
           } catch (err) {
             if (err instanceof PolicyDenied) { refused.push(node.nodeId); continue; }
             throw err;

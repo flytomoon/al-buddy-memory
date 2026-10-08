@@ -14,10 +14,10 @@
  * the re-review the embedding cache did, and it confirmed which hidden ids exist.
  */
 import { compareRecency, effectiveConfidence } from "../decay.js";
-import { bothLabels, matchesLabels, mentionsAny, queryTokens, visibleRelevance } from "../query-filter.js";
+import { bothLabels, matchesLabels, matchesTags, mentionsAny, queryTokens, visibleRelevance } from "../query-filter.js";
 import { assertReadBoundary, boundaryFor } from "./boundary.js";
 import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
-import type { AsOfFact, AsOfOptions, EmbeddingVector, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
+import type { AsOfFact, AsOfOptions, EmbeddingVector, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryQueryOptions, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { closureOf, judgeErase, judgeInvalidation } from "./cascade.js";
 import { DAY_MS, DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type DeletionRequest, type RecentlyDeletedCapable } from "./recently-deleted.js";
@@ -276,13 +276,32 @@ async function view(opts: ActiveOptions, node: MemoryNode, ctx: PolicyContext): 
   return current;
 }
 
-async function filterRead(opts: ActiveOptions, nodes: MemoryNode[], ctx: PolicyContext): Promise<MemoryNode[]> {
+/** The label and tag filters a caller asked for, which a fact must still meet as the actor sees it. */
+type AskedLabels = { readonly labels?: MemoryQueryOptions["labels"] | undefined; readonly tags?: MemoryQueryOptions["tags"] | undefined };
+
+/**
+ * Whether a fact still answers the caller's label and tag filters as this
+ * actor sees it. The store matched the STORED labels, so when a read policy
+ * strips the label a caller filtered on, returning the fact confirmed the very
+ * value the policy hides: `labels: { label: "rate", in: ["120"] }` told a
+ * reader the rate it redacts, and an erasure by it counted the fact (security
+ * review 2026-10). Such a fact is not a match for this actor, as a redacted
+ * word is not (searchNodes). A fact the policies pass unchanged stays matched
+ * however its store matched it.
+ */
+function answersAsSeen(stored: MemoryNode, seen: MemoryNode, asked: AskedLabels): boolean {
+  if (asked.labels === undefined && !asked.tags?.length) return true;
+  if (seen.contextualMetadata === stored.contextualMetadata || canonicalJson(seen.contextualMetadata) === canonicalJson(stored.contextualMetadata)) return true;
+  return (asked.labels === undefined || matchesLabels(seen, asked.labels)) && (!asked.tags?.length || matchesTags(seen, asked.tags));
+}
+
+async function filterRead(opts: ActiveOptions, nodes: MemoryNode[], ctx: PolicyContext, asked: AskedLabels = {}): Promise<MemoryNode[]> {
   const out: MemoryNode[] = [];
   const hidden: string[] = [];
   for (const node of nodes) {
     const seen = await view(opts, node, ctx);
     if (seen === null) hidden.push(node.nodeId);
-    else out.push(seen);
+    else if (answersAsSeen(node, seen, asked)) out.push(seen);
   }
   if (hidden.length > 0) await record(opts, ctx, "hidden", hidden);
   await record(opts, ctx, "allowed", out.map((n) => n.nodeId));
@@ -381,6 +400,9 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     return { node, seen };
   }
 
+  /** Whether this actor may read a fact: what a refusal may name (cascade.ts). */
+  const canSee = (ctx: PolicyContext) => async (node: MemoryNode): Promise<boolean> => (await view(opts, node, { ...ctx, purpose: "recall" })) !== null;
+
   async function writePolicies(node: NewMemoryNode, ctx: PolicyContext): Promise<NewMemoryNode> {
     let current = node;
     for (const p of opts.policies) if (p.beforeWrite) current = await p.beforeWrite(current, ctx);
@@ -412,7 +434,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     // The fact goes with everything concluded from it, so every one of them
     // is asked about now — one decision, before anything changes (cascade.ts).
     const closure = await closureOf(inner, nodeId);
-    await guarded(opts, ctx, [nodeId], () => judgeErase(node, closure, ctx, erasePolicies));
+    await guarded(opts, ctx, [nodeId], () => judgeErase(node, closure, ctx, erasePolicies, canSee(ctx)));
     assertAuditUsable(opts);
     const grace = opts.recentlyDeleted;
     if (grace === undefined) {
@@ -498,7 +520,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
           // A fact that stops being true retracts what was concluded from it (the
           // store does that in the same transaction): the policies see each of
           // those retractions now, as part of this one decision (cascade.ts).
-          retracted = await judgeInvalidation(inner, existing, patch, ctx, updatePolicies);
+          retracted = await judgeInvalidation(inner, existing, patch, ctx, updatePolicies, canSee(ctx));
         });
         assertAuditUsable(opts);
         const updated = await commitAudited(
@@ -573,10 +595,14 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         const id = globalThis.crypto.randomUUID();
         // Every tier, every classification: an erasure must reach archived and
         // sealed facts too. But a fact this actor cannot read is not theirs to
-        // erase, and not theirs to learn about — it is neither touched nor counted.
+        // erase, and not theirs to learn about — it is neither touched nor
+        // counted; nor is one that carries the labels only where a policy
+        // hides them from this actor (answersAsSeen).
         const selected: MemoryNode[] = [];
         for (const node of await inner.listNodes()) {
-          if (matchesLabels(node, filter) && (await view(opts, node, { ...ctx, purpose: "recall" }))) selected.push(node);
+          if (!matchesLabels(node, filter)) continue;
+          const seen = await view(opts, node, { ...ctx, purpose: "recall" });
+          if (seen !== null && answersAsSeen(node, seen, { labels: filter })) selected.push(node);
         }
         // In id order, so the receipt does not depend on how a store lists facts.
         selected.sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
@@ -730,7 +756,8 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
       // outside them are filtered before the store ranks or limits anything.
       // view() still applies them, for a store that ignores `labels`.
       const asked = snapshotOptions(input);
-      const labels = bothLabels(asked.labels === undefined ? undefined : snapshot(asked.labels), boundaryFor(opts.policies, ctx));
+      const wanted: AskedLabels = { labels: asked.labels === undefined ? undefined : snapshot(asked.labels), tags: asked.tags };
+      const labels = bothLabels(wanted.labels, boundaryFor(opts.policies, ctx));
       const options = labels === undefined ? asked : { ...asked, labels };
       // A cursor this actor cannot see is a missing cursor: the page after it is
       // empty. It used to answer differently for a hidden id than a missing one.
@@ -772,6 +799,8 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
           // not a match for this actor, and is not counted among the matches.
           // An unredacted text stays matched however its store matched it.
           else if (seen.content.text !== node.content.text && !mentionsAny(seen.content.text, tokens)) continue;
+          // Likewise a label or tag the caller filtered on that the policy hides.
+          else if (!answersAsSeen(node, seen, wanted)) continue;
           else seenNodes.push(seen);
         }
         // Scored from the text the actor sees (a redacting policy's view, not the
@@ -791,7 +820,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
       }
 
       if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
-        return filterRead(opts, await inner.searchNodes(options), ctx);
+        return filterRead(opts, await inner.searchNodes(options), ctx, wanted);
       }
       // The page is the first `limit` facts this actor may see. Filtering after
       // the store's limit let hidden facts take the places: as an AI audience,
@@ -806,8 +835,8 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         const hidden: string[] = [];
         for (const node of rows) {
           const seen = await view(opts, node, ctx);
-          if (seen) page.push(seen);
-          else hidden.push(node.nodeId);
+          if (!seen) hidden.push(node.nodeId);
+          else if (answersAsSeen(node, seen, wanted)) page.push(seen);
           if (page.length === limit) break;
         }
         if (page.length === limit || rows.length < ask) {

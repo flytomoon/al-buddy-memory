@@ -90,8 +90,10 @@ The receipt says this itself, in `outside`, so it cannot be read as more than it
   the actor they exist, which every other governed call refuses to do; so run a subject erasure
   as an actor whose policies let it see everything with those labels. (A conclusion drawn from a
   selected fact is different: it goes with the fact, as it does with `deleteNode`, after the
-  erase policies have been asked about it, and the receipt counts it.) **Facts that do not carry
-  the labels** are not matched: label facts when they are written.
+  erase policies have been asked about it, and the receipt counts it.) Nor is a fact whose
+  matching label a `beforeRead` policy redacts for this actor: matching it would confirm the value
+  the policy hides. **Facts that do not carry the labels** are not matched: label facts when they
+  are written.
 - **Storage not yet reclaimed.** SQLite keeps deleted rows in free pages and the WAL until
   `compact()` (VACUUM) and a checkpoint; Postgres keeps dead rows until VACUUM.
 - **The audit trail** keeps the events that name the erased facts' ids (never their content):

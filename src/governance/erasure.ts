@@ -41,7 +41,7 @@ export const RECEIPT_ID_HASH = "sha256 hex of 'al-buddy-memory/fact-id' + newlin
 export const RECEIPT_OUTSIDE: readonly string[] = [
   "Backups and copies of the database made before this erasure still hold these facts until they are deleted or expire; erase or expire them separately.",
   "Exports made before this erasure (al-buddy-memory export, exportPortable, anything a reader copied out) are outside it.",
-  "Facts the erasing actor cannot see were not selected (a conclusion drawn from a selected fact went with it, as with any erasure, and is counted), and facts about the subject that do not carry the selector's labels were not matched.",
+  "Facts the erasing actor cannot see, or that carry the selector's labels only where a policy hides them from that actor, were not selected (a conclusion drawn from a selected fact went with it, as with any erasure, and is counted), and facts about the subject that do not carry the selector's labels were not matched.",
   "Storage the database has not reclaimed yet: SQLite free pages and WAL until compact() (VACUUM) and a checkpoint; Postgres dead rows until VACUUM.",
   "The audit trail keeps the events that name these facts' ids; it never held their content.",
 ];

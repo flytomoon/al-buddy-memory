@@ -13,6 +13,19 @@ import { PolicyDenied, type NodePatch, type PolicyContext } from "./policy.js";
 
 export type EraseCheck = (subject: { node: MemoryNode }, ctx: PolicyContext) => Promise<void>;
 export type UpdateCheck = (existing: MemoryNode, patch: NodePatch, ctx: PolicyContext) => Promise<void>;
+/** Whether the acting actor may read this fact (the governed handle's view). */
+export type CanSee = (node: MemoryNode) => Promise<boolean>;
+
+/**
+ * How a refusal names the conclusion that stood in the way. One the actor
+ * cannot read is not named, and neither is what the policy said about it: an
+ * erase used to answer with a hidden conclusion's id and the hold placed on
+ * it (security review 2026-10). The refusal is still audited, naming the root.
+ */
+async function blocker(node: MemoryNode, reason: string, canSee: CanSee | undefined, verb: string): Promise<string> {
+  if (canSee === undefined || (await canSee(node))) return `${node.nodeId} was concluded from it and may not be ${verb} (${reason})`;
+  return `a fact concluded from it, which this actor cannot see, may not be ${verb}`;
+}
 
 /**
  * The facts the cascade from `rootId` can reach, in `listNodes` order: every
@@ -32,16 +45,16 @@ export async function closureOf(inner: MemoryStore, rootId: string): Promise<Mem
 /**
  * Judge erasing `root` and everything built on it as one decision. The root's
  * own refusal comes back unchanged; a conclusion's refusal names that
- * conclusion, so he learns which fact stood in the way.
+ * conclusion, so the actor learns which fact stood in the way — when they can see it.
  */
-export async function judgeErase(root: MemoryNode, closure: readonly MemoryNode[], ctx: PolicyContext, check: EraseCheck): Promise<void> {
+export async function judgeErase(root: MemoryNode, closure: readonly MemoryNode[], ctx: PolicyContext, check: EraseCheck, canSee?: CanSee): Promise<void> {
   await check({ node: root }, ctx);
   for (const node of closure) {
     try {
       await check({ node }, ctx);
     } catch (err) {
       if (err instanceof PolicyDenied) {
-        throw new PolicyDenied(err.policy, `cannot erase ${root.nodeId}: ${node.nodeId} was concluded from it and may not be erased (${err.reason})`);
+        throw new PolicyDenied(err.policy, `cannot erase ${root.nodeId}: ${await blocker(node, err.reason, canSee, "erased")}`);
       }
       throw err;
     }
@@ -59,6 +72,7 @@ export async function judgeInvalidation(
   patch: NodePatch,
   ctx: PolicyContext,
   check: UpdateCheck,
+  canSee?: CanSee,
 ): Promise<string[]> {
   const after = { validTo: patch.validTo === undefined ? existing.validTo : patch.validTo };
   if (!isInvalidation(existing, after) || after.validTo === null) return [];
@@ -72,7 +86,7 @@ export async function judgeInvalidation(
       await check(node, retract, ctx);
     } catch (err) {
       if (err instanceof PolicyDenied) {
-        throw new PolicyDenied(err.policy, `cannot retire ${existing.nodeId}: ${r.nodeId} was concluded from it and may not be retracted (${err.reason})`);
+        throw new PolicyDenied(err.policy, `cannot retire ${existing.nodeId}: ${await blocker(node, err.reason, canSee, "retracted")}`);
       }
       throw err;
     }
