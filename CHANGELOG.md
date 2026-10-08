@@ -68,9 +68,24 @@ earlier were GitHub releases only.
   matches stored words; a fact whose visible text holds none of the query's words is now dropped
   from the result and from the word weights. It used to come back (redacted), which told the actor
   it held the word, and it could move the order of the other results.
+- **Nor by a label or tag a policy redacted** (security review 2026-10). A `labels` or `tags`
+  filter on a governed `searchNodes` is now met by the fact as the actor sees it, and
+  `eraseWhere` selects (and counts) only facts whose matching labels the actor can see. A filter
+  on a label a `beforeRead` policy strips used to return the fact, confirming the stripped value.
+  Facts the policies pass unchanged match exactly as before.
+- **OIDC sign-in refuses plain-http key sources and an unbounded clock tolerance.** `issuer` (when
+  discovered), `jwksUri` and a discovered `jwks_uri` must be https, except to this machine;
+  `clockToleranceSeconds` must be 0 to 300. Both used to be accepted, and whoever answered an http
+  key fetch could sign tokens.
 
 ### Security
 
+- **Security review of the enterprise surface** (Postgres store, data boundaries, erasure
+  receipts, incremental writes, OIDC sign-in): `docs/SECURITY-REVIEW-2026-10.md` lists what was
+  checked, found and fixed, and what was not covered. Besides the two behaviour changes above, an
+  erase or an invalidation refused because of a conclusion the actor cannot see no longer names
+  that conclusion or the policy's reason about it, in the error or in an erasure receipt, and
+  `docs/SIGN-IN.md`'s example now refuses tenants the server does not serve.
 - **Dependency advisories.** The optional `@modelcontextprotocol/sdk` now needs `^1.32.1` (was
   `^1.30.0`; GHSA-6qxp-vccf-f47h, its OAuth client could send credentials to an authorisation
   server the MCP server chose). The lockfile moves `proxy-addr` to 2.0.8 (GHSA-jqcg-44mw-7w3h,

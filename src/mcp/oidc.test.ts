@@ -172,6 +172,25 @@ describe("configuration", () => {
     expect(() => oidcVerifier({ issuer: ISSUER, audience: AUDIENCE, jwks, algorithms: ["none"] })).toThrow(/algorithm/);
     expect(() => oidcVerifier({ issuer: ISSUER, audience: AUDIENCE, jwks, tenantClaim: "" })).toThrow(/tenantClaim/);
   });
+
+  // Security review 2026-10: whoever can answer a plain-http key fetch can sign tokens.
+  it("fetches the signing keys over https only, except from this machine", () => {
+    expect(() => oidcVerifier({ issuer: "http://idp.example.test/realm", audience: AUDIENCE })).toThrow(/https/);
+    expect(() => oidcVerifier({ issuer: ISSUER, audience: AUDIENCE, jwksUri: "http://idp.example.test/keys" })).toThrow(/https/);
+    expect(() => oidcVerifier({ issuer: ISSUER, audience: AUDIENCE, jwksUri: "ftp://idp.example.test/keys" })).toThrow(/https/);
+    // Keys given directly: nothing is fetched, and the issuer is only compared with iss.
+    expect(() => oidcVerifier({ issuer: "http://idp.example.test/realm", audience: AUDIENCE, jwks })).not.toThrow();
+    for (const local of ["http://127.0.0.1:8080/realm", "http://localhost:8080/realm", "http://[::1]:8080/realm"]) {
+      expect(() => oidcVerifier({ issuer: local, audience: AUDIENCE })).not.toThrow();
+    }
+  });
+
+  it("refuses a clock tolerance that would switch expiry off", () => {
+    for (const t of [Infinity, Number.NaN, -1, 301]) {
+      expect(() => oidcVerifier({ issuer: ISSUER, audience: AUDIENCE, jwks, clockToleranceSeconds: t })).toThrow(/clockToleranceSeconds/);
+    }
+    for (const t of [0, 300]) expect(() => oidcVerifier({ issuer: ISSUER, audience: AUDIENCE, jwks, clockToleranceSeconds: t })).not.toThrow();
+  });
 });
 
 describe("the issuer's published keys", () => {
@@ -212,6 +231,13 @@ describe("the issuer's published keys", () => {
   it("are not trusted from a discovery document that names another issuer", async () => {
     discovery = { issuer: "https://evil.example.test", jwks_uri: `${origin}/realm/keys` };
     await expect(remote().verify(await mint({ sub: "a" }, { iss: `${origin}/realm` }))).rejects.toBeInstanceOf(OidcTokenRefused);
+  });
+
+  it("are not fetched from a plain-http jwks_uri the discovery document names", async () => {
+    discovery = { issuer: `${origin}/realm`, jwks_uri: "http://idp.example.test/keys" };
+    const err = await remote().verify(await mint({ sub: "a" }, { iss: `${origin}/realm` })).then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(OidcTokenRefused);
+    expect((err as OidcTokenRefused).reason).toMatch(/https/);
   });
 
   it("refuse every token while discovery fails, and recover once it works", async () => {

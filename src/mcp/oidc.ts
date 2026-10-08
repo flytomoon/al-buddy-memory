@@ -43,7 +43,7 @@ export interface OidcOptions {
   jwks?: JSONWebKeySet | undefined;
   /** Signing algorithms accepted. Default: every asymmetric JWS algorithm; symmetric ones and `none` are never accepted. */
   algorithms?: readonly string[] | undefined;
-  /** Leeway for clock skew on `exp` and `nbf`, in seconds. Default 30. */
+  /** Leeway for clock skew on `exp` and `nbf`, in seconds, from 0 to 300. Default 30. */
   clockToleranceSeconds?: number | undefined;
 }
 
@@ -71,6 +71,19 @@ export class OidcTokenRefused extends Error {
 
 export const ASYMMETRIC_ALGORITHMS: readonly string[] = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA", "Ed25519"];
 const DISCOVERY_TIMEOUT_MS = 5_000;
+/** More skew than this is not skew: an unbounded leeway would accept every expired token. */
+const MAX_CLOCK_TOLERANCE_SECONDS = 300;
+
+/**
+ * Whether the keys may be fetched from `url`. Whoever answers that fetch
+ * decides which signatures verify, so it is https, or plain http to an
+ * identity provider on this machine (development, tests). Security review
+ * 2026-10: any http URL used to be fetched.
+ */
+function fetchable(url: URL): boolean {
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(url.hostname));
+}
 
 function assertOptions(o: OidcOptions): void {
   const fail = (why: string): never => {
@@ -97,6 +110,14 @@ function assertOptions(o: OidcOptions): void {
     } catch {
       fail("jwksUri must be a URL");
     }
+  }
+  if (o.jwks === undefined) {
+    const [name, from] = o.jwksUri !== undefined ? ["jwksUri", o.jwksUri] : ["issuer", o.issuer];
+    if (!fetchable(new URL(from))) fail(`${name} must be an https URL: the signing keys are fetched from it (plain http only to this machine), or give jwks`);
+  }
+  const skew = o.clockToleranceSeconds;
+  if (skew !== undefined && !(typeof skew === "number" && skew >= 0 && skew <= MAX_CLOCK_TOLERANCE_SECONDS)) {
+    fail(`clockToleranceSeconds must be a number of seconds from 0 to ${MAX_CLOCK_TOLERANCE_SECONDS}`);
   }
 }
 
@@ -151,7 +172,9 @@ function discoveredKeys(issuer: string): JWTVerifyGetKey {
     const doc = (await res.json()) as { issuer?: unknown; jwks_uri?: unknown };
     if (doc.issuer !== issuer) throw new Error("the discovery document names another issuer");
     if (typeof doc.jwks_uri !== "string") throw new Error("the discovery document has no jwks_uri");
-    return createRemoteJWKSet(new URL(doc.jwks_uri));
+    const uri = new URL(doc.jwks_uri);
+    if (!fetchable(uri)) throw new Error("the discovery document's jwks_uri is not https");
+    return createRemoteJWKSet(uri);
   };
   return async (header, token) => {
     keys ??= discover().catch((err: unknown) => {
