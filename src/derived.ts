@@ -53,6 +53,20 @@ export function dependentsOf(roots: readonly string[], nodes: Iterable<Pick<Memo
   return out;
 }
 
+/**
+ * A store that can find the facts resting on others without listing every
+ * fact. Optional: the governed cascade uses it when a store has it, and lists
+ * the store otherwise. Must return exactly `dependentsOf(roots, listNodes())`'s
+ * facts, in `listNodes` order.
+ */
+export interface DependentsCapable {
+  nodesRestingOn(roots: readonly string[]): Promise<MemoryNode[]>;
+}
+
+export function isDependentsCapable(store: unknown): store is DependentsCapable {
+  return typeof (store as Partial<DependentsCapable> | null)?.nodesRestingOn === "function";
+}
+
 /** The record a retraction leaves on a conclusion whose source stopped being true. */
 export interface SourceRetraction {
   at: string;
