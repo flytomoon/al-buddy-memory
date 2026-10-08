@@ -40,6 +40,19 @@ earlier were GitHub releases only.
   database's KMS on Postgres; full-disk encryption or a SQLCipher build locally, which is not
   built here) and erasure.
 
+### Changed
+
+- **Postgres writes no longer grow with the tenant.** A write on `PostgresMemoryStore` used to
+  rebuild the tenant's whole graph (about 640 ms a write at 20,000 facts in PGlite). It now reads
+  only the rows it acts on — the fact and its versions, the conclusions an invalidation or erasure
+  reaches, the edges it touches — and persists what changed, in the same single transaction under
+  the tenant lock: 1–3 ms a write from 1,000 to 100,000 facts. `initialize()` adds the indexes this
+  uses; run it once after upgrading. The audit append walks the tenant's chain once per store
+  object, as SQLite does, and checks every append's tail against the tenant row, instead of
+  walking the whole chain on every write. `listNodes` reads facts only. The governed cascade asks
+  a store that can (`nodesRestingOn`) for a fact's conclusions instead of listing every fact.
+  Benchmark: `bench/postgres-writes/run.mjs`; numbers in `docs/POSTGRES.md`.
+
 ### Behaviour change
 
 - **A governed keyword search no longer finds a fact by a word a policy redacted.** The store

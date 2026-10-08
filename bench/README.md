@@ -8,6 +8,7 @@ was clean, and every setting.
 |---|---|---|
 | [`bench.mjs`](bench.mjs), [`bench-vectors.mjs`](bench-vectors.mjs) | Speed and size at 20,000–100,000 facts (the README's "Limits, measured") | none |
 | [`longmemeval/`](longmemeval/) | Recall on the public LongMemEval benchmark, scored with its official prompts and metrics | answer + judge per question, on the Claude subscription |
+| [`postgres-writes/`](postgres-writes/run.mjs) | What one write costs on the Postgres store as a tenant grows (in-process PGlite); numbers in [docs/POSTGRES.md](../docs/POSTGRES.md#what-a-write-costs) | none |
 | [`stale-facts/`](stale-facts/) | When a fact changes, whether recall returns the value true now — and the value true then | none |
 
 ## Stale facts
