@@ -133,7 +133,9 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_node_ref_idx ON memory_items(tenant_key, kind, (metadata->>'nodeId'))");
     await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_edge_source_idx ON memory_items(tenant_key, kind, (metadata->>'sourceNodeId'))");
     await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_edge_target_idx ON memory_items(tenant_key, kind, (metadata->>'targetNodeId'))");
-    await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_derived_idx ON memory_items USING gin((${DERIVED_FROM})) WHERE kind = 'node'`);
+    // Only conclusions are indexed, and without GIN's pending list: a lookup
+    // would otherwise scan every fact inserted since the last vacuum.
+    await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_derived_idx ON memory_items USING gin((${DERIVED_FROM})) WITH (fastupdate = off) WHERE kind = 'node' AND jsonb_typeof(${DERIVED_FROM}) = 'array'`);
     // pgvector supports mixed dimensions in one column; index only the selected dimension.
     await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_hnsw_${this.dimensions} ON memory_items USING hnsw ((embedding::vector(${this.dimensions})) vector_cosine_ops) WHERE kind = 'embedding' AND dimensions = ${this.dimensions}`);
     await this.client.query(`CREATE TABLE IF NOT EXISTS memory_audit_events (
