@@ -4,6 +4,9 @@ import { vector } from "@electric-sql/pglite-pgvector";
 import { PostgresMemoryStore } from "./postgres-memory-store.js";
 import { makeNode, runMemoryStoreConformance } from "./memory-store-conformance.spec.js";
 import { govern } from "./governance/governed-store.js";
+import { InMemoryStore } from "./in-memory-store.js";
+import { runDerivedConformance } from "./derived-conformance.spec.js";
+import { runMentalModelConformance } from "./mental-models-conformance.spec.js";
 
 let db: PGlite;
 beforeAll(async () => { db = new PGlite({ extensions: { vector } }); await db.waitReady; });
@@ -117,4 +120,50 @@ describe("PostgresMemoryStore", () => {
   });
 });
 
+// A write reads only the rows it acts on. These hold the cases where what it
+// must read is not the fact it was handed.
+describe("PostgresMemoryStore — a write reads only what it touches", () => {
+  it("refuses a version id another fact already holds, and leaves that fact's history alone", async () => {
+    const store = new PostgresMemoryStore({ tenantId: globalThis.crypto.randomUUID(), client: db });
+    const a = await store.addNode(makeNode());
+    const b = await store.addNode(makeNode());
+    await store.updateNode(a.nodeId, { confidenceWeight: 0.5 });
+    const [taken] = await store.history(a.nodeId);
+    const state = { ...(await store.history(a.nodeId))[0]!.after };
+    const recordedAt = b.temporalAnchors[0]!.timestamp;
+    await expect(store.restoreVersion({ versionId: taken!.versionId, nodeId: b.nodeId, recordedAt, event: "restored", before: state, after: { ...state, confidenceWeight: 0.4 } }))
+      .rejects.toThrow(/already records a different change/);
+    expect(await store.history(a.nodeId)).toEqual([taken]);
+    expect(await store.history(b.nodeId)).toEqual([]);
+  });
+
+  it("erasing a fact removes its edges to facts that stay, and those facts keep their history", async () => {
+    const store = new PostgresMemoryStore({ tenantId: globalThis.crypto.randomUUID(), client: db, indexedDimensions: 3 });
+    const gone = await store.addNode(makeNode());
+    const stays = await store.addNode(makeNode());
+    await store.updateNode(stays.nodeId, { confidenceWeight: 0.7 });
+    await store.addEdge({ sourceNodeId: stays.nodeId, targetNodeId: gone.nodeId, relationshipType: "Conceptual", strength: 1, provenance: "UserAsserted" });
+    await store.setEmbedding({ nodeId: gone.nodeId, model: "tiny", modelVersion: "1", dimensions: 3, metric: "cosine", vector: [1, 0, 0] });
+    await store.deleteNode(gone.nodeId);
+    expect(await store.getEdges(stays.nodeId)).toEqual([]);
+    expect(await store.history(stays.nodeId)).toHaveLength(1);
+    expect((await db.query("SELECT kind FROM memory_items WHERE tenant_key=$1 AND (id=$2 OR metadata->>'nodeId'=$2)", [store.tenantId, gone.nodeId])).rows).toEqual([]);
+  });
+
+  it("restoring an edge over an id already used for other endpoints is refused, as on every store", async () => {
+    const store = new PostgresMemoryStore({ tenantId: globalThis.crypto.randomUUID(), client: db });
+    const [a, b, c] = [await store.addNode(makeNode()), await store.addNode(makeNode()), await store.addNode(makeNode())];
+    const edge = await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Conceptual", strength: 1, provenance: "UserAsserted" });
+    const reference = new InMemoryStore();
+    for (const n of [a, b, c]) await reference.restoreNode(n);
+    await reference.restoreEdge(edge);
+    const moved = { ...edge, targetNodeId: c.nodeId };
+    const expected = await reference.restoreEdge(moved).then(() => "ok", (e: Error) => e.message);
+    expect(await store.restoreEdge(moved).then(() => "ok", (e: Error) => e.message)).toBe(expected);
+    expect(await store.getEdges(c.nodeId)).toEqual(await reference.getEdges(c.nodeId));
+  });
+});
+
 runMemoryStoreConformance("Postgres", () => new PostgresMemoryStore({ tenantId: globalThis.crypto.randomUUID(), client: db }));
+runDerivedConformance("Postgres", () => new PostgresMemoryStore({ tenantId: globalThis.crypto.randomUUID(), client: db }));
+runMentalModelConformance("Postgres", () => new PostgresMemoryStore({ tenantId: globalThis.crypto.randomUUID(), client: db }));
