@@ -169,8 +169,9 @@ a local setup.
 - **Postgres.** `PostgresMemoryStore` (pgvector 0.8 or newer) sits behind the same
   `MemoryStore` interface and passes the same conformance suite. Every read and write is confined
   to one tenant key, and the audit chain is kept per tenant in the same transaction as each
-  governed write; `verify-audit --postgres --tenant <key>` checks it. A write rebuilds that
-  tenant's graph, so benchmark your tenant sizes before high-write use.
+  governed write; `verify-audit --postgres --tenant <key>` checks it. A write reads and writes
+  only the rows it acts on, so its cost does not grow with the tenant: measured flat from 1,000
+  to 100,000 facts (about 1–3 ms a write, 3–6 ms governed and audited, in-process PGlite).
   [docs/POSTGRES.md](docs/POSTGRES.md)
 - **Boundaries.** A policy can declare who sees what as data: `readBoundary`, fact labels
   against the asking actor's attributes, with equality, membership, AND and OR. SQLite and

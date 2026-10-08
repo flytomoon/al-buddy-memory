@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool } from "pg";
 import { InMemoryStore } from "./in-memory-store.js";
 import { compareRecency, effectiveConfidence } from "./decay.js";
+import { DERIVED_FROM as DERIVED_FROM_KEY, type DependentsCapable } from "./derived.js";
 import { canonicalInstant } from "./instant.js";
 import { normaliseLimit, queryTokens } from "./query-filter.js";
 import { canonical, chainDigest, GENESIS, linkFault, EVENT_LABELS } from "./governance/chain.js";
@@ -46,20 +47,47 @@ function labelCondition(filter: LabelFilter, values: unknown[], column: string):
 type Item = { id: string; kind: string; metadata: unknown };
 const json = (v: unknown): string => JSON.stringify(v);
 const object = <T>(v: unknown): T => (typeof v === "string" ? JSON.parse(v) : v) as T;
+/** Ids as the caller passed them, minus anything that is not a string: the engine rejects those with its own message. */
+const ids = (values: readonly unknown[] = []): string[] => [...new Set(values.filter((v): v is string => typeof v === "string"))];
+const DERIVED_FROM = `metadata->'contextualMetadata'->'${DERIVED_FROM_KEY}'`;
+
+/**
+ * The rows one call reads instead of the tenant's whole graph. The engine
+ * applies the same rules to this part of the graph that it would to all of
+ * it, because every rule it runs looks only at these rows: a fact's own
+ * versions (its next anchor and history), the facts resting on it (an
+ * invalidation retracts them, an erasure takes them), an edge's endpoints.
+ */
+interface Scope {
+  /** Facts the call acts on, loaded with their versions. */
+  nodes?: readonly unknown[];
+  /** Versions by id; the fact each one belongs to joins `nodes`. */
+  versions?: readonly unknown[];
+  /** Also every fact resting on `nodes`, directly or through another conclusion (derived.ts). */
+  dependents?: boolean;
+  /** Edges by id, loaded with both endpoints. */
+  edges?: readonly unknown[];
+  /** Also every edge touching a fact in `nodes`, with its other endpoint. */
+  edgesOf?: boolean;
+}
 
 /**
  * Shared Postgres storage for hosted tenants. The domain rules come from the
- * same engine as InMemoryStore; each write locks one tenant and persists only
- * changed rows. Invalidation is an UPDATE, never a physical delete. Explicit
- * `deleteNode` is the governed erasure operation and removes dependent rows.
+ * same engine as InMemoryStore, run over only the rows a call acts on: each
+ * write locks one tenant, reads its scope (see {@link Scope}) and persists the
+ * rows that changed, so its cost does not grow with the tenant. Invalidation
+ * is an UPDATE, never a physical delete. Explicit `deleteNode` is the governed
+ * erasure operation and removes dependent rows.
  */
-export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable, AuditCapable, AuditVerifiable {
+export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable, AuditCapable, AuditVerifiable, DependentsCapable {
   private readonly pool: Pool | undefined;
   private readonly client: PostgresQueryClient;
   private readonly context = new AsyncLocalStorage<PostgresQueryClient>();
   readonly tenantId: string;
   private readonly auditKey: string | undefined;
   private readonly dimensions: number;
+  /** Whether this object has walked the tenant's audit chain (see `checkChainOnce`). */
+  private chainChecked = false;
 
   constructor(options: PostgresMemoryStoreOptions) {
     if (!options.tenantId) throw new Error("tenantId is required");
@@ -100,6 +128,14 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     )`);
     await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_search_idx ON memory_items USING gin(search_terms) WHERE kind = 'node'");
     await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_owner_idx ON memory_items(tenant_key, owner_key, kind)");
+    // What a write looks up besides its own rows (loadScope): a fact's versions
+    // and embeddings, the edges at either end of a fact, the facts resting on one.
+    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_node_ref_idx ON memory_items(tenant_key, kind, (metadata->>'nodeId'))");
+    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_edge_source_idx ON memory_items(tenant_key, kind, (metadata->>'sourceNodeId'))");
+    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_edge_target_idx ON memory_items(tenant_key, kind, (metadata->>'targetNodeId'))");
+    // Only conclusions are indexed, and without GIN's pending list: a lookup
+    // would otherwise scan every fact inserted since the last vacuum.
+    await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_derived_idx ON memory_items USING gin((${DERIVED_FROM})) WITH (fastupdate = off) WHERE kind = 'node' AND jsonb_typeof(${DERIVED_FROM}) = 'array'`);
     // pgvector supports mixed dimensions in one column; index only the selected dimension.
     await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_hnsw_${this.dimensions} ON memory_items USING hnsw ((embedding::vector(${this.dimensions})) vector_cosine_ops) WHERE kind = 'embedding' AND dimensions = ${this.dimensions}`);
     await this.client.query(`CREATE TABLE IF NOT EXISTS memory_audit_events (
@@ -154,8 +190,46 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     } finally { connection.release(); }
   }
 
+  /** The whole graph, for the calls that answer about all of it (snapshots). */
   private async load(db: PostgresQueryClient): Promise<{ engine: InMemoryStore; rows: Item[] }> {
-    const rows = (await db.query("SELECT id, kind, metadata FROM memory_items WHERE tenant_key = $1 AND kind <> 'embedding' ORDER BY row_order", [this.tenantId])).rows as Item[];
+    return this.hydrate((await db.query("SELECT id, kind, metadata FROM memory_items WHERE tenant_key = $1 AND kind <> 'embedding' ORDER BY row_order", [this.tenantId])).rows as Item[]);
+  }
+
+  /**
+   * One call's part of the graph ({@link Scope}). Every lookup is by key or by
+   * an index in `initialize`, so what it costs depends on the facts touched,
+   * not on how many the tenant holds.
+   */
+  private async loadScope(db: PostgresQueryClient, scope: Scope): Promise<{ engine: InMemoryStore; rows: Item[] }> {
+    const tenant = this.tenantId;
+    const acted = new Set(ids(scope.nodes));
+    const versionIds = ids(scope.versions);
+    if (versionIds.length) {
+      for (const r of (await db.query("SELECT metadata->>'nodeId' AS node FROM memory_items WHERE tenant_key=$1 AND kind='version' AND id = ANY($2::text[])", [tenant, versionIds])).rows) acted.add(r.node);
+    }
+    if (scope.dependents) {
+      for (let frontier = [...acted]; frontier.length;) {
+        const found = (await db.query(`SELECT id FROM memory_items WHERE tenant_key=$1 AND kind='node' AND jsonb_typeof(${DERIVED_FROM})='array' AND ${DERIVED_FROM} ?| $2::text[]`, [tenant, frontier])).rows.map(r => r.id as string);
+        frontier = found.filter(id => !acted.has(id));
+        for (const id of frontier) acted.add(id);
+      }
+    }
+    const edgeIds = ids(scope.edges);
+    const around = scope.edgesOf ? [...acted] : [];
+    const edges = edgeIds.length || around.length
+      ? (await db.query(`SELECT id, kind, metadata FROM memory_items WHERE tenant_key=$1 AND kind='edge'
+          AND (id = ANY($2::text[]) OR metadata->>'sourceNodeId' = ANY($3::text[]) OR metadata->>'targetNodeId' = ANY($3::text[])) ORDER BY row_order`, [tenant, edgeIds, around])).rows as Item[]
+      : [];
+    const wanted = new Set(acted);
+    for (const e of edges) for (const end of [object<MemoryEdge>(e.metadata).sourceNodeId, object<MemoryEdge>(e.metadata).targetNodeId]) wanted.add(end);
+    const nodes = wanted.size ? (await db.query("SELECT id, kind, metadata FROM memory_items WHERE tenant_key=$1 AND kind='node' AND id = ANY($2::text[]) ORDER BY row_order", [tenant, [...wanted]])).rows as Item[] : [];
+    // Versions only of the facts acted on: an edge's other endpoint is read, never changed.
+    const versions = acted.size ? (await db.query("SELECT id, kind, metadata FROM memory_items WHERE tenant_key=$1 AND kind='version' AND metadata->>'nodeId' = ANY($2::text[]) ORDER BY row_order", [tenant, [...acted]])).rows as Item[] : [];
+    return this.hydrate([...nodes, ...edges, ...versions]);
+  }
+
+  /** `rows` (in row order) into an engine, which applies the domain rules to them. */
+  private async hydrate(rows: Item[]): Promise<{ engine: InMemoryStore; rows: Item[] }> {
     const engine = new InMemoryStore();
     for (const row of rows.filter(r => r.kind === "node")) await engine.restoreNode(object<MemoryNode>(row.metadata));
     for (const row of rows.filter(r => r.kind === "edge")) await engine.restoreEdge(object<MemoryEdge>(row.metadata));
@@ -187,34 +261,54 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     }
   }
 
-  private async read<T>(work: (engine: InMemoryStore) => Promise<T>): Promise<T> {
-    return this.transaction(async db => work((await this.load(db)).engine));
+  /** `scope` is the call's part of the graph, or "all" for the calls that answer about all of it. */
+  private async read<T>(scope: Scope | "all", work: (engine: InMemoryStore) => Promise<T>): Promise<T> {
+    return this.transaction(async db => work((scope === "all" ? await this.load(db) : await this.loadScope(db, scope)).engine));
   }
-  private async write<T>(work: (engine: InMemoryStore) => Promise<T>): Promise<T> {
+  private async write<T>(scope: Scope, work: (engine: InMemoryStore) => Promise<T>): Promise<T> {
     return this.transaction(async db => {
-      const { engine, rows } = await this.load(db);
+      const { engine, rows } = await this.loadScope(db, scope);
       const result = await work(engine);
       await this.persist(db, rows, engine);
       return result;
     }, true);
   }
 
-  addNode(node: NewMemoryNode): Promise<MemoryNode> { return this.write(s => s.addNode(node)); }
-  getNode(id: string): Promise<MemoryNode | undefined> { return this.read(s => s.getNode(id)); }
-  listNodes(): Promise<MemoryNode[]> { return this.read(s => s.listNodes()); }
-  updateNode(id: string, patch: Parameters<MemoryStore["updateNode"]>[1], event?: Parameters<MemoryStore["updateNode"]>[2]): Promise<MemoryNode> { return this.write(s => s.updateNode(id, patch, event)); }
-  deleteNode(id: string): Promise<void> { return this.write(s => s.deleteNode(id)); }
-  restoreNode(node: MemoryNode): Promise<void> { return this.write(s => s.restoreNode(node)); }
-  restoreEdge(edge: MemoryEdge): Promise<void> { return this.write(s => s.restoreEdge(edge)); }
-  addEdge(edge: Parameters<MemoryStore["addEdge"]>[0]): Promise<MemoryEdge> { return this.write(s => s.addEdge(edge)); }
-  getEdges(id: string): Promise<MemoryEdge[]> { return this.read(s => s.getEdges(id)); }
-  deleteEdge(id: string): Promise<void> { return this.write(s => s.deleteEdge(id)); }
-  snapshot(): Promise<GraphSnapshot> { return this.read(s => s.snapshot()); }
-  history(id: string): Promise<NodeVersion[]> { return this.read(s => s.history(id)); }
-  getNodeAsOf(id: string, at: string): Promise<AsOfFact | undefined> { return this.read(s => s.getNodeAsOf(id, at)); }
-  snapshotAsOf(at: string, options?: AsOfOptions): Promise<AsOfSnapshot> { return this.read(s => s.snapshotAsOf(at, options)); }
-  historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }> { return this.read(s => s.historySnapshot()); }
-  restoreVersion(version: NodeVersion): Promise<void> { return this.write(s => s.restoreVersion(version)); }
+  addNode(node: NewMemoryNode): Promise<MemoryNode> { return this.write({}, s => s.addNode(node)); }
+  getNode(id: string): Promise<MemoryNode | undefined> { return this.read({ nodes: [id] }, s => s.getNode(id)); }
+  /** Facts only, newest first as the engine orders them: no edges or versions are read. */
+  async listNodes(): Promise<MemoryNode[]> {
+    return this.transaction(async db => (await db.query("SELECT metadata FROM memory_items WHERE tenant_key=$1 AND kind='node' ORDER BY row_order", [this.tenantId])).rows
+      .map(r => object<MemoryNode>(r.metadata)).sort((a, b) => compareRecency(b, a)));
+  }
+  updateNode(id: string, patch: Parameters<MemoryStore["updateNode"]>[1], event?: Parameters<MemoryStore["updateNode"]>[2]): Promise<MemoryNode> {
+    // Only a change that sets an end can retract the facts resting on this one.
+    const ends = typeof patch === "object" && patch !== null && (patch as { validTo?: unknown }).validTo != null;
+    return this.write({ nodes: [id], dependents: ends }, s => s.updateNode(id, patch, event));
+  }
+  deleteNode(id: string): Promise<void> { return this.write({ nodes: [id], dependents: true, edgesOf: true }, s => s.deleteNode(id)); }
+  restoreNode(node: MemoryNode): Promise<void> { return this.write({ nodes: [node?.nodeId] }, s => s.restoreNode(node)); }
+  restoreEdge(edge: MemoryEdge): Promise<void> { return this.write({ nodes: [edge?.sourceNodeId, edge?.targetNodeId], edges: [edge?.edgeId] }, s => s.restoreEdge(edge)); }
+  addEdge(edge: Parameters<MemoryStore["addEdge"]>[0]): Promise<MemoryEdge> { return this.write({ nodes: [edge?.sourceNodeId, edge?.targetNodeId] }, s => s.addEdge(edge)); }
+  getEdges(id: string): Promise<MemoryEdge[]> { return this.read({ nodes: [id], edgesOf: true }, s => s.getEdges(id)); }
+  deleteEdge(id: string): Promise<void> { return this.write({ edges: [id] }, s => s.deleteEdge(id)); }
+  snapshot(): Promise<GraphSnapshot> { return this.read("all", s => s.snapshot()); }
+  history(id: string): Promise<NodeVersion[]> { return this.read({ nodes: [id] }, s => s.history(id)); }
+  getNodeAsOf(id: string, at: string): Promise<AsOfFact | undefined> { return this.read({ nodes: [id] }, s => s.getNodeAsOf(id, at)); }
+  snapshotAsOf(at: string, options?: AsOfOptions): Promise<AsOfSnapshot> { return this.read("all", s => s.snapshotAsOf(at, options)); }
+  historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }> { return this.read("all", s => s.historySnapshot()); }
+  restoreVersion(version: NodeVersion): Promise<void> { return this.write({ nodes: [version?.nodeId], versions: [version?.versionId] }, s => s.restoreVersion(version)); }
+
+  /**
+   * Every fact resting on `roots`, directly or through another conclusion, in
+   * `listNodes` order — what the governed cascade judges before an erasure or
+   * an invalidation, read by index rather than by listing the tenant.
+   */
+  async nodesRestingOn(roots: readonly string[]): Promise<MemoryNode[]> {
+    const rootIds = new Set(roots);
+    // The scope holds the roots and what rests on them, nothing else.
+    return this.read({ nodes: roots, dependents: true }, async s => (await s.listNodes()).filter(n => !rootIds.has(n.nodeId)));
+  }
 
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
     return this.transaction(async db => {
@@ -308,19 +402,37 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
   }
 
   async auditedMutation<T>(mutate: () => Promise<T>, describe: (result: T) => AuditEvent): Promise<T> {
+    await this.checkChainOnce();
     return this.transaction(async db => { const result = await mutate(); await this.appendAudit(db, describe(result)); return result; }, true);
   }
-  async recordAuditEvent(event: AuditEvent): Promise<void> { await this.transaction(db => this.appendAudit(db, event), true); }
+  async recordAuditEvent(event: AuditEvent): Promise<void> {
+    await this.checkChainOnce();
+    await this.transaction(db => this.appendAudit(db, event), true);
+  }
+
+  /**
+   * The full walk of the tenant's chain, once per store object and before the
+   * tenant lock is taken, as SQLite's `AuditEventTable.ensureChecked` does: a
+   * walk on every append made each write cost O(events). If it fails here,
+   * `appendAudit` walks again under the lock and refuses with the reason.
+   */
+  private async checkChainOnce(): Promise<void> {
+    if (this.chainChecked || this.context.getStore()) return;
+    if ((await this.verifyAudit()).ok) this.chainChecked = true;
+  }
+
   private async appendAudit(db: PostgresQueryClient, event: AuditEvent): Promise<void> {
-    const tenant = (await db.query("SELECT audit_count,audit_head FROM memory_tenants WHERE tenant_key=$1", [this.tenantId])).rows[0];
-    const rows = (await db.query("SELECT prev,hash,event FROM memory_audit_events WHERE tenant_key=$1 ORDER BY seq", [this.tenantId])).rows;
-    let prev = GENESIS;
-    for (const [i, row] of rows.entries()) {
-      const fault = linkFault({ prev: row.prev, hash: row.hash, event: object(row.event) }, prev, this.auditKey, i + 1, EVENT_LABELS);
-      if (fault) throw new Error(`audit chain broken: ${fault}`);
-      prev = row.hash;
+    if (!this.chainChecked) {
+      const walked = await this.walkChain(db);
+      if (walked !== undefined && !walked.ok) throw new Error(`audit chain broken: ${walked.reason}`);
+      this.chainChecked = true;
     }
-    if (Number(tenant.audit_count) !== rows.length || tenant.audit_head !== prev) throw new Error("audit chain broken: rows do not match the tenant's recorded head or count");
+    // Every append: the newest event must be the one the tenant row recorded,
+    // which catches a trail deleted or cut from the end since the walk.
+    const tenant = (await db.query("SELECT audit_count,audit_head FROM memory_tenants WHERE tenant_key=$1", [this.tenantId])).rows[0];
+    const last = (await db.query("SELECT hash FROM memory_audit_events WHERE tenant_key=$1 ORDER BY seq DESC LIMIT 1", [this.tenantId])).rows[0];
+    const prev: string = last?.hash ?? GENESIS;
+    if (tenant.audit_head !== prev || (last === undefined) !== (Number(tenant.audit_count) === 0)) throw new Error("audit chain broken: rows do not match the tenant's recorded head or count");
     const hash = chainDigest(prev, event, this.auditKey);
     await db.query("INSERT INTO memory_audit_events(tenant_key,prev,hash,event) VALUES($1,$2,$3,$4::jsonb)", [this.tenantId, prev, hash, json(event)]);
     await db.query("UPDATE memory_tenants SET audit_count=audit_count+1,audit_head=$2 WHERE tenant_key=$1", [this.tenantId, hash]);
@@ -338,25 +450,32 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
    */
   async verifyAudit(opts: { head?: string; visit?: AuditVisitor } = {}): Promise<AuditTableResult> {
     return this.readOnly(async db => {
-      const tenant = (await db.query("SELECT audit_count,audit_head FROM memory_tenants WHERE tenant_key=$1", [this.tenantId])).rows[0];
-      if (tenant === undefined) return { ok: false, count: 0, line: 0, reason: `no tenant ${JSON.stringify(this.tenantId)} in this database` };
-      const rows = (await db.query("SELECT seq,prev,hash,event FROM memory_audit_events WHERE tenant_key=$1 ORDER BY seq", [this.tenantId])).rows;
-      let prev = GENESIS;
-      for (const [i, row] of rows.entries()) {
-        const event = object<AuditEvent>(row.event);
-        const fault = linkFault({ prev: row.prev, hash: row.hash, event }, prev, this.auditKey, i + 1, EVENT_LABELS);
-        if (fault) return { ok: false, count: rows.length, line: i + 1, reason: `${fault} (seq ${row.seq})` };
-        opts.visit?.(event, i + 1);
-        prev = row.hash;
+      const walked = await this.walkChain(db, opts.visit);
+      if (walked === undefined) return { ok: false, count: 0, line: 0, reason: `no tenant ${JSON.stringify(this.tenantId)} in this database` };
+      if (walked.ok && opts.head !== undefined && walked.head !== opts.head) {
+        return { ok: false, count: walked.count, line: walked.count, reason: "the newest event does not match the anchored head: the trail was cut short or has diverged" };
       }
-      const recorded = Number(tenant.audit_count);
-      if (recorded !== rows.length || tenant.audit_head !== prev) {
-        return { ok: false, count: rows.length, line: rows.length, reason: `the tenant row records ${recorded} event(s) and its own head, and the table does not end there: events were removed from the end, or the chain was rewritten` };
-      }
-      if (opts.head !== undefined && prev !== opts.head) {
-        return { ok: false, count: rows.length, line: rows.length, reason: "the newest event does not match the anchored head: the trail was cut short or has diverged" };
-      }
-      return { ok: true, count: rows.length, head: prev };
+      return walked;
     });
+  }
+
+  /** Every link from genesis, then the tenant row's count and head; undefined when the tenant has no row. */
+  private async walkChain(db: PostgresQueryClient, visit?: AuditVisitor): Promise<AuditTableResult | undefined> {
+    const tenant = (await db.query("SELECT audit_count,audit_head FROM memory_tenants WHERE tenant_key=$1", [this.tenantId])).rows[0];
+    if (tenant === undefined) return undefined;
+    const rows = (await db.query("SELECT seq,prev,hash,event FROM memory_audit_events WHERE tenant_key=$1 ORDER BY seq", [this.tenantId])).rows;
+    let prev = GENESIS;
+    for (const [i, row] of rows.entries()) {
+      const event = object<AuditEvent>(row.event);
+      const fault = linkFault({ prev: row.prev, hash: row.hash, event }, prev, this.auditKey, i + 1, EVENT_LABELS);
+      if (fault) return { ok: false, count: rows.length, line: i + 1, reason: `${fault} (seq ${row.seq})` };
+      visit?.(event, i + 1);
+      prev = row.hash;
+    }
+    const recorded = Number(tenant.audit_count);
+    if (recorded !== rows.length || tenant.audit_head !== prev) {
+      return { ok: false, count: rows.length, line: rows.length, reason: `the tenant row records ${recorded} event(s) and its own head, and the table does not end there: events were removed from the end, or the chain was rewritten` };
+    }
+    return { ok: true, count: rows.length, head: prev };
   }
 }

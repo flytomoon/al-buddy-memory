@@ -1,0 +1,237 @@
+{
+  "benchmark": "postgres-writes",
+  "run": {
+    "commit": null,
+    "branch": null,
+    "dirty": null,
+    "library": {
+      "name": "al-buddy-memory",
+      "version": "0.10.1"
+    },
+    "node": "v25.2.1",
+    "platform": "darwin-arm64",
+    "note": "git was not runnable from the benchmark process in the sandbox this ran in, so commit, branch and dirty are null. It ran on commit 6dc1b5f39ecdcca7d01602a0cf6d1e1de4d7a555 with a clean tree (checked with git status before the run); this note was added by hand."
+  },
+  "settings": {
+    "sizes": [
+      1000,
+      10000,
+      100000
+    ],
+    "reps": 20,
+    "backend": "PGlite (in-process) with pgvector",
+    "indexedDimensions": 3
+  },
+  "results": [
+    {
+      "facts": 1000,
+      "seed_s": 0.0873,
+      "operations": {
+        "addNode": {
+          "median_ms": 1.1142,
+          "p90_ms": 1.7569,
+          "rows_per_call": 1,
+          "reps": 9
+        },
+        "updateNode": {
+          "median_ms": 2.1679,
+          "p90_ms": 2.5844,
+          "rows_per_call": 3,
+          "reps": 9
+        },
+        "invalidate": {
+          "median_ms": 3.325,
+          "p90_ms": 5.2782,
+          "rows_per_call": 5,
+          "reps": 9
+        },
+        "addEdge": {
+          "median_ms": 1.5457,
+          "p90_ms": 2.2178,
+          "rows_per_call": 3,
+          "reps": 9
+        },
+        "deleteEdge": {
+          "median_ms": 1.5262,
+          "p90_ms": 2.0466,
+          "rows_per_call": 4,
+          "reps": 9
+        },
+        "restoreNode": {
+          "median_ms": 1.8183,
+          "p90_ms": 2.2696,
+          "rows_per_call": 2,
+          "reps": 9
+        },
+        "deleteNode": {
+          "median_ms": 3.197,
+          "p90_ms": 3.9595,
+          "rows_per_call": 7,
+          "reps": 9
+        },
+        "governed updateNode": {
+          "median_ms": 3.6961,
+          "p90_ms": 3.9323,
+          "rows_per_call": 5,
+          "reps": 9
+        },
+        "governed invalidate": {
+          "median_ms": 6.3434,
+          "p90_ms": 6.7516,
+          "rows_per_call": 13,
+          "reps": 9
+        },
+        "governed deleteNode": {
+          "median_ms": 6.2847,
+          "p90_ms": 7.3965,
+          "rows_per_call": 15,
+          "reps": 9
+        }
+      }
+    },
+    {
+      "facts": 10000,
+      "seed_s": 0.74,
+      "operations": {
+        "addNode": {
+          "median_ms": 0.8913,
+          "p90_ms": 1.0481,
+          "rows_per_call": 1,
+          "reps": 20
+        },
+        "updateNode": {
+          "median_ms": 2.0026,
+          "p90_ms": 2.4198,
+          "rows_per_call": 3,
+          "reps": 20
+        },
+        "invalidate": {
+          "median_ms": 3.5222,
+          "p90_ms": 8.1536,
+          "rows_per_call": 5,
+          "reps": 20
+        },
+        "addEdge": {
+          "median_ms": 1.6284,
+          "p90_ms": 2.2144,
+          "rows_per_call": 3,
+          "reps": 20
+        },
+        "deleteEdge": {
+          "median_ms": 1.5682,
+          "p90_ms": 1.8083,
+          "rows_per_call": 4,
+          "reps": 20
+        },
+        "restoreNode": {
+          "median_ms": 1.777,
+          "p90_ms": 2.0467,
+          "rows_per_call": 2,
+          "reps": 20
+        },
+        "deleteNode": {
+          "median_ms": 3.1314,
+          "p90_ms": 3.4915,
+          "rows_per_call": 7,
+          "reps": 20
+        },
+        "governed updateNode": {
+          "median_ms": 3.352,
+          "p90_ms": 4.2241,
+          "rows_per_call": 5,
+          "reps": 20
+        },
+        "governed invalidate": {
+          "median_ms": 5.8771,
+          "p90_ms": 6.6853,
+          "rows_per_call": 13,
+          "reps": 20
+        },
+        "governed deleteNode": {
+          "median_ms": 6.0613,
+          "p90_ms": 6.7871,
+          "rows_per_call": 15,
+          "reps": 20
+        }
+      }
+    },
+    {
+      "facts": 100000,
+      "seed_s": 10.069,
+      "operations": {
+        "addNode": {
+          "median_ms": 0.8689,
+          "p90_ms": 1.0859,
+          "rows_per_call": 1,
+          "reps": 20
+        },
+        "updateNode": {
+          "median_ms": 1.7755,
+          "p90_ms": 2.7199,
+          "rows_per_call": 3,
+          "reps": 20
+        },
+        "invalidate": {
+          "median_ms": 2.7593,
+          "p90_ms": 5.1892,
+          "rows_per_call": 5,
+          "reps": 20
+        },
+        "addEdge": {
+          "median_ms": 1.3597,
+          "p90_ms": 1.4375,
+          "rows_per_call": 3,
+          "reps": 20
+        },
+        "deleteEdge": {
+          "median_ms": 1.36,
+          "p90_ms": 1.608,
+          "rows_per_call": 4,
+          "reps": 20
+        },
+        "restoreNode": {
+          "median_ms": 1.705,
+          "p90_ms": 2.0383,
+          "rows_per_call": 2,
+          "reps": 20
+        },
+        "deleteNode": {
+          "median_ms": 3.1241,
+          "p90_ms": 3.6248,
+          "rows_per_call": 7,
+          "reps": 20
+        },
+        "governed updateNode": {
+          "median_ms": 3.3106,
+          "p90_ms": 3.962,
+          "rows_per_call": 5,
+          "reps": 20
+        },
+        "governed invalidate": {
+          "median_ms": 5.8087,
+          "p90_ms": 6.3715,
+          "rows_per_call": 13,
+          "reps": 20
+        },
+        "governed deleteNode": {
+          "median_ms": 5.8402,
+          "p90_ms": 6.7851,
+          "rows_per_call": 15,
+          "reps": 20
+        }
+      }
+    }
+  ],
+  "median_ratio_largest_to_smallest": {
+    "addNode": 0.7798,
+    "updateNode": 0.819,
+    "invalidate": 0.8299,
+    "addEdge": 0.8797,
+    "deleteEdge": 0.8911,
+    "restoreNode": 0.9377,
+    "deleteNode": 0.9772,
+    "governed updateNode": 0.8957,
+    "governed invalidate": 0.9157,
+    "governed deleteNode": 0.9293
+  }
+}

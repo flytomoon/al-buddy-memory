@@ -7,16 +7,24 @@
  *
  * Found in our 2026-09-22 review of the erase path.
  */
-import { dependentsOf, isInvalidation, retractionsFor, sourceRetraction } from "../derived.js";
+import { dependentsOf, isDependentsCapable, isInvalidation, retractionsFor, sourceRetraction } from "../derived.js";
 import type { MemoryNode, MemoryStore } from "../types/memory.js";
 import { PolicyDenied, type NodePatch, type PolicyContext } from "./policy.js";
 
 export type EraseCheck = (subject: { node: MemoryNode }, ctx: PolicyContext) => Promise<void>;
 export type UpdateCheck = (existing: MemoryNode, patch: NodePatch, ctx: PolicyContext) => Promise<void>;
 
+/**
+ * The facts the cascade from `rootId` can reach, in `listNodes` order: every
+ * fact, or only those resting on it when the store can find them by index.
+ */
+async function candidates(inner: MemoryStore, rootId: string): Promise<MemoryNode[]> {
+  return isDependentsCapable(inner) ? inner.nodesRestingOn([rootId]) : inner.listNodes();
+}
+
 /** The facts built on `rootId`, read from the inner store (every tier: the cascade must reach hidden ones too). */
 export async function closureOf(inner: MemoryStore, rootId: string): Promise<MemoryNode[]> {
-  const nodes = await inner.listNodes();
+  const nodes = await candidates(inner, rootId);
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
   return dependentsOf([rootId], nodes).map((id) => byId.get(id)!).filter(Boolean);
 }
@@ -54,7 +62,7 @@ export async function judgeInvalidation(
 ): Promise<string[]> {
   const after = { validTo: patch.validTo === undefined ? existing.validTo : patch.validTo };
   if (!isInvalidation(existing, after) || after.validTo === null) return [];
-  const nodes = await inner.listNodes();
+  const nodes = await candidates(inner, existing.nodeId);
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
   const retractions = retractionsFor(existing.nodeId, after.validTo, nodes);
   for (const r of retractions) {
