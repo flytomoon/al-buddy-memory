@@ -23,6 +23,12 @@ export function matchesLabels(node: Pick<MemoryNode, "contextualMetadata">, filt
   return Array.isArray(value) && value.some((v) => typeof v === "string" && filter.in.includes(v));
 }
 
+/** Whether a fact carries one of the tags (`contextualMetadata.tags`), as every store matches `tags`. */
+export function matchesTags(node: Pick<MemoryNode, "contextualMetadata">, wanted: readonly string[]): boolean {
+  const tags = node.contextualMetadata["tags"];
+  return Array.isArray(tags) && wanted.some((t) => (tags as unknown[]).includes(t));
+}
+
 /** AND of two optional filters; undefined when neither is given. */
 export function bothLabels(a: LabelFilter | undefined, b: LabelFilter | undefined): LabelFilter | undefined {
   return a === undefined ? b : b === undefined ? a : { all: [a, b] };
@@ -43,10 +49,7 @@ export function matchesFilter(node: MemoryNode, filter: NodeFilter): boolean {
   } else if (node.retentionTier === "Archived" || node.retentionTier === "PendingDeletion") {
     return false;
   }
-  if (filter.tags?.length) {
-    const tags = node.contextualMetadata["tags"];
-    if (!Array.isArray(tags) || !filter.tags.some((t) => (tags as unknown[]).includes(t))) return false;
-  }
+  if (filter.tags?.length && !matchesTags(node, filter.tags)) return false;
   if (filter.labels !== undefined && !matchesLabels(node, filter.labels)) return false;
   if (filter.minConfidence !== undefined && node.confidenceWeight < filter.minConfidence) return false;
   if (filter.validAt !== undefined) {
