@@ -2,7 +2,7 @@
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "--package=al-buddy-memory@0.10.1", "al-buddy-memory-mcp"]
+      "args": ["-y", "--package=al-buddy-memory@0.11.0", "al-buddy-memory-mcp"]
     }
   }
 }
