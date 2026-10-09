@@ -20,6 +20,40 @@ Thank you. Three kinds of contribution are most useful right now, in this order:
 - Write against shapes and specs, not other vendors. Comparisons live in the README table only.
 - Apache-2.0, and by contributing you license your work the same way.
 
+## The public repo guard
+
+This repository is public, so a push is checked before it leaves your machine for private
+names and credentials — in commit messages, in every line a commit adds, and in file names.
+
+```
+npm run guard:install   # once per clone: installs .git/hooks/pre-push
+npm run guard           # scan every commit not yet on a remote, by hand
+npm run guard -- --range origin/main..HEAD
+```
+
+Two sources of rules:
+
+- **Your deny list, kept outside the repo** — `~/.al-buddy-memory/private-names.txt`, or the
+  path in `AL_BUDDY_MEMORY_PRIVATE_NAMES`. One name per line (an employer, a client, a person,
+  an internal project); `#` starts a comment; matching is case-insensitive, on word edges, and
+  any run of whitespace matches a space. No file means no names: only the built-ins run. A file
+  that exists but cannot be read refuses the push rather than passing it. Never commit this
+  file, and never put a real name in a test or doc as an example — the list's whole point is
+  that its contents are not here.
+- **Built-in generic patterns** (`scripts/public-guard-lib.mjs`): private key blocks; AWS,
+  GitHub, Anthropic, OpenAI, Slack, Google, Stripe-live, npm and Telegram-bot credential shapes;
+  and a `TODO-PRIVATE` marker you can leave on anything that must never ship. <!-- public-guard:allow -->
+
+A hit refuses the push and prints the exact place — `commit abc1234 src/x.ts:12`, or the
+message line, or the path — with the rule and the matched text (credentials are shown masked).
+Rewrite the commit so the text is gone from history (`git commit --amend`, `git rebase`), then
+push again: a later commit that deletes the line does not unpublish it. A built-in false
+positive — a fixture, a doc showing a key's shape — can carry `public-guard:allow` on that
+line; that exempts the built-ins only, never a deny-list name.
+
+`npm run release` runs the same guard in its preflight: over the commits it is about to push,
+and for deny-list names over the whole tree it ships.
+
 ## Releasing (maintainers)
 
 One command, from an up-to-date, clean `main`, after the changes are written up under
@@ -32,7 +66,8 @@ npm run release -- patch --dry-run  # every step printed, nothing changed
 
 It refuses — and says why — off `main`, with uncommitted changes, when `main` is behind
 `origin`, when the tag exists, when the CHANGELOG has no unreleased section for that version,
-or when the name scan finds another project named outside the README table. Then it dates the
+when the name scan finds another project named outside the README table, or when the public
+repo guard (above) finds a private name or a credential. Then it dates the
 CHANGELOG, bumps `package.json` and the lock, runs typecheck, tests and build, commits, tags
 `vX.Y.Z` and pushes `main` and the tag. The tag's workflow stages the npm publish; a maintainer
 approves it with 2FA (npmjs.com → Staged Packages). Only after npm serves the new version:

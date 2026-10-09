@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { denyListPath, loadDenyList } from "./public-guard-lib.mjs";
 import { dateChangelog, movePin, movePluginPin, nextVersion, pinnedVersion, PLUGIN_PIN_FILES, preflight, releaseSummary, setVersion, unreleasedVersion } from "./release-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,7 +25,7 @@ const dryRun = args.includes("--dry-run");
 const positional = args.filter((a) => !a.startsWith("--"));
 const pinMode = args.includes("--pin");
 
-const run = (cmd, argv, opts = {}) => execFileSync(cmd, argv, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts });
+const run = (cmd, argv, opts = {}) => execFileSync(cmd, argv, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 * 1024 * 1024, ...opts });
 const step = (text) => console.log(`${dryRun ? "[dry run] " : ""}→ ${text}`);
 const fail = (text) => {
   console.error(`\nRelease refused: ${text}`);
@@ -90,8 +91,14 @@ if (pending && pending !== target && !dryRun)
   fail(`CHANGELOG.md's unreleased section is ${pending}, not ${target}. Run: npm run release -- ${pending}`);
 
 console.log(`Releasing al-buddy-memory ${current} → ${target}${dryRun ? " (dry run: nothing is changed)" : ""}\n`);
-step("preflight: on main, clean tree, up to date with origin, tag free, name scan");
-const refusals = preflight(run, target);
+step("preflight: on main, clean tree, up to date with origin, tag free, name scan, public repo guard");
+let privateNames = [];
+try {
+  privateNames = loadDenyList((p) => readFileSync(p, "utf8"), denyListPath());
+} catch (err) {
+  fail(`Could not read the public repo guard's deny list at ${denyListPath()} (${err.message}).`);
+}
+const refusals = preflight(run, target, privateNames);
 if (refusals.length > 0) {
   if (!dryRun) fail(refusals.join("\n"));
   for (const r of refusals) console.log(`[dry run] would refuse: ${r}`);
