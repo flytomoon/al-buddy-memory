@@ -2,6 +2,8 @@
 // CHANGELOG and README rewrites, and the preflight checks. Everything that
 // touches git, npm or the disk is passed in, so every refusal has a test.
 
+import { formatHits, scanCommits, scanTreeForNames } from "./public-guard-lib.mjs";
+
 /** The version after `kind` ("patch" | "minor" | "major" | "X.Y.Z"), refused if it does not move forward. */
 export function nextVersion(current, kind) {
   const cur = parseVersion(current);
@@ -132,9 +134,11 @@ export function nameScan(run) {
 
 /**
  * Why a release may not start. `run(cmd, args)` returns stdout and throws on a
- * failed command. An empty list means go.
+ * failed command. `privateNames` is the public repo guard's deny list, read from
+ * outside the repo by the caller (empty = built-in patterns only). An empty
+ * list means go.
  */
-export function preflight(run, target) {
+export function preflight(run, target, privateNames = []) {
   const refusals = [];
   const branch = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
   if (branch !== "main") refusals.push(`You are on "${branch}"; releases are cut from main.`);
@@ -151,5 +155,14 @@ export function preflight(run, target) {
   if (hits.length > 0) {
     refusals.push(`The name scan found ${hits.length} line(s) naming another project outside the README table:\n${hits.map((h) => `    ${h}`).join("\n")}`);
   }
+  // The public repo guard (scripts/public-guard.mjs): what this release pushes
+  // (commits not on origin/main) and, for deny-list names, the whole tree it ships.
+  let guardHits = [];
+  try {
+    guardHits = [...scanCommits(run, ["origin/main..HEAD"], privateNames), ...scanTreeForNames(run, privateNames)];
+  } catch (err) {
+    refusals.push(`The public repo guard could not scan the commits ahead of origin/main (${String(err?.message ?? err).split("\n")[0]}).`);
+  }
+  if (guardHits.length > 0) refusals.push(`The public repo guard found ${guardHits.length} hit(s):\n${formatHits(guardHits)}`);
   return refusals;
 }

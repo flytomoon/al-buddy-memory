@@ -63,6 +63,8 @@
     "release": "node scripts/release.mjs",
     "release:pin": "node scripts/release.mjs --pin",
     "build:mcpb": "node scripts/build-mcpb.mjs",
+    "guard": "node scripts/public-guard.mjs",
+    "guard:install": "node scripts/public-guard.mjs --install",
     "build:demo": "esbuild src/conformance/browser.ts --bundle --format=esm --platform=browser --target=es2022 --minify --outfile=docs/demo/conformance.js"
   },
   "dependencies": {
