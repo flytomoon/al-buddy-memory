@@ -9,6 +9,25 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## Unreleased
+
+### Added
+
+- **Extension points**, each optional and off by default, so nothing changes for a caller that
+  leaves them out (`src/extension-points.test.ts` holds the defaults to the same statements,
+  results and queue). `PostgresMemoryStore` takes an `executor` (`QueryExecutor`) that runs every
+  statement, with `poolExecutor(pool)` as the default it uses for a `connectionString`, and an
+  `accessAudit` sink (`StoreAuditSink`) that hears every write and, with `reads: true`, every
+  read, inside the call's own transaction. `govern()` takes a `lock` (`LockProvider`) that holds
+  each mutation's decision and write together, with `inProcessLock`, today's queue, as the
+  default. `docs/EXTENSION-POINTS.md`.
+
+### Behaviour change
+
+- A `PostgresMemoryStore` given a `client` with no `transaction()` (a bare node-postgres pool)
+  used to fail its first call with a TypeError; it now fails with an error that names
+  `executor: poolExecutor(pool)`, which is the way to hand it a pool.
+
 ## 0.11.0 — 2026-10-08
 
 ### Added
