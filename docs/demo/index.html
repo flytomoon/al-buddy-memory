@@ -6,7 +6,7 @@
 <title>Al Buddy — meet Al, a pal who remembers</title>
 <meta name="description" content="Al Buddy is a private assistant that remembers you. Your memory lives on your phone, and we never see it. The memory underneath is open source.">
 <link rel="icon" href="al-icon.png"><link rel="apple-touch-icon" href="al-icon.png">
-<meta property="og:title" content="Meet Al. A pal who remembers."><meta property="og:description" content="Your memory lives on your phone, and we never see it. Coming to iPhone. The memory underneath is open source."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
+<meta property="og:title" content="Meet Al. A pal who remembers."><meta property="og:description" content="A memory that is yours: use it with Claude today, open source underneath. iPhone app coming soon."><meta property="og:image" content="https://albuddy.com/al-icon.png"><meta property="og:url" content="https://albuddy.com/">
 <style>
   :root { color-scheme: light dark;
     --paper:#f4efe5; --panel:#fffdf8; --panel-2:#faf6ec; --fg:#26231d; --fg-dim:#57534a; --fg-faint:#6e6a5f; --line:rgba(38,35,29,.10);
@@ -71,6 +71,7 @@
   .signup { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; max-width:520px; margin:0 auto }
   .signup input[type=email] { flex:1 1 240px; min-height:46px; padding:0 14px; font:inherit; font-size:16px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--fg) }
   .signup button { min-height:46px }
+  #iphone .signup { justify-content:flex-start; margin:0 } #iphone #signup-status { text-align:left }
   .signup .hp { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden }
   #signup-status { min-height:22px; margin:12px 0 0; font-size:15px; color:var(--fg-dim) }
   #signup-status.ok { color:var(--sage) } #signup-status.err { color:var(--ember) }
@@ -102,18 +103,12 @@
   <nav id="site-nav" aria-label="Site"><a href="claude.html">Claude</a><a href="#memory">Memory</a><a href="#why">Why</a><a href="#compare">Compare</a><a href="#try">Try it</a><a href="https://github.com/flytomoon/al-buddy-memory">GitHub</a></nav></div></header>
 
 <main class="wrap">
-  <section class="hero" id="iphone">
+  <section class="hero" id="top">
     <img src="al-icon.png" alt="The Al Buddy mark: a lowercase al">
     <h1>Meet Al. A pal who remembers.</h1>
-    <p class="lead">Your memory lives on your phone — we never see it. Al learns how you think and what you care about, and can always tell you where it learned something.</p>
-    <p class="say"><strong>Al</strong> — a name, said like "pal". Not A.I. Coming to iPhone.</p>
-    <form class="signup" id="signup" novalidate>
-      <input type="email" name="email" id="signup-email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email">
-      <label class="hp" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
-      <button class="primary" type="submit" id="signup-go">Tell me when it's ready</button>
-    </form>
-    <p id="signup-status" role="status"></p>
-    <a class="more" href="#memory">The memory underneath is open source ↓</a>
+    <p class="lead">Al learns how you think and what you care about, keeps it as yours, and can always tell you where it learned something.</p>
+    <p class="say"><strong>Al</strong> — a name, said like "pal". Not A.I.</p>
+    <div class="cta"><a class="btn primary" href="claude.html">Use it with Claude today</a><a class="btn" href="https://github.com/flytomoon/al-buddy-memory">The open-source memory</a></div>
   </section>
 
   <section class="block" id="claude">
@@ -129,6 +124,17 @@
     <p class="sub">Al's memory is a library anyone can use in their own assistant. Nothing is dropped to make room, it knows where every fact came from, and it leaves with you. One SQLite file, Apache-2.0, no account.</p>
     <div class="cta" style="justify-content:flex-start"><a class="btn primary" href="https://github.com/flytomoon/al-buddy-memory">Star it on GitHub</a><a class="btn" href="#try">Score your assistant's memory</a><a class="btn" href="#install">Install</a></div>
     <pre style="margin-top:16px"><code>npm install al-buddy-memory</code></pre>
+  </section>
+
+  <section class="block" id="iphone">
+    <h2>Al for iPhone — coming soon</h2>
+    <p class="sub">The iPhone app keeps your memory on your phone, where we never see it. Leave your email and we'll send one message the day it launches. Nothing else.</p>
+    <form class="signup" id="signup" novalidate>
+      <input type="email" name="email" id="signup-email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email">
+      <label class="hp" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      <button class="primary" type="submit" id="signup-go">Email me when the iPhone app launches</button>
+    </form>
+    <p id="signup-status" role="status"></p>
   </section>
 
   <section class="block" id="why">
