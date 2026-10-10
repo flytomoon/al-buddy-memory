@@ -16,15 +16,90 @@ export interface PostgresQueryClient {
   transaction?<T>(callback: (client: PostgresQueryClient) => Promise<T>): Promise<T>;
 }
 
+/**
+ * What the store runs every statement through: `query` for a statement on its
+ * own, `transaction` for a unit of work, whose callback's client runs the
+ * statements inside it. The default is the node-postgres pool (or the client
+ * handed in), so leaving it out changes nothing. Give one to send statements
+ * somewhere else — an HTTP data API, a proxy, a connection that sets session
+ * state first — without changing any SQL the store writes.
+ */
+export interface QueryExecutor {
+  query(sql: string, values?: unknown[]): Promise<{ rows: any[] }>;
+  transaction<T>(work: (db: PostgresQueryClient) => Promise<T>): Promise<T>;
+}
+
+/** One call into the store, as a {@link StoreAuditSink} hears of it. */
+export interface StoreAccessEvent {
+  at: string;
+  tenantId: string;
+  access: "read" | "write";
+  /** The `MemoryStore` method called. */
+  operation: string;
+  /** The ids the call named (for `addNode` and `addEdge`, the one it minted) and, for a read, every fact, link and version it returned. */
+  ids: string[];
+}
+
+/**
+ * Hears of every call that changes this tenant's memory and, when `reads` is
+ * on, every call that reads it. `record` runs inside the call's own
+ * transaction with its client, after the work and before the commit: a record
+ * written on `db` commits with the call or not at all, and a sink that throws
+ * rolls the call back. A call that fails is not heard. Not the governance
+ * trail (`AuditSink`, `govern`), which records decisions; this records access.
+ */
+export interface StoreAuditSink {
+  record(event: StoreAccessEvent, db: PostgresQueryClient): void | Promise<void>;
+}
+
 export interface PostgresMemoryStoreOptions {
   /** Every read and write is confined to this key. Use an authenticated, stable tenant identifier. */
   tenantId: string;
-  /** Existing pool or PGlite test client. Omit to create a node-postgres pool. */
+  /** A client with its own `transaction`, such as PGlite. Omit to create a node-postgres pool; for an existing pool use `executor: poolExecutor(pool)`. */
   client?: PostgresQueryClient;
   connectionString?: string;
+  /** Runs every statement instead of `client` or a pool from `connectionString`; see {@link QueryExecutor}. */
+  executor?: QueryExecutor;
   /** Fixed dimension indexed with HNSW. Other model dimensions remain storable and scanable. */
   indexedDimensions?: number;
   auditKey?: string;
+  /** Off by default; see {@link StoreAuditSink}. `reads` (default false) makes reads heard too. */
+  accessAudit?: { sink: StoreAuditSink; reads?: boolean };
+}
+
+/**
+ * A node-postgres pool as a {@link QueryExecutor}: a statement on its own goes
+ * to the pool, a transaction runs on one connection between BEGIN and COMMIT
+ * (ROLLBACK if the work throws). The store uses exactly this for the pool it
+ * makes from `connectionString`; an executor that wraps another can start here.
+ */
+export function poolExecutor(pool: Pick<Pool, "query" | "connect">): QueryExecutor {
+  return {
+    query: (sql, values) => (values === undefined ? pool.query(sql) : pool.query(sql, values)),
+    async transaction(work) {
+      const connection = await pool.connect();
+      try {
+        await connection.query("BEGIN");
+        const result = await work(connection);
+        await connection.query("COMMIT");
+        return result;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally { connection.release(); }
+    },
+  };
+}
+
+/** A client handed in as `client`: its own `transaction` (PGlite has one), as the store has always used it. */
+function clientExecutor(client: PostgresQueryClient): QueryExecutor {
+  return {
+    query: (sql, values) => (values === undefined ? client.query(sql) : client.query(sql, values)),
+    transaction(work) {
+      if (!client.transaction) throw new Error("this client has no transaction(); for a node-postgres pool pass `executor: poolExecutor(pool)`");
+      return client.transaction(work);
+    },
+  };
 }
 
 /**
@@ -50,6 +125,8 @@ const object = <T>(v: unknown): T => (typeof v === "string" ? JSON.parse(v) : v)
 /** Ids as the caller passed them, minus anything that is not a string: the engine rejects those with its own message. */
 const ids = (values: readonly unknown[] = []): string[] => [...new Set(values.filter((v): v is string => typeof v === "string"))];
 const DERIVED_FROM = `metadata->'contextualMetadata'->'${DERIVED_FROM_KEY}'`;
+const nodeIds = (nodes: readonly MemoryNode[]): string[] => nodes.map(n => n.nodeId);
+const graphIds = (graph: GraphSnapshot): string[] => [...nodeIds(graph.nodes), ...graph.edges.map(e => e.edgeId)];
 
 /**
  * The rows one call reads instead of the tenant's whole graph. The engine
@@ -81,38 +158,40 @@ interface Scope {
  */
 export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable, AuditCapable, AuditVerifiable, DependentsCapable {
   private readonly pool: Pool | undefined;
-  private readonly client: PostgresQueryClient;
+  private readonly executor: QueryExecutor;
   private readonly context = new AsyncLocalStorage<PostgresQueryClient>();
   readonly tenantId: string;
   private readonly auditKey: string | undefined;
+  private readonly accessAudit: PostgresMemoryStoreOptions["accessAudit"];
   private readonly dimensions: number;
   /** Whether this object has walked the tenant's audit chain (see `checkChainOnce`). */
   private chainChecked = false;
 
   constructor(options: PostgresMemoryStoreOptions) {
     if (!options.tenantId) throw new Error("tenantId is required");
-    if (!options.client && !options.connectionString) throw new Error("connectionString or client is required");
+    if (!options.executor && !options.client && !options.connectionString) throw new Error("connectionString, client or executor is required");
     this.tenantId = options.tenantId;
     this.auditKey = options.auditKey;
+    this.accessAudit = options.accessAudit;
     this.dimensions = options.indexedDimensions ?? 1536;
     if (!Number.isInteger(this.dimensions) || this.dimensions < 1 || this.dimensions > 2000) throw new Error("indexedDimensions must be an integer from 1 to 2000");
-    this.pool = options.client ? undefined : new Pool({ connectionString: options.connectionString });
-    this.client = options.client ?? this.pool!;
+    this.pool = options.executor || options.client ? undefined : new Pool({ connectionString: options.connectionString });
+    this.executor = options.executor ?? (options.client ? clientExecutor(options.client) : poolExecutor(this.pool!));
   }
 
   async initialize(): Promise<void> {
-    await this.client.query("CREATE EXTENSION IF NOT EXISTS vector");
-    const version = (await this.client.query("SELECT extversion FROM pg_extension WHERE extname='vector'")).rows[0]?.extversion as string | undefined;
+    await this.executor.query("CREATE EXTENSION IF NOT EXISTS vector");
+    const version = (await this.executor.query("SELECT extversion FROM pg_extension WHERE extname='vector'")).rows[0]?.extversion as string | undefined;
     const [major, minor] = (version ?? "").split(".").map(Number);
     if (major === undefined || minor === undefined || !Number.isInteger(major) || !Number.isInteger(minor) || major < 0 || (major === 0 && minor < 8)) {
       throw new Error(`pgvector 0.8 or newer is required; found ${version ?? "none"}`);
     }
-    await this.client.query(`CREATE TABLE IF NOT EXISTS memory_tenants (
+    await this.executor.query(`CREATE TABLE IF NOT EXISTS memory_tenants (
       tenant_key text PRIMARY KEY,
       audit_count bigint NOT NULL DEFAULT 0,
       audit_head text NOT NULL DEFAULT '${GENESIS}'
     )`);
-    await this.client.query(`CREATE TABLE IF NOT EXISTS memory_items (
+    await this.executor.query(`CREATE TABLE IF NOT EXISTS memory_items (
       tenant_key text NOT NULL REFERENCES memory_tenants(tenant_key),
       id text NOT NULL,
       kind text NOT NULL CHECK (kind IN ('node','edge','version','embedding')),
@@ -126,25 +205,25 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
       row_order bigint GENERATED ALWAYS AS IDENTITY,
       PRIMARY KEY (tenant_key, kind, id)
     )`);
-    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_search_idx ON memory_items USING gin(search_terms) WHERE kind = 'node'");
-    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_owner_idx ON memory_items(tenant_key, owner_key, kind)");
+    await this.executor.query("CREATE INDEX IF NOT EXISTS memory_items_search_idx ON memory_items USING gin(search_terms) WHERE kind = 'node'");
+    await this.executor.query("CREATE INDEX IF NOT EXISTS memory_items_owner_idx ON memory_items(tenant_key, owner_key, kind)");
     // What a write looks up besides its own rows (loadScope): a fact's versions
     // and embeddings, the edges at either end of a fact, the facts resting on one.
-    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_node_ref_idx ON memory_items(tenant_key, kind, (metadata->>'nodeId'))");
-    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_edge_source_idx ON memory_items(tenant_key, kind, (metadata->>'sourceNodeId'))");
-    await this.client.query("CREATE INDEX IF NOT EXISTS memory_items_edge_target_idx ON memory_items(tenant_key, kind, (metadata->>'targetNodeId'))");
+    await this.executor.query("CREATE INDEX IF NOT EXISTS memory_items_node_ref_idx ON memory_items(tenant_key, kind, (metadata->>'nodeId'))");
+    await this.executor.query("CREATE INDEX IF NOT EXISTS memory_items_edge_source_idx ON memory_items(tenant_key, kind, (metadata->>'sourceNodeId'))");
+    await this.executor.query("CREATE INDEX IF NOT EXISTS memory_items_edge_target_idx ON memory_items(tenant_key, kind, (metadata->>'targetNodeId'))");
     // Only conclusions are indexed, and without GIN's pending list: a lookup
     // would otherwise scan every fact inserted since the last vacuum.
-    await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_derived_idx ON memory_items USING gin((${DERIVED_FROM})) WITH (fastupdate = off) WHERE kind = 'node' AND jsonb_typeof(${DERIVED_FROM}) = 'array'`);
+    await this.executor.query(`CREATE INDEX IF NOT EXISTS memory_items_derived_idx ON memory_items USING gin((${DERIVED_FROM})) WITH (fastupdate = off) WHERE kind = 'node' AND jsonb_typeof(${DERIVED_FROM}) = 'array'`);
     // pgvector supports mixed dimensions in one column; index only the selected dimension.
-    await this.client.query(`CREATE INDEX IF NOT EXISTS memory_items_hnsw_${this.dimensions} ON memory_items USING hnsw ((embedding::vector(${this.dimensions})) vector_cosine_ops) WHERE kind = 'embedding' AND dimensions = ${this.dimensions}`);
-    await this.client.query(`CREATE TABLE IF NOT EXISTS memory_audit_events (
+    await this.executor.query(`CREATE INDEX IF NOT EXISTS memory_items_hnsw_${this.dimensions} ON memory_items USING hnsw ((embedding::vector(${this.dimensions})) vector_cosine_ops) WHERE kind = 'embedding' AND dimensions = ${this.dimensions}`);
+    await this.executor.query(`CREATE TABLE IF NOT EXISTS memory_audit_events (
       tenant_key text NOT NULL REFERENCES memory_tenants(tenant_key),
       seq bigint GENERATED ALWAYS AS IDENTITY,
       prev text NOT NULL, hash text NOT NULL, event jsonb NOT NULL,
       PRIMARY KEY (tenant_key, seq)
     )`);
-    await this.client.query("INSERT INTO memory_tenants(tenant_key) VALUES($1) ON CONFLICT DO NOTHING", [this.tenantId]);
+    await this.executor.query("INSERT INTO memory_tenants(tenant_key) VALUES($1) ON CONFLICT DO NOTHING", [this.tenantId]);
   }
 
   async close(): Promise<void> { await this.pool?.end(); }
@@ -158,36 +237,31 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
       await db.query("SET LOCAL hnsw.iterative_scan = strict_order");
       return work(db);
     });
-    if (this.client.transaction) return this.client.transaction(run);
-    const connection = await this.pool!.connect();
-    try {
-      await connection.query("BEGIN");
-      const result = await run(connection);
-      await connection.query("COMMIT");
-      return result;
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally { connection.release(); }
+    return this.executor.transaction(run);
   }
 
   /** One snapshot that writes nothing — not even the tenant row `transaction` ensures. */
   private async readOnly<T>(work: (db: PostgresQueryClient) => Promise<T>): Promise<T> {
-    const run = async (db: PostgresQueryClient): Promise<T> => {
+    return this.executor.transaction(async db => {
       await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
       return work(db);
-    };
-    if (this.client.transaction) return this.client.transaction(run);
-    const connection = await this.pool!.connect();
-    try {
-      await connection.query("BEGIN");
-      const result = await run(connection);
-      await connection.query("COMMIT");
+    });
+  }
+
+  /**
+   * One public call: `work` in a transaction (holding the tenant lock for a
+   * write), then the call as the access sink hears of it, before the commit.
+   * `named` is computed only when there is a sink to tell.
+   */
+  private async call<T>(access: "read" | "write", operation: string, work: (db: PostgresQueryClient) => Promise<T>, named: (result: T) => readonly unknown[]): Promise<T> {
+    return this.transaction(async db => {
+      const result = await work(db);
+      const audit = this.accessAudit;
+      if (audit && (access === "write" || audit.reads)) {
+        await audit.sink.record({ at: new Date().toISOString(), tenantId: this.tenantId, access, operation, ids: ids(named(result)) }, db);
+      }
       return result;
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally { connection.release(); }
+    }, access === "write");
   }
 
   /** The whole graph, for the calls that answer about all of it (snapshots). */
@@ -262,42 +336,42 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
   }
 
   /** `scope` is the call's part of the graph, or "all" for the calls that answer about all of it. */
-  private async read<T>(scope: Scope | "all", work: (engine: InMemoryStore) => Promise<T>): Promise<T> {
-    return this.transaction(async db => work((scope === "all" ? await this.load(db) : await this.loadScope(db, scope)).engine));
+  private async read<T>(operation: string, scope: Scope | "all", work: (engine: InMemoryStore) => Promise<T>, named: (result: T) => readonly unknown[]): Promise<T> {
+    return this.call("read", operation, async db => work((scope === "all" ? await this.load(db) : await this.loadScope(db, scope)).engine), named);
   }
-  private async write<T>(scope: Scope, work: (engine: InMemoryStore) => Promise<T>): Promise<T> {
-    return this.transaction(async db => {
+  private async write<T>(operation: string, scope: Scope, work: (engine: InMemoryStore) => Promise<T>, named: (result: T) => readonly unknown[]): Promise<T> {
+    return this.call("write", operation, async db => {
       const { engine, rows } = await this.loadScope(db, scope);
       const result = await work(engine);
       await this.persist(db, rows, engine);
       return result;
-    }, true);
+    }, named);
   }
 
-  addNode(node: NewMemoryNode): Promise<MemoryNode> { return this.write({}, s => s.addNode(node)); }
-  getNode(id: string): Promise<MemoryNode | undefined> { return this.read({ nodes: [id] }, s => s.getNode(id)); }
+  addNode(node: NewMemoryNode): Promise<MemoryNode> { return this.write("addNode", {}, s => s.addNode(node), r => [r.nodeId]); }
+  getNode(id: string): Promise<MemoryNode | undefined> { return this.read("getNode", { nodes: [id] }, s => s.getNode(id), () => [id]); }
   /** Facts only, newest first as the engine orders them: no edges or versions are read. */
   async listNodes(): Promise<MemoryNode[]> {
-    return this.transaction(async db => (await db.query("SELECT metadata FROM memory_items WHERE tenant_key=$1 AND kind='node' ORDER BY row_order", [this.tenantId])).rows
-      .map(r => object<MemoryNode>(r.metadata)).sort((a, b) => compareRecency(b, a)));
+    return this.call("read", "listNodes", async db => (await db.query("SELECT metadata FROM memory_items WHERE tenant_key=$1 AND kind='node' ORDER BY row_order", [this.tenantId])).rows
+      .map(r => object<MemoryNode>(r.metadata)).sort((a, b) => compareRecency(b, a)), nodeIds);
   }
   updateNode(id: string, patch: Parameters<MemoryStore["updateNode"]>[1], event?: Parameters<MemoryStore["updateNode"]>[2]): Promise<MemoryNode> {
     // Only a change that sets an end can retract the facts resting on this one.
     const ends = typeof patch === "object" && patch !== null && (patch as { validTo?: unknown }).validTo != null;
-    return this.write({ nodes: [id], dependents: ends }, s => s.updateNode(id, patch, event));
+    return this.write("updateNode", { nodes: [id], dependents: ends }, s => s.updateNode(id, patch, event), () => [id]);
   }
-  deleteNode(id: string): Promise<void> { return this.write({ nodes: [id], dependents: true, edgesOf: true }, s => s.deleteNode(id)); }
-  restoreNode(node: MemoryNode): Promise<void> { return this.write({ nodes: [node?.nodeId] }, s => s.restoreNode(node)); }
-  restoreEdge(edge: MemoryEdge): Promise<void> { return this.write({ nodes: [edge?.sourceNodeId, edge?.targetNodeId], edges: [edge?.edgeId] }, s => s.restoreEdge(edge)); }
-  addEdge(edge: Parameters<MemoryStore["addEdge"]>[0]): Promise<MemoryEdge> { return this.write({ nodes: [edge?.sourceNodeId, edge?.targetNodeId] }, s => s.addEdge(edge)); }
-  getEdges(id: string): Promise<MemoryEdge[]> { return this.read({ nodes: [id], edgesOf: true }, s => s.getEdges(id)); }
-  deleteEdge(id: string): Promise<void> { return this.write({ edges: [id] }, s => s.deleteEdge(id)); }
-  snapshot(): Promise<GraphSnapshot> { return this.read("all", s => s.snapshot()); }
-  history(id: string): Promise<NodeVersion[]> { return this.read({ nodes: [id] }, s => s.history(id)); }
-  getNodeAsOf(id: string, at: string): Promise<AsOfFact | undefined> { return this.read({ nodes: [id] }, s => s.getNodeAsOf(id, at)); }
-  snapshotAsOf(at: string, options?: AsOfOptions): Promise<AsOfSnapshot> { return this.read("all", s => s.snapshotAsOf(at, options)); }
-  historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }> { return this.read("all", s => s.historySnapshot()); }
-  restoreVersion(version: NodeVersion): Promise<void> { return this.write({ nodes: [version?.nodeId], versions: [version?.versionId] }, s => s.restoreVersion(version)); }
+  deleteNode(id: string): Promise<void> { return this.write("deleteNode", { nodes: [id], dependents: true, edgesOf: true }, s => s.deleteNode(id), () => [id]); }
+  restoreNode(node: MemoryNode): Promise<void> { return this.write("restoreNode", { nodes: [node?.nodeId] }, s => s.restoreNode(node), () => [node.nodeId]); }
+  restoreEdge(edge: MemoryEdge): Promise<void> { return this.write("restoreEdge", { nodes: [edge?.sourceNodeId, edge?.targetNodeId], edges: [edge?.edgeId] }, s => s.restoreEdge(edge), () => [edge.edgeId]); }
+  addEdge(edge: Parameters<MemoryStore["addEdge"]>[0]): Promise<MemoryEdge> { return this.write("addEdge", { nodes: [edge?.sourceNodeId, edge?.targetNodeId] }, s => s.addEdge(edge), r => [r.edgeId]); }
+  getEdges(id: string): Promise<MemoryEdge[]> { return this.read("getEdges", { nodes: [id], edgesOf: true }, s => s.getEdges(id), r => [id, ...r.map(e => e.edgeId)]); }
+  deleteEdge(id: string): Promise<void> { return this.write("deleteEdge", { edges: [id] }, s => s.deleteEdge(id), () => [id]); }
+  snapshot(): Promise<GraphSnapshot> { return this.read("snapshot", "all", s => s.snapshot(), graphIds); }
+  history(id: string): Promise<NodeVersion[]> { return this.read("history", { nodes: [id] }, s => s.history(id), r => [id, ...r.map(v => v.versionId)]); }
+  getNodeAsOf(id: string, at: string): Promise<AsOfFact | undefined> { return this.read("getNodeAsOf", { nodes: [id] }, s => s.getNodeAsOf(id, at), () => [id]); }
+  snapshotAsOf(at: string, options?: AsOfOptions): Promise<AsOfSnapshot> { return this.read("snapshotAsOf", "all", s => s.snapshotAsOf(at, options), graphIds); }
+  historySnapshot(): Promise<GraphSnapshot & { versions: NodeVersion[] }> { return this.read("historySnapshot", "all", s => s.historySnapshot(), r => [...graphIds(r), ...r.versions.map(v => v.versionId)]); }
+  restoreVersion(version: NodeVersion): Promise<void> { return this.write("restoreVersion", { nodes: [version?.nodeId], versions: [version?.versionId] }, s => s.restoreVersion(version), () => [version.nodeId, version.versionId]); }
 
   /**
    * Every fact resting on `roots`, directly or through another conclusion, in
@@ -307,11 +381,11 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
   async nodesRestingOn(roots: readonly string[]): Promise<MemoryNode[]> {
     const rootIds = new Set(roots);
     // The scope holds the roots and what rests on them, nothing else.
-    return this.read({ nodes: roots, dependents: true }, async s => (await s.listNodes()).filter(n => !rootIds.has(n.nodeId)));
+    return this.read("nodesRestingOn", { nodes: roots, dependents: true }, async s => (await s.listNodes()).filter(n => !rootIds.has(n.nodeId)), r => [...roots, ...nodeIds(r)]);
   }
 
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
-    return this.transaction(async db => {
+    return this.call("read", "searchNodes", async db => {
       const values: unknown[] = [this.tenantId];
       let where = "tenant_key=$1 AND kind='node'";
       const add = (fragment: string, value: unknown) => { values.push(value); where += ` AND ${fragment.replaceAll("?", `$${values.length}`)}`; };
@@ -346,12 +420,13 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
       if (options.after !== undefined && after === 0) return [];
       const limit = normaliseLimit(options.limit);
       return sorted.slice(after, limit === undefined ? undefined : after + limit).map(r => r.node);
-    });
+    }, nodeIds);
   }
 
   async setEmbedding(input: Omit<MemoryEmbedding, "createdAt">): Promise<MemoryEmbedding> {
-    return this.transaction(async db => {
-      if (!(await this.getNode(input.nodeId))) throw new Error(`embedding node not found: ${input.nodeId}`);
+    return this.call("write", "setEmbedding", async db => {
+      // getNode's own statements, not a call to it: that would be heard as a read of its own.
+      if (!(await (await this.loadScope(db, { nodes: [input.nodeId] })).engine.getNode(input.nodeId))) throw new Error(`embedding node not found: ${input.nodeId}`);
       if (input.vector.length !== input.dimensions || input.vector.some(n => !Number.isFinite(n))) throw new Error("invalid embedding vector");
       const full: MemoryEmbedding = { ...structuredClone(input), createdAt: new Date().toISOString() };
       await db.query(`INSERT INTO memory_items(tenant_key,id,kind,owner_key,metadata,embedding,model,dimensions)
@@ -359,15 +434,15 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
         ON CONFLICT (tenant_key,kind,id) DO UPDATE SET metadata=excluded.metadata,embedding=excluded.embedding,dimensions=excluded.dimensions`,
       [this.tenantId, json([input.nodeId, input.model]), json(full), `[${input.vector.join(",")}]`, input.model, input.dimensions]);
       return full;
-    }, true);
+    }, () => [input.nodeId]);
   }
-  private async embeddingRows(where: string, value: string): Promise<MemoryEmbedding[]> {
-    return this.transaction(async db => (await db.query(`SELECT metadata FROM memory_items WHERE tenant_key=$1 AND kind='embedding' AND ${where}`, [this.tenantId, value])).rows.map(r => object<MemoryEmbedding>(r.metadata)));
+  private async embeddingRows(operation: string, where: string, value: string): Promise<MemoryEmbedding[]> {
+    return this.call("read", operation, async db => (await db.query(`SELECT metadata FROM memory_items WHERE tenant_key=$1 AND kind='embedding' AND ${where}`, [this.tenantId, value])).rows.map(r => object<MemoryEmbedding>(r.metadata)), r => r.map(e => e.nodeId));
   }
-  getEmbeddings(id: string): Promise<MemoryEmbedding[]> { return this.embeddingRows("metadata->>'nodeId'=$2", id); }
-  listEmbeddings(model: string): Promise<MemoryEmbedding[]> { return this.embeddingRows("model=$2", model); }
+  getEmbeddings(id: string): Promise<MemoryEmbedding[]> { return this.embeddingRows("getEmbeddings", "metadata->>'nodeId'=$2", id); }
+  listEmbeddings(model: string): Promise<MemoryEmbedding[]> { return this.embeddingRows("listEmbeddings", "model=$2", model); }
   async deleteEmbeddings(id: string, model?: string): Promise<void> {
-    await this.transaction(async db => { await db.query(`DELETE FROM memory_items WHERE tenant_key=$1 AND kind='embedding' AND metadata->>'nodeId'=$2 ${model === undefined ? "" : "AND model=$3"}`, model === undefined ? [this.tenantId, id] : [this.tenantId, id, model]); }, true);
+    await this.call("write", "deleteEmbeddings", async db => { await db.query(`DELETE FROM memory_items WHERE tenant_key=$1 AND kind='embedding' AND metadata->>'nodeId'=$2 ${model === undefined ? "" : "AND model=$3"}`, model === undefined ? [this.tenantId, id] : [this.tenantId, id, model]); }, () => [id]);
   }
 
   /** Indexed cosine search with filters applied before LIMIT. The existing MemoryStore API is unchanged. */
@@ -375,7 +450,7 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     if (vector.length !== this.dimensions || vector.some(n => !Number.isFinite(n))) throw new Error(`searchSimilar requires a finite ${this.dimensions}-dimension vector`);
     const limit = normaliseLimit(options.limit);
     if (limit === 0) return [];
-    return this.transaction(async db => {
+    return this.call("read", "searchSimilar", async db => {
       const values: unknown[] = [this.tenantId, model, modelVersion, `[${vector.join(",")}]`];
       let where = `e.tenant_key=$1 AND e.kind='embedding' AND e.model=$2 AND e.metadata->>'modelVersion'=$3 AND e.metadata->>'metric'='cosine' AND e.dimensions=${this.dimensions} AND n.tenant_key=$1 AND n.kind='node'`;
       const add = (fragment: string, value: unknown) => { values.push(value); where += ` AND ${fragment.replace("?", `$${values.length}`)}`; };
@@ -398,7 +473,7 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
         ON n.tenant_key=e.tenant_key AND n.id=e.metadata->>'nodeId'
         WHERE ${where} ORDER BY ${distance}${limit === undefined ? "" : ` LIMIT $${values.length}`}`, values)).rows;
       return rows.map(r => ({ node: object<MemoryNode>(r.metadata), similarity: 1 - Number(r.distance) }));
-    });
+    }, r => r.map(hit => hit.node.nodeId));
   }
 
   async auditedMutation<T>(mutate: () => Promise<T>, describe: (result: T) => AuditEvent): Promise<T> {

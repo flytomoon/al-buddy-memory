@@ -32,6 +32,8 @@ At-rest encryption is the database operator's responsibility: configure Aurora o
 
 `initialize()` creates the extension, tables, and indexes and must run before using a new database; run it again after upgrading, as it adds the indexes the write path below looks up by. It requires schema-creation privileges; grant the runtime role only the permissions it needs after migration.
 
+Two options are hooks for code outside this package, both off by default: `executor` sends every statement somewhere other than the pool or client, and `accessAudit` hears every write (and, when asked, every read) inside its own transaction. See [EXTENSION-POINTS.md](EXTENSION-POINTS.md).
+
 The test suite uses in-process PGlite with its pgvector extension. No Docker or network service is required. `npm run check` runs the shared `MemoryStore` conformance suite against it, and the derived-facts and mental-model suites.
 
 ## What a write costs

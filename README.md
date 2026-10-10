@@ -198,6 +198,19 @@ a local setup.
   the erasure are outside it**, and the receipt says so. It behaves the same on SQLite and
   Postgres. [docs/ERASURE.md](docs/ERASURE.md)
 
+## Enterprise edition
+
+The core stays free and Apache-2.0, including everything above. A commercial enterprise
+edition adds:
+
+- multi-process safety for serverless deployments
+- data-API query executors
+- database row-level security
+- read audit
+- an enterprise readiness suite
+
+To ask about it, contact the repository owner, [@flytomoon](https://github.com/flytomoon).
+
 ## Limits, measured
 
 One SQLite file, one process, one writer. Measured on an M1 Pro laptop with 100,000
