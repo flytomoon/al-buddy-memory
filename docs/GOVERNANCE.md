@@ -190,6 +190,9 @@ and legible is not prevented. One consequence to know about: a policy hook
 must not call a mutating method on a governed store over the same inner store — it would be
 waiting for the queue it is already holding.
 
+The queue is the default `LockProvider`, `inProcessLock`. `govern(store, { lock })` takes another
+in its place: see [EXTENSION-POINTS.md](EXTENSION-POINTS.md#lockprovider-what-holds-a-decision-and-its-write-together).
+
 Hidden facts cannot change what a governed read returns or in what order. A governed keyword
 search reads every match, keeps the visible ones and ranks them by word rarity counted over
 those visible matches alone, then confidence, then recency — not by the store's BM25, whose
