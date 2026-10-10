@@ -43,6 +43,8 @@ export interface GovernOptions {
    * still erased at once either way.
    */
   recentlyDeleted?: { days: number } | undefined;
+  /** What serialises this handle's mutations; {@link inProcessLock} when left out. See {@link LockProvider}. */
+  lock?: LockProvider | undefined;
 }
 
 
@@ -254,6 +256,27 @@ function serialise<T>(inner: object, step: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * What holds a governed mutation's decision and its write together: every
+ * mutation runs as one `withLock(store, step)`, `store` being the INNER store,
+ * so every handle over it shares the lock. Reads do not take it. `withLock`
+ * must run `step` exactly once, with no other step for the same store running,
+ * release the lock however `step` settles (a refusal must not jam it), and
+ * settle as `step` did.
+ *
+ * The default, {@link inProcessLock}, is the queue above, so it covers one
+ * process. A provider that also excludes other processes must still exclude
+ * within its own (wrapping `inProcessLock` does that). The limit above holds
+ * under any lock: a policy hook that mutates through a handle over the same
+ * store waits for itself.
+ */
+export interface LockProvider {
+  withLock<T>(store: MemoryStore, step: () => Promise<T>): Promise<T>;
+}
+
+/** The lock `govern` uses when given none: mutations over one store object queue in this process. */
+export const inProcessLock: LockProvider = Object.freeze({ withLock: serialise });
+
+/**
  * One fact as this actor would see it on a read: the node (possibly redacted), or null. No audit.
  *
  * The declared boundaries come first, on the stored fact, exactly as a store
@@ -384,6 +407,8 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
   // both in scope; everything below reads it off `opts`.
   const opts = activate(inner, options);
   const readCtx = () => ctxFor(opts, opts.readAs ?? "recall");
+  const lock = opts.lock ?? inProcessLock;
+  const exclusive = <T>(step: () => Promise<T>): Promise<T> => lock.withLock(inner, step);
 
   /**
    * The fact, if this actor may see it — else "not found", audited as denied.
@@ -493,7 +518,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
       // a bound of one written down in `docs/policies/ENFORCEMENT.md`
       // (GPT-6-Astra on the merged result, 2026-09-19). The queue is what makes
       // that bound true rather than typical.
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         const current = await guarded(opts, ctx, [], () => writePolicies(node, ctx));
@@ -505,7 +530,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     async updateNode(nodeId, input, anchorEvent): Promise<MemoryNode> {
       const patch = snapshot(input);
       const authorised = authorise(opts, patch.validTo !== undefined ? "invalidate" : "write");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         // A fact this actor cannot read is a fact this actor cannot change, and
@@ -540,7 +565,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     async restoreNode(input: MemoryNode): Promise<void> {
       const node = snapshot(input);
       const authorised = authorise(opts, "import");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         const existing = await inner.getNode(node.nodeId);
@@ -574,7 +599,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
 
     async deleteNode(nodeId: string): Promise<void> {
       const authorised = authorise(opts, "erase");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         const { node } = await visibleOrNotFound(nodeId, ctx);
@@ -589,7 +614,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
       if (!opts.audit) throw new Error("eraseWhere needs an audit sink: its receipt is chained into the audit trail (govern(store, { audit }))");
       const filter = selectorFilter(selector);
       const authorised = authorise(opts, "erase");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         const id = globalThis.crypto.randomUUID();
@@ -653,7 +678,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
 
     async deleteEdge(edgeId: string): Promise<void> {
       const authorised = authorise(opts, "erase");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         await guarded(opts, ctx, [], () => erasePolicies({ edgeId }, ctx));
@@ -665,7 +690,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     async addEdge(input): Promise<MemoryEdge> {
       const edge = snapshot(input);
       const authorised = authorise(opts, "write");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         // Linking to a hidden fact would confirm that its id exists.
@@ -679,7 +704,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     async restoreEdge(input: MemoryEdge): Promise<void> {
       const edge = snapshot(input);
       const authorised = authorise(opts, "import");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         await visibleOrNotFound(edge.sourceNodeId, ctx);
@@ -708,7 +733,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     async setEmbedding(input): Promise<MemoryEmbedding> {
       const embedding = snapshot(input);
       const authorised = authorise(opts, "write");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         await visibleOrNotFound(embedding.nodeId, authorised());
         return inner.setEmbedding(embedding);
       });
@@ -718,7 +743,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     },
     async deleteEmbeddings(nodeId: string, model?: string): Promise<void> {
       const authorised = authorise(opts, "write");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         await visibleOrNotFound(nodeId, authorised());
         return model === undefined ? inner.deleteEmbeddings(nodeId) : inner.deleteEmbeddings(nodeId, model);
       });
@@ -936,7 +961,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     governed.restoreVersion = async (input: NodeVersion): Promise<void> => {
       const version = snapshot(input);
       const authorised = authorise(opts, "import");
-      return serialise(inner, async () => {
+      return exclusive(async () => {
         assertAuditUsable(opts);
         const ctx = authorised();
         const { node: existing } = await visibleOrNotFound(version.nodeId, ctx);
@@ -964,7 +989,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         inner,
         grace,
         authorise: (purpose) => authorise(opts, purpose),
-        serialise: (step) => serialise(inner, step),
+        serialise: exclusive,
         assertAuditUsable: () => assertAuditUsable(opts),
         visibleOrNotFound,
         guarded: (ctx, ids, step) => guarded(opts, ctx, ids, step),
