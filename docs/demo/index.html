@@ -95,6 +95,10 @@
   }
   /* The phone bar keeps the page's side gutter (an older rule zeroed it). */
   @media (max-width:520px) { .wrap.bar { padding:8px 16px } }
+  .epigraph { margin: 40px auto 8px; max-width: 34em; text-align: center; }
+  .epigraph p { margin: 0; font-family: Georgia, "Iowan Old Style", serif; font-style: italic; font-size: 1.12rem; line-height: 1.7; color: var(--fg-dim); }
+  @media (max-width: 560px) { .epigraph span { display: block; } .epigraph br.wide { display: none; } }
+  .epigraph p::before, .epigraph p::after { content: ""; display: block; width: 40px; height: 1px; background: var(--ember); opacity: .55; margin: 14px auto; }
 </style>
 </head>
 <body>
@@ -118,6 +122,10 @@
     <pre style="margin-top:16px"><code>/plugin marketplace add flytomoon/al-buddy-memory
 /plugin install al-buddy@al-buddy</code></pre>
   </section>
+
+  <figure class="epigraph" aria-label="Al Buddy's motto">
+    <p><span>One memory to see them all,</span> <span>one memory to find them,</span><br class="wide"><span>one memory to keep them all,</span> <span>and in the light will bind them.</span></p>
+  </figure>
 
   <section class="block" id="memory">
     <h2>A memory that's yours — open source</h2>
