@@ -37,15 +37,15 @@ export interface GaugeResult {
   /** Live memories with no vector: invisible to meaning search until indexed. */
   unindexedLive: number;
   currentStates: number;
-  /** One recall with the vector cache cold — the first lookup of a turn. Null without an embedder. */
+  /** Recall with the vector cache cold — the first lookup of a turn — the median of five. Null without an embedder. */
   coldRecallMs: number | null;
-  /** Recall with the cache warm, median and 95th percentile over the query set. */
+  /** Recall with the cache warm, median and 95th percentile over at least 40 lookups (the query set, repeated). */
   warmRecallP50Ms: number | null;
   warmRecallP95Ms: number | null;
-  /** Keyword-only recall (no embedder), median and 95th percentile. */
+  /** Keyword-only recall (no embedder), median and 95th percentile, sampled like warm recall; 0 with no queries. */
   keywordP50Ms: number;
   keywordP95Ms: number;
-  /** Reading every current state, as each turn does. */
+  /** Reading every current state, as each turn does — the median of five. */
   statesMs: number;
 }
 
@@ -88,17 +88,29 @@ export interface Breach {
   why: string;
 }
 
-const pct = (xs: number[], p: number): number => {
+/**
+ * How many timings stand behind each number (2026-10-12). Each query used to be
+ * timed once and the "95th percentile" of five was the slowest of them, so one
+ * pause on a busy machine (184 ms against 120, under the full test suite) was
+ * reported as the store being slow. A percentile is taken over at least
+ * RECALL_SAMPLES lookups; a single timing is the median of REPEATS.
+ */
+const RECALL_SAMPLES = 40;
+const REPEATS = 5;
+
+/** The nearest-rank percentile: the smallest value at least `p` of `xs` are at or below; 0 for none. */
+export function percentile(xs: number[], p: number): number {
   const s = [...xs].sort((a, b) => a - b);
-  return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))]! : 0;
-};
+  return s.length ? s[Math.max(0, Math.ceil(p * s.length) - 1)]! : 0;
+}
 const round = (n: number): number => Math.round(n * 10) / 10;
 
 /**
  * Measure a store file. `queries` defaults to texts sampled from the store
- * itself, so the lookups look like real ones.
+ * itself, so the lookups look like real ones. `clock` (milliseconds,
+ * `performance.now` by default) times every lookup; tests pass a fake one.
  */
-export async function gaugeStore(path: string, opts: { embedder?: Embedder; queries?: string[]; now?: () => Date } = {}): Promise<GaugeResult> {
+export async function gaugeStore(path: string, opts: { embedder?: Embedder; queries?: string[]; now?: () => Date; clock?: () => number } = {}): Promise<GaugeResult> {
   const raw = new Database(path, { readonly: true, fileMustExist: true });
   const one = <T>(sql: string): T => raw.prepare(sql).get() as T;
   const count = (sql: string): number => (one<{ n: number | null }>(sql).n ?? 0);
@@ -126,40 +138,45 @@ export async function gaugeStore(path: string, opts: { embedder?: Embedder; quer
     /* no WAL beside it */
   }
   const queries = (opts.queries ?? sample).slice(0, 20);
+  const clock = opts.clock ?? (() => performance.now());
+  const time = async (fn: () => Promise<unknown>): Promise<number> => {
+    const t = clock();
+    await fn();
+    return clock() - t;
+  };
+  /** The query set, round after round, until there are RECALL_SAMPLES timings — none without queries. */
+  const lookups = async (fn: (q: string) => Promise<unknown>): Promise<number[]> => {
+    const out: number[] = [];
+    while (queries.length > 0 && out.length < RECALL_SAMPLES) for (const q of queries) out.push(await time(() => fn(q)));
+    return out;
+  };
+  const median = async (fn: () => Promise<unknown>): Promise<number> => {
+    const out: number[] = [];
+    for (let i = 0; i < REPEATS; i++) out.push(await time(fn));
+    return round(percentile(out, 0.5));
+  };
 
   const store = new SqliteMemoryStore(path);
   try {
     const keyword = new HybridRetriever(store);
-    const kTimes: number[] = [];
-    for (const q of queries) {
-      const t = performance.now();
-      await keyword.recall(q, { limit: 10 });
-      kTimes.push(performance.now() - t);
-    }
+    const kTimes = await lookups((q) => keyword.recall(q, { limit: 10 }));
     let coldRecallMs: number | null = null;
     let warmRecallP50Ms: number | null = null;
     let warmRecallP95Ms: number | null = null;
     if (opts.embedder && queries.length > 0) {
       // Load the model outside the timing: its cost is the embedder's, not the store's.
       await opts.embedder.embed(["warm up"]);
+      // A cache that never holds: every one of these recalls reads all the vectors.
       const cold = new HybridRetriever(store, opts.embedder, { cacheTtlMs: 0 });
-      const t = performance.now();
-      await cold.recall(queries[0]!, { limit: 10 });
-      coldRecallMs = round(performance.now() - t);
+      coldRecallMs = await median(() => cold.recall(queries[0]!, { limit: 10 }));
       const warm = new HybridRetriever(store, opts.embedder, { cacheTtlMs: 60_000 });
       await warm.recall(queries[0]!, { limit: 10 });
-      const wTimes: number[] = [];
-      for (const q of queries) {
-        const t2 = performance.now();
-        await warm.recall(q, { limit: 10 });
-        wTimes.push(performance.now() - t2);
-      }
-      warmRecallP50Ms = round(pct(wTimes, 0.5));
-      warmRecallP95Ms = round(pct(wTimes, 0.95));
+      const wTimes = await lookups((q) => warm.recall(q, { limit: 10 }));
+      warmRecallP50Ms = round(percentile(wTimes, 0.5));
+      warmRecallP95Ms = round(percentile(wTimes, 0.95));
     }
-    const ts = performance.now();
-    const states = await currentStates(store);
-    const statesMs = round(performance.now() - ts);
+    let states: Awaited<ReturnType<typeof currentStates>> = [];
+    const statesMs = await median(async () => (states = await currentStates(store)));
     return {
       measuredAt: now,
       memories,
@@ -178,8 +195,8 @@ export async function gaugeStore(path: string, opts: { embedder?: Embedder; quer
       coldRecallMs,
       warmRecallP50Ms,
       warmRecallP95Ms,
-      keywordP50Ms: round(pct(kTimes, 0.5)),
-      keywordP95Ms: round(pct(kTimes, 0.95)),
+      keywordP50Ms: round(percentile(kTimes, 0.5)),
+      keywordP95Ms: round(percentile(kTimes, 0.95)),
       statesMs,
     };
   } finally {

@@ -78,6 +78,9 @@
   details summary::after { content:"+"; float:right; color:var(--fg-faint); font-weight:400 }
   details[open] summary::after { content:"−" }
   details p { margin:0 0 16px; color:var(--fg-dim) }
+  .copy-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:12px }
+  .copy-btn { font:inherit; font-weight:600; cursor:pointer } .copy-btn[hidden] { display:none }
+  .copied { color:var(--sage); font-size:14px }
   footer { padding:36px 0 60px; color:var(--fg-faint); font-size:14px; border-top:1px solid var(--line) }
   footer a { color:var(--fg-dim) }
   @media (max-width:520px) { .wrap { padding:0 16px } .bar { gap:8px; flex-wrap:wrap; padding:8px 0 } .bar img { width:28px; height:28px } .bar b { font-size:16px } .bar nav { width:100%; justify-content:flex-start; margin-left:0 } .bar nav a { padding:6px 8px; font-size:14px } .hero { padding:36px 0 28px } .card { padding:18px } .term pre { font-size:12px; padding:12px } }
@@ -149,7 +152,7 @@
           <li>Double-click it, or drag it into the Claude window, or use <b>Settings → Extensions → Advanced settings → Install Extension…</b></li>
           <li>Review and choose <b>Install</b>. Leave <b>Memory file</b> as it is to share one memory with Claude Code.</li>
         </ol>
-        <p>The first start downloads the search model (about 90 MB) once. Then just talk: "remember that…", "what did we decide about…". The <code>/al-buddy:</code> commands are Claude Code's; in the app you ask in your own words.</p></div>
+        <p>The first start downloads the search model (about 90 MB) once. Then just talk: "remember that…", "what did we decide about…". The <code>/al-buddy:</code> commands are Claude Code's; in the app you ask in your own words. To have it save without being asked, <a href="#automatic">make it automatic</a>.</p></div>
       <div class="card"><span class="k">Or by hand</span><h3>claude_desktop_config.json</h3><p style="margin-bottom:10px">Needs Node.js 22 or later. In Claude: <b>Settings → Developer → Edit config</b>, add this, and restart Claude:</p><pre class="plain">{
   "mcpServers": {
     "al-buddy-memory": {
@@ -160,6 +163,18 @@
 }</pre><p style="margin-top:10px">If the file already has an <code>"mcpServers"</code> block, add only the <code>"al-buddy-memory"</code> entry to it.</p></div>
     </div>
     <p class="note">Windows: use the manual setup for now. On an Intel Mac, search works by keyword only.</p>
+  </section>
+
+  <section class="block" id="automatic">
+    <h2>Make it automatic in the Claude apps</h2>
+    <p class="sub">One paste, once. After it, Claude saves every exchange that has substance without being asked — what you asked, what it answered and why, and what you decided. Saying "remember" just makes it save at once.</p>
+    <div class="grid">
+      <div class="card"><span class="step">1</span><h3>Give Claude this instruction</h3><p style="margin-bottom:10px">In the app's settings, paste it where Claude asks for your personal preferences — the instructions it follows in every chat.</p>
+        <pre class="plain" id="auto-instruction">Use Al Buddy memory automatically, without being asked. At the start of each conversation, call recall for my pinned rules and anything relevant. After each exchange that has any substance, save it with remember: the date, what I asked or said, what you answered or recommended and why, and what we decided. Mark my own words as UserInput and your answers or recommendations as AIInferred. Save the substance and the reasoning, not filler or small talk. If I say remember, save it right away. Never save secrets or passwords. When something earlier stops being true, invalidate it instead of saving a contradiction.</pre>
+        <div class="copy-row"><button class="btn copy-btn" type="button" data-copy="auto-instruction" hidden>Copy the instruction</button><span class="copied" role="status" aria-live="polite"></span></div></div>
+      <div class="card"><span class="step">2</span><h3>Set the permissions</h3><p>Where the app sets Al Buddy's tool permissions, or when it first asks to use a tool, let <code>recall</code> and <code>remember</code> run without asking each time. Keep <code>invalidate</code>, <code>unpin</code> and any tool that erases asking you first, so nothing is retired or removed without your say-so.</p></div>
+    </div>
+    <p class="note">Why: in the Claude apps a connector is used only when something tells it to, and there is no hook that captures a conversation automatically — in our test on 11 October 2026, Claude saved to memory only when asked, even with the server's own instructions in place. This instruction is what makes it continuous.</p>
   </section>
 
   <section class="block" id="see">
@@ -337,6 +352,28 @@ startup_timeout_sec = 120</pre><p style="margin-top:10px">The longer timeout cov
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && nav.classList.contains("open")) { set(false); btn.focus(); } });
     document.addEventListener("click", function (e) { if (nav.classList.contains("open") && !nav.contains(e.target)) set(false); });
     nav.addEventListener("click", function (e) { if (e.target.closest("a")) set(false); });
+  })();
+  // The copy button: copies the instruction exactly. Without JS the text is still there to select.
+  (function () {
+    var fallback = function (text) {
+      var ta = document.createElement("textarea"), ok = false;
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+      return ok;
+    };
+    document.querySelectorAll(".copy-btn").forEach(function (btn) {
+      var src = document.getElementById(btn.getAttribute("data-copy")), out = btn.nextElementSibling, timer;
+      if (!src || !out) return;
+      btn.hidden = false;
+      btn.addEventListener("click", function () {
+        var text = src.textContent.trim();
+        var done = function (ok) { out.textContent = ok ? "Copied." : "Select the text above and copy it."; clearTimeout(timer); timer = setTimeout(function () { out.textContent = ""; }, 4000); };
+        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallback(text)); });
+        else done(fallback(text));
+      });
+    });
   })();
 </script>
 </body>
