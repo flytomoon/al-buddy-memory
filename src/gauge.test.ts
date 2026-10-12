@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { FakeEmbedder } from "./embedder.js";
-import { checkBudgets, DEFAULT_BUDGETS, gaugeStore } from "./gauge.js";
+import { checkBudgets, DEFAULT_BUDGETS, gaugeStore, percentile } from "./gauge.js";
 import { HybridRetriever } from "./hybrid-retriever.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
@@ -70,6 +70,55 @@ describe("the gauge (2026-09-26: a measurement with no budget is a fact nobody o
     await gaugeStore(path, { embedder: fake(), queries: ["sourdough"] });
     const after = new Database(path, { readonly: true }).prepare("SELECT count(*) AS n, sum(length(vector)) AS b FROM memory_embeddings").get();
     expect(after).toEqual(before);
+  });
+});
+
+/**
+ * 2026-10-12: the regression gate below failed the steward's `npm run check`
+ * with warm recall at 184.5 ms against 120. Each query was timed once, and the
+ * "95th percentile" of five timings was the slowest of them, so one pause on a
+ * machine running the whole suite decided the number.
+ */
+describe("one slow moment does not decide a measurement", () => {
+  it("percentiles are nearest-rank: the 95th of twenty timings is the 19th, not the slowest", () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => 20 - i);
+    expect(percentile(twenty, 0.95)).toBe(19);
+    expect(percentile(twenty, 0.5)).toBe(10);
+    expect(percentile(Array.from({ length: 40 }, (_, i) => i + 1), 0.95)).toBe(38);
+    expect(percentile([5, 1, 3], 0.5)).toBe(3);
+    expect(percentile([7], 0.95)).toBe(7);
+    expect(percentile([], 0.95)).toBe(0);
+  });
+
+  it("whichever single timed call hiccups, no reported time shows it", async () => {
+    const path = await seeded(10);
+    const opts = { embedder: fake(), queries: ["sourdough", "sailing day 3"] };
+    let reads = 0;
+    await gaugeStore(path, { ...opts, clock: () => reads++ });
+    // Every timed call reads the clock twice, start and end.
+    expect(reads % 2).toBe(0);
+    const timed = reads / 2;
+    expect(timed).toBeGreaterThan(0);
+    for (let slow = 0; slow < timed; slow++) {
+      // 1 ms a call, except call `slow`, which takes a second.
+      let r = 0;
+      const clock = () => {
+        const at = r++;
+        return at + (at >= 2 * slow + 1 ? 1000 : 0);
+      };
+      const g = await gaugeStore(path, { ...opts, clock });
+      expect([g.coldRecallMs, g.warmRecallP50Ms, g.warmRecallP95Ms, g.keywordP50Ms, g.keywordP95Ms, g.statesMs], `timed call ${slow} of ${timed} took a second`).toEqual([1, 1, 1, 1, 1, 1]);
+    }
+  }, 60_000);
+
+  it("with nothing to look up, it reports no lookup times and still returns", async () => {
+    const path = join(dir, "empty.db");
+    new SqliteMemoryStore(path).close();
+    const g = await gaugeStore(path, { embedder: fake() });
+    expect(g).toMatchObject({ memories: 0, coldRecallMs: null, warmRecallP50Ms: null, warmRecallP95Ms: null, keywordP50Ms: 0, keywordP95Ms: 0 });
+    expect(g.statesMs).toBeGreaterThanOrEqual(0);
+    const none = await gaugeStore(await seeded(5), { embedder: fake(), queries: [] });
+    expect(none).toMatchObject({ coldRecallMs: null, warmRecallP95Ms: null, keywordP95Ms: 0 });
   });
 });
 

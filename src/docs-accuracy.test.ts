@@ -64,4 +64,26 @@ describe("docs — the claims a reader will check", () => {
     expect(readme).toMatch(/-shm/);
     for (const service of [/iCloud/, /Dropbox/, /OneDrive/, /Google Drive/]) expect(readme).toMatch(service);
   });
+
+  /**
+   * In the Claude apps a connector is used only when something tells it to:
+   * in the founder's test (2026-10-11) Claude wrote memory only when asked,
+   * server instructions notwithstanding. The "Make it automatic" step gives
+   * people one instruction to paste. The page's copy button and the README
+   * must carry the same text, and it may name only tools and provenance
+   * values the server really has.
+   */
+  it("the Make-it-automatic instruction is one text, naming only what the server has", async () => {
+    const text = read("docs/demo/claude.html").match(/<pre class="plain" id="auto-instruction">([^<]+)<\/pre>/)?.[1];
+    expect(text).toMatch(/^Use Al Buddy memory automatically, without being asked\./);
+    expect(read("README.md")).toContain(`\n${text}\n`);
+    const { TOOL_ANNOTATIONS } = await import("./mcp/governance-server.js");
+    for (const tool of ["recall", "remember", "invalidate"]) {
+      expect(text).toMatch(new RegExp(`\\b${tool}\\b`));
+      expect(TOOL_ANNOTATIONS).toHaveProperty(tool);
+    }
+    expect(TOOL_ANNOTATIONS).toHaveProperty("unpin");
+    expect(read("src/mcp/governance-server.ts")).toMatch(/provenance: z\.enum\(\[[^\]]*"UserInput", "AIInferred"/);
+    expect(text).toMatch(/UserInput[^.]*AIInferred/);
+  });
 });

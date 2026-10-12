@@ -27,6 +27,13 @@ earlier were GitHub releases only.
 - A `PostgresMemoryStore` given a `client` with no `transaction()` (a bare node-postgres pool)
   used to fail its first call with a TypeError; it now fails with an error that names
   `executor: poolExecutor(pool)`, which is the way to hand it a pool.
+- `gaugeStore` no longer lets one slow moment decide a number. It timed each query once, and its
+  "95th percentile" of five queries was the slowest of them, so a single pause on a busy machine
+  read as a budget breach (184.5 ms against 120 under the full test suite). Warm and keyword recall
+  percentiles are now nearest-rank over at least 40 lookups (the query set, repeated), and the
+  first-lookup and current-state times are each the median of five. A run makes more lookups and
+  takes longer; the budgets are unchanged. A new `clock` option times the lookups (tests pass a
+  fake one).
 
 ## 0.11.0 — 2026-10-08
 
