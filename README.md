@@ -595,6 +595,27 @@ is, when it was last written, and whether semantic search can run on this machin
 Needs Node.js 22 or later on the `PATH`; Node 20 works only where `better-sqlite3` can compile
 from source (it ships no Node 20 binary).
 
+### Make it automatic in the Claude apps
+
+In the Claude desktop app, and on the web or phone through a [remote connector](#as-a-remote-connector-in-claude-and-chatgpt),
+one paste makes capture always on: Claude saves every exchange that has substance without being
+asked — the question, its answer or recommendation and why, and the decision — and saying
+"remember" only makes it save at once. In the app's settings, paste this where Claude asks for your
+personal preferences (the instructions it follows in every chat):
+
+```text
+Use Al Buddy memory automatically, without being asked. At the start of each conversation, call recall for my pinned rules and anything relevant. After each exchange that has any substance, save it with remember: the date, what I asked or said, what you answered or recommended and why, and what we decided. Mark my own words as UserInput and your answers or recommendations as AIInferred. Save the substance and the reasoning, not filler or small talk. If I say remember, save it right away. Never save secrets or passwords. When something earlier stops being true, invalidate it instead of saving a contradiction.
+```
+
+Then, where the app sets Al Buddy's tool permissions (or when it first asks to use a tool), let
+`recall` and `remember` run without asking each time, and keep `invalidate`, `unpin` and any tool
+that erases asking you first.
+
+Why: in the Claude apps a connector is used only when something tells it to, and there is no hook
+that captures a conversation automatically — in our test on 11 October 2026, Claude saved to memory
+only when asked, even with the server's own instructions in place. This instruction is what makes
+it continuous. The same step with a copy button: [albuddy.com/claude.html](https://albuddy.com/claude.html#automatic).
+
 ## Roadmap
 
 - [x] The spec and the portable format, published and versioned (this repo)
