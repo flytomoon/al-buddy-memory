@@ -242,6 +242,14 @@ export interface GovernanceDeps {
    * does not, so a remote client can never write files on the host. Off by default.
    */
   exportToFiles?: boolean;
+  /**
+   * Let `pin` add to the pinned tier. A pin is a standing rule in every
+   * assistant's prompt, so only the stdio server, which runs as the user on the
+   * user's machine, turns it on; the remote (HTTP) server never does, so a
+   * remote client cannot plant one (Fable review M2). `pinned` and the pinned
+   * tier on the first recall work either way. Off by default.
+   */
+  pinning?: boolean;
   /** The project name an export carries (default "default"). */
   exportProject?: string;
   now?: () => Date;
@@ -255,6 +263,10 @@ export interface GovernanceDeps {
  */
 export const EXPORT_INLINE_MAX_BYTES = 50_000;
 export const PATH_MAX_CHARS = 1_024;
+
+/** What `pin` answers on a server without `pinning` — the remote connector. */
+export const PIN_REFUSED =
+  "pin: this server does not pin — a pinned rule goes into every assistant's prompt, so it is only added on the user's own machine. Pin it from an assistant connected to the local server (al-buddy-memory mcp), or with PinnedBlocks in code. Rules already pinned still arrive with the first recall.";
 
 /** What `export` returns when it wrote a file. */
 export interface ExportWritten {
@@ -434,6 +446,7 @@ export function governanceTools(deps: GovernanceDeps) {
       return toGovernedFact(updated);
     },
     async pin(input: { text: string; label?: string | undefined }) {
+      if (!deps.pinning) throw new Error(PIN_REFUSED);
       // Refused before anything is written. The shipped store classifies text
       // that reads like a secret as Sensitive, which hides it from this very
       // assistant: the pin would never render, and each retry would add another
@@ -565,7 +578,8 @@ export async function createGovernanceMcpServer(deps: GovernanceDeps) {
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string().max(ID_MAX_CHARS), replacedBy: z.string().max(ID_MAX_CHARS).optional(), reason: z.string().max(REASON_MAX_CHARS).optional(),
   }, TOOL_ANNOTATIONS.invalidate, async (a) => json(await tools.invalidate(a)));
-  server.tool("pin", "Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.", { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, TOOL_ANNOTATIONS.pin, async (a) => json(await tools.pin(a)));
+  const pinWhere = deps.pinning ? "" : " Refused on this connection: pins are added on the user's own machine.";
+  server.tool("pin", `Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.${pinWhere}`, { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, TOOL_ANNOTATIONS.pin, async (a) => json(await tools.pin(a)));
   server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string().max(ID_MAX_CHARS) }, TOOL_ANNOTATIONS.unpin, async (a) => json(await tools.unpin(a)));
   server.tool("pinned", "The pinned tier, as a list and as the rendered prompt block.", {}, TOOL_ANNOTATIONS.pinned, async () => json(await tools.pinned()));
   server.tool("export", `Export the user's memory in the portable format, with provenance and validity. Only when the user asks for an export or backup. Without a path it is returned inline if under ${EXPORT_INLINE_MAX_BYTES} bytes; otherwise give an absolute path ending in .json that does not exist yet (never overwrites).`, {

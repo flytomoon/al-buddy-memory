@@ -34,6 +34,14 @@ earlier were GitHub releases only.
   first-lookup and current-state times are each the median of five. A run makes more lookups and
   takes longer; the budgets are unchanged. A new `clock` option times the lookups (tests pass a
   fake one).
+- **The remote connector no longer pins.** A pin is a standing rule in every assistant's prompt,
+  so a remote app could plant one in all of them. `pin` now needs `pinning: true` in
+  `GovernanceDeps`, off by default like `exportToFiles`: the stdio server (`al-buddy-memory mcp`)
+  turns it on, and `startHttpConnector` turns it off whatever deps it is given, so over HTTP `pin`
+  answers with an error naming the local server, writes nothing, and says so in its description.
+  Rules already pinned still arrive with the first `recall`, and `pinned` and `unpin` are
+  unchanged. A host that calls `governanceTools` or `attachGovernanceServer` and wants `pin` passes
+  `pinning: true`.
 
 ## 0.11.0 — 2026-10-08
 

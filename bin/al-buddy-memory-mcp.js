@@ -63,5 +63,6 @@ const { connectStdio } = await attachGovernanceServer({
   onEmbedderFailure: (reason) => semantic.disable(`the embedder failed: ${reason}`),
   exportStore: serverExportView(inner, { owner, audit }),
   exportToFiles: true,
+  pinning: true,
 });
 await connectStdio();

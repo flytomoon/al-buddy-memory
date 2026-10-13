@@ -17,7 +17,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 /** Write facts the way the MCP server does: through the governed handle, as the assistant. */
 async function seed(db: string, texts: string[], pins: string[] = []): Promise<void> {
   const inner = new SqliteMemoryStore(db);
-  const t = governanceTools({ store: serverStore(inner, { audit: storeAudit(inner) }) });
+  const t = governanceTools({ store: serverStore(inner, { audit: storeAudit(inner) }), pinning: true });
   for (const text of texts) await t.remember({ text });
   for (const text of pins) await t.pin({ text });
   inner.close();
