@@ -484,7 +484,8 @@ an id 128. `pin` refuses text that reads like a secret, because the server would
 Sensitive and no assistant could see it. `invalidate`'s `replacedBy` must name a fact the
 caller can see. SQLite on disk, no service, no key. The tool bodies are
 a plain function over a `MemoryStore` (`governanceTools(...)`, exported from
-`al-buddy-memory/mcp`), so they run against any backend and test without a transport.
+`al-buddy-memory/mcp`), so they run against any backend and test without a transport; `pin`
+there needs `pinning: true`, which only a host on the user's own machine should pass.
 
 **Recall is hybrid** — keyword and meaning, with the query's time and counting cues read
 (`expand`), the setting the LongMemEval result was measured with. The server starts at once on
@@ -533,7 +534,10 @@ ChatGPT: *Settings → Security and login → Developer mode*, then add the same
 opens a consent page once; the passphrase allows it. Only hashes of codes and tokens are
 kept on disk. Five wrong passphrases from one app lock that app out for 15 minutes, and twenty
 from all apps within 15 minutes lock every app out; each lock is logged. Facts an app writes
-carry its name in the audit trail, as over stdio. For an organisation, the same server can be
+carry its name in the audit trail, as over stdio. Two things stay on your machine: `export` answers
+inline and never writes a file, and `pin` is refused, because a pinned rule rides every
+assistant's prompt; pin from an assistant on the local server (`al-buddy-memory mcp`), and the
+remote apps get those rules with their first `recall`. For an organisation, the same server can be
 signed in by your own identity provider instead: [docs/SIGN-IN.md](docs/SIGN-IN.md).
 
 ## Use it as a Claude Code plugin

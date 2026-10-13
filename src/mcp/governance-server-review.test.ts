@@ -28,7 +28,7 @@ describe("pin — a rule this assistant could never see is refused, not reported
    */
   it("refuses up front, writes nothing, and says why", async () => {
     const inner = new InMemoryStore();
-    const t = governanceTools({ store: serverStore(inner) });
+    const t = governanceTools({ store: serverStore(inner), pinning: true });
     const rule = "Never ask me what my pin is for the garage";
     await expect(t.pin({ text: rule })).rejects.toThrow(/secret/i);
     await expect(t.pin({ text: rule })).rejects.toThrow(/secret/i);
@@ -42,7 +42,7 @@ describe("pin — a rule this assistant could never see is refused, not reported
       policies: [{ name: "hide-pins", beforeRead: (n) => (n.contextualMetadata["pinned"] === true ? null : n) }],
       context: () => ({ actor: "owner" }),
     });
-    const t = governanceTools({ store: hidesPins });
+    const t = governanceTools({ store: hidesPins, pinning: true });
     await expect(t.pin({ text: "Always answer in English" })).rejects.toThrow(/not visible|hidden/i);
   });
 });

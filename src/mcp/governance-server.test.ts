@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryStore } from "../in-memory-store.js";
 import { PINNED_HEADER } from "../pinned.js";
 import { MemoryAudit } from "../governance/audit.js";
-import { PIN_MAX_CHARS, REMEMBER_MAX_CHARS, attachGovernanceServer, governanceTools, serverStore } from "./governance-server.js";
+import { PIN_MAX_CHARS, PIN_REFUSED, REMEMBER_MAX_CHARS, attachGovernanceServer, governanceTools, serverStore } from "./governance-server.js";
 
 const clock = (iso: string) => () => new Date(iso);
 
@@ -66,8 +66,46 @@ describe("governance MCP tools — every answer carries provenance and validity"
     await client.close();
   });
 
+  it("pin is refused unless the host turns pinning on, as on the remote connector — and writes nothing (Fable review M2)", async () => {
+    const store = new InMemoryStore();
+    await expect(governanceTools({ store }).pin({ text: "Al has no gender" })).rejects.toThrow(PIN_REFUSED);
+    await expect(governanceTools({ store, pinning: false }).pin({ text: "Al has no gender" })).rejects.toThrow(/does not pin/);
+    expect(await store.listNodes()).toHaveLength(0);
+  });
+
+  it("a rule pinned locally still renders where pinning is off", async () => {
+    const store = new InMemoryStore();
+    await governanceTools({ store, pinning: true }).pin({ text: "Al has no gender", label: "identity" });
+    const remote = governanceTools({ store });
+    expect((await remote.pinned()).rendered).toContain("[identity] Al has no gender");
+    expect(await remote.pinnedPreamble()).toContain("[identity] Al has no gender");
+  });
+
+  it("over MCP: the pin tool says when it is refused, and refuses with the reason", async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const connect = async (pinning: boolean) => {
+      const { server } = await attachGovernanceServer({ store: new InMemoryStore(), pinning });
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+      await (server as { connect: (t: unknown) => Promise<void> }).connect(serverSide);
+      const client = new Client({ name: "test", version: "1" });
+      await client.connect(clientSide);
+      return client;
+    };
+    const off = await connect(false);
+    expect((await off.listTools()).tools.find((t) => t.name === "pin")?.description).toMatch(/Refused on this connection/);
+    const refused = (await off.callTool({ name: "pin", arguments: { text: "a rule" } })) as { isError?: boolean; content: { text: string }[] };
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toContain(PIN_REFUSED);
+    await off.close();
+    const on = await connect(true);
+    expect((await on.listTools()).tools.find((t) => t.name === "pin")?.description).not.toMatch(/Refused/);
+    expect(await on.callTool({ name: "pin", arguments: { text: "a rule" } })).not.toMatchObject({ isError: true });
+    await on.close();
+  });
+
   it("pin / pinned / unpin ride the same store", async () => {
-    const t = governanceTools({ store: new InMemoryStore() });
+    const t = governanceTools({ store: new InMemoryStore(), pinning: true });
     const p = await t.pin({ text: "Al has no gender", label: "identity" });
     expect((await t.pinned()).rendered).toContain("[identity] Al has no gender");
     expect(await t.unpin({ id: p.nodeId })).toEqual({ unpinned: true });
@@ -216,7 +254,7 @@ describe("a fact has a length, and it is not ten megabytes", () => {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const inner = new InMemoryStore();
-    const { server } = await attachGovernanceServer({ store: serverStore(inner, { owner: "owner" }) });
+    const { server } = await attachGovernanceServer({ store: serverStore(inner, { owner: "owner" }), pinning: true });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await (server as { connect: (t: unknown) => Promise<void> }).connect(serverSide);
     const client = new Client({ name: "test", version: "1" });
@@ -253,7 +291,7 @@ describe("a fact has a length, and it is not ten megabytes", () => {
 describe("pins reach the client", () => {
   it("the pinned block rides the first recall of a connection, and only the first", async () => {
     const store = new InMemoryStore();
-    const t = governanceTools({ store });
+    const t = governanceTools({ store, pinning: true });
     await t.pin({ text: "Al has no gender — say Al or they.", label: "identity" });
     await t.remember({ text: "Prefers coffee black" });
 
@@ -265,7 +303,7 @@ describe("pins reach the client", () => {
 
   it("an empty tier does not spend the one delivery — a pin made later still rides the next recall", async () => {
     const store = new InMemoryStore();
-    const t = governanceTools({ store });
+    const t = governanceTools({ store, pinning: true });
     expect(await t.pinnedPreamble()).toBe("");
     await t.pin({ text: "never a yes-person", label: "tone" });
     expect(await t.pinnedPreamble()).toContain("never a yes-person");
@@ -277,7 +315,7 @@ describe("pins reach the client", () => {
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const inner = new InMemoryStore();
     const store = serverStore(inner, { owner: "owner" });
-    await governanceTools({ store }).pin({ text: "Al has no gender — say Al or they.", label: "identity" });
+    await governanceTools({ store, pinning: true }).pin({ text: "Al has no gender — say Al or they.", label: "identity" });
     await governanceTools({ store }).remember({ text: "Prefers coffee black" });
 
     const { server } = await attachGovernanceServer({ store });
@@ -328,7 +366,7 @@ describe("receipts — which assistant wrote a fact, and which retired it", () =
 
   it("unpin records which assistant unpinned it, beside who pinned it", async () => {
     const store = new InMemoryStore();
-    const pinned = await governanceTools({ store, origin: () => desktop }).pin({ text: "never a yes-person", label: "tone" });
+    const pinned = await governanceTools({ store, origin: () => desktop, pinning: true }).pin({ text: "never a yes-person", label: "tone" });
     await governanceTools({ store, origin: () => cursor }).unpin({ id: pinned.nodeId });
     const node = await store.getNode(pinned.nodeId);
     expect(node?.contextualMetadata["origin"]).toEqual(desktop);
@@ -358,7 +396,7 @@ describe("the server tells clients how to use it, and records which app wrote ea
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const inner = new InMemoryStore();
-    const { server } = await attachGovernanceServer({ store: serverStore(inner, { owner: "owner" }) });
+    const { server } = await attachGovernanceServer({ store: serverStore(inner, { owner: "owner" }), pinning: true });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await (server as { connect: (t: unknown) => Promise<void> }).connect(serverSide);
     const client = new Client({ name: "claude-ai", version: "1.2.3" });

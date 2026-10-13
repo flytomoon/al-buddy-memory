@@ -137,7 +137,8 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
       void server?.close();
     });
     try {
-      server = (await createGovernanceMcpServer(await depsFor((req as { auth?: AuthInfo }).auth))).server as unknown as typeof server;
+      // Never pinning here, whatever deps a host passes: a remote client must not plant a standing rule in every prompt (Fable review M2).
+      server = (await createGovernanceMcpServer({ ...(await depsFor((req as { auth?: AuthInfo }).auth)), pinning: false })).server as unknown as typeof server;
       await server!.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
