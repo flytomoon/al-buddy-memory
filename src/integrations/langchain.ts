@@ -48,9 +48,10 @@ type SearchItem = Item & { score?: number };
 
 const FRAMEWORK = "langgraph";
 const TAG = "langgraph";
+/** Exactly this namespace: `lg-ns:users/u1`. */
 const NS_TAG = "lg-ns:";
-/** How many candidates a store search reads before namespace/filter narrowing. */
-const SEARCH_POOL = 500;
+/** Somewhere below this namespace: an entry in users/u1/prefs carries `lg-in:users` and `lg-in:users/u1`. */
+const IN_TAG = "lg-in:";
 
 interface StoredEntry {
   namespace: string[];
@@ -59,6 +60,36 @@ interface StoredEntry {
 }
 
 const nsTag = (namespace: readonly string[]): string => `${NS_TAG}${namespace.join("/")}`;
+const inTag = (namespace: readonly string[]): string => `${IN_TAG}${namespace.join("/")}`;
+/** The tags of an entry in `namespace`: its own, and one for each namespace it sits inside. */
+const entryTags = (namespace: readonly string[]): string[] => [
+  TAG,
+  nsTag(namespace),
+  ...namespace.slice(0, -1).map((_, i) => inTag(namespace.slice(0, i + 1))),
+];
+/**
+ * Entries written by 0.11.0 or earlier carry only their own namespace's tag, so
+ * a search of a shorter prefix names their namespaces too. Past this many of
+ * them it reads every entry instead of naming each.
+ */
+const MAX_OLDER_NAMESPACES = 100;
+
+/** A nested entry with no `lg-in:` tags: written by 0.11.0 or earlier. */
+function writtenBeforePrefixTags(n: MemoryNode, e: StoredEntry): boolean {
+  const tags = n.contextualMetadata["tags"];
+  return e.namespace.length > 1 && !(Array.isArray(tags) && tags.includes(inTag(e.namespace.slice(0, 1))));
+}
+
+/** The tags that find every entry at or below `prefix` in one read (`[]` is every entry). */
+function prefixTags(prefix: readonly string[], olderNamespaces: readonly string[][]): string[] {
+  if (prefix.length === 0) return [TAG];
+  const older = olderNamespaces.filter((ns) => ns.length > prefix.length && startsWith(ns, prefix));
+  if (older.length > MAX_OLDER_NAMESPACES) return [TAG];
+  return [nsTag(prefix), inTag(prefix), ...older.map(nsTag)];
+}
+
+/** Puts in flight, per memory handle and namespace + key, so two puts of one key run one after the other. */
+const putsInFlight = new WeakMap<MemoryStore, Map<string, Promise<void>>>();
 
 function entryOf(n: MemoryNode): StoredEntry | null {
   const e = n.contextualMetadata[TAG] as Partial<StoredEntry> | undefined;
@@ -74,6 +105,7 @@ function textOf(value: Record<string, unknown>): string {
 }
 
 const startsWith = (ns: readonly string[], prefix: readonly string[]): boolean => prefix.every((p, i) => ns[i] === p);
+const sameNamespace = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && startsWith(a, b);
 
 function matches(ns: readonly string[], cond: { matchType: "prefix" | "suffix"; path: (string | "*")[] }): boolean {
   const seg = cond.matchType === "prefix" ? ns.slice(0, cond.path.length) : ns.slice(ns.length - cond.path.length);
@@ -88,6 +120,8 @@ export class AlBuddyMemoryStore extends BaseStore {
   private readonly store: MemoryStore;
   private readonly mem: MemoryToolkit;
   private readonly origin: Origin;
+  /** The namespaces of live entries written by 0.11.0 or earlier, read once, on the first prefix search. */
+  private olderNamespaces: Promise<string[][]> | undefined;
 
   constructor(opts: MemoryIntegrationOptions) {
     super();
@@ -99,7 +133,7 @@ export class AlBuddyMemoryStore extends BaseStore {
   async batch<Op extends Operation[]>(operations: Op): Promise<OperationResults<Op>> {
     const out: unknown[] = [];
     for (const op of operations) {
-      if ("key" in op && "value" in op) out.push(await this.doPut(op as PutOperation));
+      if ("key" in op && "value" in op) out.push(await this.putInTurn(op as PutOperation));
       else if ("key" in op) out.push(await this.doGet(op as GetOperation));
       else if ("namespacePrefix" in op) out.push(await this.doSearch(op as SearchOperation));
       else out.push(await this.doList(op as ListNamespacesOperation));
@@ -109,8 +143,14 @@ export class AlBuddyMemoryStore extends BaseStore {
 
   /** The live fact for a namespace + key, if any. */
   private async find(namespace: readonly string[], key: string): Promise<MemoryNode | null> {
-    const nodes = await this.store.searchNodes({ tags: [nsTag(namespace)] });
-    return nodes.find((n) => n.validTo === null && entryOf(n)?.key === key) ?? null;
+    const nodes = await this.store.searchNodes({ tags: [nsTag(namespace)], validAt: new Date().toISOString() });
+    return (
+      nodes.find((n) => {
+        const e = entryOf(n);
+        // The tag joins segments with "/", so ["a/b"] and ["a", "b"] share one: compare the namespace itself.
+        return n.validTo === null && e !== null && e.key === key && sameNamespace(e.namespace, namespace);
+      }) ?? null
+    );
   }
 
   private toItem(n: MemoryNode, e: StoredEntry): Item {
@@ -122,6 +162,29 @@ export class AlBuddyMemoryStore extends BaseStore {
     const n = await this.find(op.namespace, op.key);
     const e = n && entryOf(n);
     return n && e ? this.toItem(n, e) : null;
+  }
+
+  /**
+   * A put waits for any earlier put of the same namespace + key on this handle.
+   * Two at once both found no live fact (or the same one) and both wrote, which
+   * left two live facts for one key. In-process only: another process writing
+   * the same key is not queued.
+   */
+  private putInTurn(op: PutOperation): Promise<void> {
+    let queues = putsInFlight.get(this.store);
+    if (!queues) putsInFlight.set(this.store, (queues = new Map()));
+    const id = JSON.stringify([op.namespace, op.key]);
+    const run = (queues.get(id) ?? Promise.resolve()).then(() => this.doPut(op));
+    // The queue's tail never rejects, so one failed put does not fail the next.
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    queues.set(id, tail);
+    void tail.then(() => {
+      if (queues.get(id) === tail) queues.delete(id);
+    });
+    return run;
   }
 
   private async doPut(op: PutOperation): Promise<void> {
@@ -138,7 +201,7 @@ export class AlBuddyMemoryStore extends BaseStore {
       privacyClassification: "Private",
       retentionTier: "FullRetention",
       content: { text: textOf(value) },
-      contextualMetadata: withOrigin({ [TAG]: { namespace: [...op.namespace], key: op.key, value }, tags: [TAG, nsTag(op.namespace)] }, this.origin),
+      contextualMetadata: withOrigin({ [TAG]: { namespace: [...op.namespace], key: op.key, value }, tags: entryTags(op.namespace) }, this.origin),
       confidenceWeight: 1,
       decayRate: 0,
       validFrom: new Date().toISOString(),
@@ -149,19 +212,51 @@ export class AlBuddyMemoryStore extends BaseStore {
 
   private async doSearch(op: SearchOperation): Promise<SearchItem[]> {
     const query = op.query?.trim();
-    const nodes = await this.store.searchNodes({ ...(query ? { query } : {}), tags: [TAG], limit: SEARCH_POOL });
+    const validAt = new Date().toISOString();
+    // The namespace and the current-only rule go into the store's read, with no
+    // limit: the store ranks what is in the namespace and the page is cut from
+    // that. A fixed pool of the newest 500 entries used to be read first, so
+    // older entries in a quiet namespace, and every page past the pool, were lost.
+    const older = op.namespacePrefix.length > 0 ? await this.findOlderNamespaces() : [];
+    const nodes = await this.store.searchNodes({ ...(query ? { query } : {}), tags: prefixTags(op.namespacePrefix, older), validAt });
     const hits: SearchItem[] = [];
-    nodes.forEach((n, rank) => {
+    for (const n of nodes) {
       const e = entryOf(n);
-      if (n.validTo !== null || !e || !startsWith(e.namespace, op.namespacePrefix) || !filterHolds(e.value, op.filter)) return;
-      hits.push({ ...this.toItem(n, e), ...(query ? { score: 1 / (1 + rank) } : {}) });
-    });
+      // Tags join segments with "/", so ["a/b"] answers for ["a", "b"]: the namespace itself decides.
+      if (n.validTo !== null || !e || !startsWith(e.namespace, op.namespacePrefix) || !filterHolds(e.value, op.filter)) continue;
+      hits.push({ ...this.toItem(n, e), ...(query ? { score: 1 / (1 + hits.length) } : {}) });
+    }
     const offset = op.offset ?? 0;
     return hits.slice(offset, offset + (op.limit ?? 10));
   }
 
+  /**
+   * One read of every live entry, on the first prefix search of this adapter;
+   * a failed read is tried again by the next search. Nothing writes entries
+   * without prefix tags any more, so the list only goes stale by shrinking (an
+   * older entry replaced or deleted), and naming a namespace with nothing left
+   * in it costs nothing.
+   */
+  private findOlderNamespaces(): Promise<string[][]> {
+    if (!this.olderNamespaces) {
+      const reading = this.store.searchNodes({ tags: [TAG], validAt: new Date().toISOString() }).then((nodes) => {
+        const seen = new Map<string, string[]>();
+        for (const n of nodes) {
+          const e = entryOf(n);
+          if (n.validTo === null && e && writtenBeforePrefixTags(n, e)) seen.set(JSON.stringify(e.namespace), e.namespace);
+        }
+        return [...seen.values()];
+      });
+      this.olderNamespaces = reading;
+      reading.catch(() => {
+        if (this.olderNamespaces === reading) this.olderNamespaces = undefined;
+      });
+    }
+    return this.olderNamespaces;
+  }
+
   private async doList(op: ListNamespacesOperation): Promise<string[][]> {
-    const nodes = await this.store.searchNodes({ tags: [TAG] });
+    const nodes = await this.store.searchNodes({ tags: [TAG], validAt: new Date().toISOString() });
     const seen = new Map<string, string[]>();
     for (const n of nodes) {
       const e = entryOf(n);
