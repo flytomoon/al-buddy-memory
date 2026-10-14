@@ -59,6 +59,16 @@ earlier were GitHub releases only.
   their context, so the shipped servers' trails name the app over stdio and HTTP alike. A store
   built with `govern()` by a host adds `origin: actingOrigin()` to its context to do the same
   (docs/SIGN-IN.md shows it).
+- **The library's default paths moved under `~/.al-buddy-memory/`.** `DEFAULT_DB_PATH` (what
+  `new SqliteMemoryStore()` opens with no path) was `~/.al-buddy/memory.db` and is now
+  `~/.al-buddy-memory/brain.db`, the file the MCP servers and the command line use, so a library
+  caller and the plugin share one memory unless told otherwise. `DEFAULT_MEMORY_DIR` (where
+  `ProjectMemory` keeps its files with no `baseDir`) was `~/.al-buddy/memory` and is now
+  `~/.al-buddy-memory/projects`. Neither old path was documented, and removing
+  `~/.al-buddy-memory` (as docs/PRIVACY.md says to) did not erase them. Nothing is moved: a caller
+  that relied on an old default and wants to keep that memory passes the old path explicitly
+  (`new SqliteMemoryStore(join(homedir(), ".al-buddy", "memory.db"))`,
+  `new ProjectMemory(name, { baseDir: join(homedir(), ".al-buddy", "memory") })`).
 
 ## 0.11.0 — 2026-10-08
 

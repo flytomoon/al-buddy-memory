@@ -39,7 +39,12 @@ import type {
 // Defaults
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_DB_PATH = join(homedir(), ".al-buddy", "memory.db");
+/**
+ * The MCP servers' and the command line's database (when `AL_BUDDY_MEMORY_DB` is
+ * unset), so a library caller that leaves out `dbPath` and the plugin share one
+ * memory. Pass a path to keep them apart.
+ */
+export const DEFAULT_DB_PATH = join(homedir(), ".al-buddy-memory", "brain.db");
 
 // ---------------------------------------------------------------------------
 // Internal row shape returned by better-sqlite3
@@ -478,14 +483,6 @@ export function readRecordedScope(dbPath: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Durable SQLite-backed MemoryStore.
- *
- * Persists to `~/.al-buddy/memory.db` by default. Pass a custom `dbPath`
- * in tests (or `:memory:`) to isolate test runs.
- *
- * Uses SQLite FTS5 for full-text search on node content.
- */
-/**
  * The no-query order, in SQL and in the JS re-rank below — they must be the
  * same sort or a limited read is not the first page of an unlimited one.
  *
@@ -506,6 +503,15 @@ const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
 const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 
+/**
+ * Durable SQLite-backed MemoryStore.
+ *
+ * Persists to `DEFAULT_DB_PATH` (`~/.al-buddy-memory/brain.db`, the plugin's
+ * memory) by default. Pass a custom `dbPath` in tests (or `:memory:`) to
+ * isolate test runs.
+ *
+ * Uses SQLite FTS5 for full-text search on node content.
+ */
 export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCapable, AuditVerifiable, HistoryCapable {
   private readonly db: Database.Database;
   /** The `audit_events` chain on this connection. Built after migration, so the table exists. */

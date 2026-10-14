@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
-import { SqliteMemoryStore, SCHEMA_VERSION } from "./sqlite-memory-store.js";
+import { DEFAULT_DB_PATH, SqliteMemoryStore, SCHEMA_VERSION } from "./sqlite-memory-store.js";
 import { makeNode, runMemoryStoreConformance } from "./memory-store-conformance.spec.js";
 import { runDerivedConformance } from "./derived-conformance.spec.js";
 import { runMentalModelConformance } from "./mental-models-conformance.spec.js";
@@ -240,4 +240,13 @@ describe("SqliteMemoryStore — paging over creation times written before 0.4.0"
       }
     });
   }
+});
+
+// M6 (Fable review, 2026-10-13): the default was a memory.db in a home folder
+// nothing else used, so a library caller with no dbPath and the plugin kept two
+// memories. The servers keep theirs at ~/.al-buddy-memory/brain.db.
+describe("SqliteMemoryStore — default database", () => {
+  it("is the servers' file under ~/.al-buddy-memory", () => {
+    expect(DEFAULT_DB_PATH).toBe(join(homedir(), ".al-buddy-memory", "brain.db"));
+  });
 });
