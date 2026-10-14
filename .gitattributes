@@ -1,0 +1,2 @@
+# Parallel branches each add lines under "## Unreleased": keep both sides instead of a merge conflict.
+CHANGELOG.md merge=union
