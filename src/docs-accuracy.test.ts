@@ -132,4 +132,41 @@ describe("docs — the claims a reader will check", () => {
     expect(security).toMatch(/one runtime dependency \(better-sqlite3\)/);
     expect(security).toMatch(/Postgres \(`pg`\), the MCP SDK\s+and the on-device model are optional/);
   });
+
+  /**
+   * The README said remote apps get the pinned rules "with their first
+   * `recall`", while every HTTP request built its own tool layer, so every
+   * recall was the first and carried the whole tier (Fable review, 2026-10-13,
+   * M4). It now says first after signing in, and again after the rules change.
+   * This holds that to the ledger the connector shares between requests, and to
+   * the connector forgetting an app's delivery when it signs in. Over real HTTP
+   * it is `http-server.test.ts`.
+   */
+  it("the README's remote apps get the pins on their first recall after signing in, and after the rules change", async () => {
+    expect(read("README.md")).toMatch(/remote apps get those rules with their first `recall` after signing in, and again with the next\s+one after the rules change/);
+
+    const { InMemoryStore } = await import("./in-memory-store.js");
+    const { governanceTools, PinDeliveries } = await import("./mcp/governance-server.js");
+    const store = new InMemoryStore();
+    const local = governanceTools({ store, pinning: true });
+    await local.pin({ text: "never a yes-person" });
+    // As the connector serves it: one ledger, the app the request came through, pinning off.
+    const deliveries = new PinDeliveries();
+    let app = "claude";
+    const remote = governanceTools({ store, pinning: false, pinDeliveries: deliveries, connection: () => app });
+    expect(await remote.pinnedPreamble()).toContain("never a yes-person"); // first recall
+    expect(await remote.pinnedPreamble()).toBe("");
+    app = "chatgpt";
+    expect(await remote.pinnedPreamble()).toContain("never a yes-person"); // another app's first
+    app = "claude";
+    await local.pin({ text: "dates as YYYY-MM-DD" });
+    expect(await remote.pinnedPreamble()).toContain("YYYY-MM-DD"); // the next after the rules change
+    expect(await remote.pinnedPreamble()).toBe("");
+    deliveries.forget("claude"); // what the connector does when the app signs in again
+    expect(await remote.pinnedPreamble()).toContain("never a yes-person");
+
+    const connector = read("src/mcp/http-server.ts");
+    expect(connector).toMatch(/onSignIn: \(clientId\) => \{ deliveries\.forget\(clientId\); \}/);
+    expect(connector).toMatch(/connection: auth\?\.clientId/);
+  });
 });
