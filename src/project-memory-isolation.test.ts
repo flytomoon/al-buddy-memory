@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ProjectMemory, canonicalProjectDbPath, legacyProjectDbPath, projectDbPath } from "./project-memory.js";
+import { DEFAULT_MEMORY_DIR, ProjectMemory, canonicalProjectDbPath, legacyProjectDbPath, projectDbPath } from "./project-memory.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 
 /**
@@ -178,5 +179,28 @@ describe("project scopes are not filename collisions", () => {
     expect(projectDbPath("org/repo", baseDir)).toBe(claimed);
     expect(projectDbPath("org-repo", baseDir)).toBe(canonicalProjectDbPath("org-repo", baseDir));
     expect(existsSync(claimed)).toBe(true);
+  });
+});
+
+// M6 (Fable review, 2026-10-13): the defaults lived in a home folder without the
+// -memory suffix, which the docs never mention and "remove ~/.al-buddy-memory"
+// did not erase.
+describe("default paths", () => {
+  const src = dirname(fileURLToPath(import.meta.url));
+  const filesUnder = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const p = join(dir, name);
+      return statSync(p).isDirectory() ? filesUnder(p) : [p];
+    });
+
+  it("keeps per-project databases under ~/.al-buddy-memory", () => {
+    expect(DEFAULT_MEMORY_DIR).toBe(join(homedir(), ".al-buddy-memory", "projects"));
+  });
+
+  it("leaves no path to the old folder in src/", () => {
+    // Built in pieces so this file does not match itself.
+    const old = new RegExp(["\\.al-", "buddy(?![\\w-])"].join(""));
+    const hits = filesUnder(src).filter((f) => old.test(readFileSync(f, "utf8"))).map((f) => relative(src, f));
+    expect(hits).toEqual([]);
   });
 });

@@ -26,13 +26,13 @@ import { exportMemoryMarkdown } from "./memory-export.js";
 import { exportPortable, importPortable, type ImportSummary, type PortableExport } from "./memory-portability.js";
 import { isMentalModelNode } from "./mental-models.js";
 import { PinnedBlocks, PINNED_TAG } from "./pinned.js";
-import { SqliteMemoryStore } from "./sqlite-memory-store.js";
+import { DEFAULT_DB_PATH, SqliteMemoryStore } from "./sqlite-memory-store.js";
 import type { MemoryNode } from "./types/memory.js";
 
 /** Where the MCP server keeps memory, unless AL_BUDDY_MEMORY_DB says otherwise. */
 export function memoryDbPath(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env["AL_BUDDY_MEMORY_DB"]?.trim();
-  return expandHome(configured ? configured : join(homedir(), ".al-buddy-memory", "brain.db"));
+  return expandHome(configured ? configured : DEFAULT_DB_PATH);
 }
 
 export type ExportFormat = "portable" | "markdown";

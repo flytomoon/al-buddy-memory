@@ -11,6 +11,9 @@ Buddy plugin for Claude Code. It was last reviewed on 2026-10-03.
 - Everything you or an assistant remembers is kept in one SQLite file on your machine:
   `~/.al-buddy-memory/brain.db`, or the path in `AL_BUDDY_MEMORY_DB`.
 - The audit trail (who read or wrote what, and when) is inside that same file.
+- A program that uses the package's `ProjectMemory` (one memory per project) keeps those files in
+  `~/.al-buddy-memory/projects`, unless it names another folder. The plugin and the servers do not
+  create them.
 - The on-device search model is kept in `~/.al-buddy-memory/models`.
 - An export is written only where you tell it to, readable by you only (file mode 0600).
 
