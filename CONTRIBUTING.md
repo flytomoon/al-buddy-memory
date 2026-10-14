@@ -16,7 +16,9 @@ Thank you. Three kinds of contribution are most useful right now, in this order:
 - Facts are invalidated, not overwritten; raw content and provenance are immutable; erasure
   only happens through governance. A PR that weakens any of that will be declined with thanks.
 - A claim in the docs needs a test or a line in docs/policies/ENFORCEMENT.md saying it is not
-  enforced. Two 0.3.5 comments asserted properties nothing checked; both were wrong.
+  enforced. Two 0.3.5 comments asserted properties nothing checked; both were wrong. A change
+  to README.md, SECURITY.md, docs/SIGN-IN.md or the consent page brings its assertion in
+  `src/docs-accuracy.test.ts`; `src/docs-claims-guard.test.ts` fails the branch otherwise.
 - Write against shapes and specs, not other vendors. Comparisons live in the README table only.
 - Apache-2.0, and by contributing you license your work the same way.
 
