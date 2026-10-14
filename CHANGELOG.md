@@ -24,6 +24,14 @@ earlier were GitHub releases only.
 
 ### Behaviour change
 
+- **`openAgentMemory` audits by default and can be closed.** It returned a bare governed store
+  with no audit sink, so a framework's writes left the file's `audit_events` table empty, and
+  there was no way to close the SQLite file it opened. It now returns `{ store, close }`: `store`
+  is the governed handle, with every write audited into the same file (`storeAudit`, the MCP
+  server's default), so `al-buddy-memory verify-audit ./brain.db` checks an agent's writes too;
+  `close()` closes the file. A new `audit` option takes `"store"` (the default), `"none"`, or an
+  `AuditSink`. Callers change `openAgentMemory(path)` to `openAgentMemory(path).store` (or
+  destructure `{ store }`) in `al-buddy-memory/ai-sdk`, `/langchain` and `/mastra`.
 - A `PostgresMemoryStore` given a `client` with no `transaction()` (a bare node-postgres pool)
   used to fail its first call with a TypeError; it now fails with an error that names
   `executor: poolExecutor(pool)`, which is the way to hand it a pool.

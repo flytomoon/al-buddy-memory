@@ -10,7 +10,8 @@ agent that wrote them, never silently overwritten. Tested against `@mastra/core`
 import { Agent } from "@mastra/core/agent";
 import { alBuddyMemoryProcessor, alBuddyMemoryTools, openAgentMemory } from "al-buddy-memory/mastra";
 
-const memory = { store: openAgentMemory("./brain.db"), agent: "helper" };
+const { store } = openAgentMemory("./brain.db");        // governed and audited
+const memory = { store, agent: "helper" };
 export const helper = new Agent({
   id: "helper",
   name: "helper",
@@ -40,5 +41,13 @@ second extension point, so:
 
 ## Use a governed handle
 
-`openAgentMemory(path)` applies the personal-default policies. A raw
-`SqliteMemoryStore` works but skips them — don't hand one to an agent.
+`openAgentMemory(path)` returns `{ store, close }`. `store` applies the
+personal-default policies, and every write is audited into the `audit_events`
+table of the same file, in the same transaction as the fact. Check the trail with
+`al-buddy-memory verify-audit ./brain.db` (it prints `intact: N events, head …`).
+`close()` closes the file once your last call has finished — on shutdown, for a
+long-lived agent. `{ audit: "none" }` keeps no trail; `{ audit: sink }` sends
+events to an `AuditSink` of your own.
+
+A raw `SqliteMemoryStore` works but skips the policies and keeps no trail — don't
+hand one to an agent.

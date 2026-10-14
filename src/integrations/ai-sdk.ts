@@ -25,7 +25,7 @@ import {
   type MemoryIntegrationOptions,
 } from "./shared.js";
 
-export { openAgentMemory, type MemoryIntegrationOptions } from "./shared.js";
+export { openAgentMemory, type AgentMemory, type AgentMemoryOptions, type MemoryIntegrationOptions } from "./shared.js";
 
 const FRAMEWORK = "ai-sdk";
 

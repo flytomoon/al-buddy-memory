@@ -6,13 +6,15 @@
  *
  * Each integration is a thin shape over `governanceTools`, so a write from a
  * framework is the same governed, audited, provenance-stamped write the MCP
- * server makes. Pass a GOVERNED handle — `openAgentMemory(path)` returns one
- * with the personal-default policies — or your own `govern(...)`; a raw store
- * works but bypasses your policies, and the docs say so.
+ * server makes. Pass a GOVERNED handle — `openAgentMemory(path).store` is one,
+ * with the personal-default policies and the file's own audit table — or your
+ * own `govern(...)`; a raw store works but bypasses your policies, and the docs
+ * say so.
  */
 import { z } from "zod";
 
 import type { Embedder } from "../embedder.js";
+import { storeAudit, type AuditSink } from "../governance/audit.js";
 import { governanceTools, serverStore, type GovernedFact } from "../mcp/governance-server.js";
 import type { Origin } from "../provenance.js";
 import { SqliteMemoryStore } from "../sqlite-memory-store.js";
@@ -32,9 +34,56 @@ export interface MemoryIntegrationOptions {
   contextLimit?: number;
 }
 
-/** A governed store on a local SQLite file, with the personal-default policies (secrets become Sensitive and stay out of recall). */
-export function openAgentMemory(path: string, opts: { owner?: string } = {}): MemoryStore {
-  return serverStore(new SqliteMemoryStore(path), opts);
+/** What `openAgentMemory` returns: the governed handle to hand an integration, and the way to let go of the file. */
+export interface AgentMemory {
+  /** The governed store. Pass this as an integration's `store`. */
+  store: MemoryStore;
+  /** Closes the SQLite file. Call it after the last call through `store` has settled; calling it again does nothing. */
+  close(): void;
+}
+
+export interface AgentMemoryOptions {
+  /** Whose memory this is: the actor every call is made as (default "owner"). */
+  owner?: string;
+  /**
+   * Where audit events go. "store" (the default) writes them into the
+   * `audit_events` table of the same file, each write in the same transaction
+   * as its fact — what `al-buddy-memory verify-audit <file>` checks. "none"
+   * keeps no trail; or pass your own sink.
+   */
+  audit?: "store" | "none" | AuditSink;
+}
+
+/**
+ * A governed store on a local SQLite file, with the personal-default policies
+ * (secrets become Sensitive and stay out of recall) and, unless you say
+ * otherwise, every call audited into the file's own `audit_events` table.
+ */
+export function openAgentMemory(path: string, opts: AgentMemoryOptions = {}): AgentMemory {
+  const audit = opts.audit ?? "store";
+  if (audit !== "store" && audit !== "none" && typeof (audit as Partial<AuditSink> | null)?.record !== "function") {
+    throw new TypeError(`openAgentMemory: audit must be "store", "none" or an AuditSink`);
+  }
+  const inner = new SqliteMemoryStore(path);
+  let store: MemoryStore;
+  try {
+    store = serverStore(inner, {
+      ...(opts.owner !== undefined && { owner: opts.owner }),
+      ...(audit !== "none" && { audit: audit === "store" ? storeAudit(inner) : audit }),
+    });
+  } catch (err) {
+    inner.close();
+    throw err;
+  }
+  let closed = false;
+  return {
+    store,
+    close() {
+      if (closed) return;
+      closed = true;
+      inner.close();
+    },
+  };
 }
 
 /** The same limits the MCP surface enforces (governance-server.ts). */
