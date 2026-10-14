@@ -206,8 +206,11 @@ edition adds:
 - multi-process safety for serverless deployments
 - data-API query executors
 - database row-level security
-- read audit
 - an enterprise readiness suite
+
+The seams these plug into are public, and so is read audit: `PostgresMemoryStore` with
+`accessAudit: { sink, reads: true }` hears every read and write of a tenant, inside the call's own
+transaction. [docs/EXTENSION-POINTS.md](docs/EXTENSION-POINTS.md)
 
 To ask about it, contact the repository owner, [@flytomoon](https://github.com/flytomoon).
 
@@ -268,10 +271,8 @@ the width and number type of the default on-device model), on the same laptop, s
 | Semantic recall, top 10 — first of a session | 488 ms (765 ms) | 1,619 ms (3,200 ms) |
 | Semantic recall, top 10 — thereafter | 22 ms median (36 ms) | 113 ms median (187 ms) |
 
-On a real personal store (7,357 memories, 2026-09-26): 42 MB and a 50 ms first lookup since
-0.8.3 (57 MB and 117 ms on 0.8.1, when the keyword index still kept its own copy of the text
-and every vector was copied into an array before the scan); repeated lookups 33 ms median. `gaugeStore` measures
-any store file this way and `checkBudgets` says which numbers are over budget.
+`gaugeStore` measures any store file this way and `checkBudgets` says which numbers are over
+budget.
 
 The history of this section is worth keeping: on 2026-09-19 it measured the JSON cost,
 named float32 storage as the fix, and filed it here as a weak spot. It was built six days
@@ -630,7 +631,7 @@ it continuous. The same step with a copy button: [albuddy.com/claude.html](https
 - [x] A comparison table and a live paste-your-export demo (albuddy.com)
 - [x] Transaction time, the second half of bi-temporal: "what did we believe at X", including a fact held wrongly and later corrected (v0.5.0)
 - [x] A Postgres backend behind the same `MemoryStore` interface, for multi-tenant and hosted deployments (SQLite stays the local-first default; the backend runs the shared conformance suite)
-- [ ] Framework integrations (LangChain, CrewAI, Vercel AI SDK)
+- [x] Framework integrations: Vercel AI SDK, LangChain/LangGraph, Mastra (v0.7.0)
 
 ## Development
 

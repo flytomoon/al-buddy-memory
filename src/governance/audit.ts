@@ -315,7 +315,7 @@ export async function verifyAuditLogs(path: string, opts: { key?: string; head?:
       // `head` anchors ONE chain — the table's. The files are checked on their own terms.
       const { head: _pinned, ...withoutHead } = opts;
       // Both shapes a log beside a database has ever had: 0.4.2's directory of
-      // one file per process, and 0.4.1's single file. A store the founder has
+      // one file per process, and 0.4.1's single file. A store that has
       // been running since before 0.4.2 has the second, and a verifier that
       // silently ignored it would be the "delete a log and the rest verify
       // clean" problem in a new costume.

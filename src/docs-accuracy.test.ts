@@ -86,4 +86,28 @@ describe("docs — the claims a reader will check", () => {
     expect(read("src/mcp/governance-server.ts")).toMatch(/provenance: z\.enum\(\[[^\]]*"UserInput", "AIInferred"/);
     expect(text).toMatch(/UserInput[^.]*AIInferred/);
   });
+
+  /**
+   * The README listed "read audit" as enterprise-only while the public Postgres
+   * store ships `accessAudit: { sink, reads: true }` (Fable review, 2026-10-13).
+   * Each public seam is named by what EXTENSION-POINTS.md documents, so it
+   * cannot be claimed here without first leaving that page.
+   */
+  it("the README's enterprise-only list holds nothing EXTENSION-POINTS.md says is public", () => {
+    const section = read("README.md").match(/\n## Enterprise edition\n([\s\S]*?)\n## /)?.[1] ?? "";
+    const enterpriseOnly = [...section.matchAll(/^- (.+)$/gm)].map((m) => m[1]!);
+    expect(enterpriseOnly.length).toBeGreaterThan(0);
+
+    const points = read("docs/EXTENSION-POINTS.md");
+    const publicSeams = [
+      { documented: /accessAudit: \{ sink, reads: true \}/, claimedAs: /\bread audit|access audit|audit sink|StoreAuditSink|accessAudit/i },
+      { documented: /## `QueryExecutor`/, claimedAs: /\bQueryExecutor\b|executor interface/i },
+      { documented: /## `LockProvider`/, claimedAs: /\bLockProvider\b|lock provider/i },
+      { documented: /## `readBoundary`/, claimedAs: /\breadBoundary\b|read boundar/i },
+    ];
+    for (const { documented, claimedAs } of publicSeams) {
+      expect(points).toMatch(documented);
+      for (const item of enterpriseOnly) expect(item).not.toMatch(claimedAs);
+    }
+  });
 });

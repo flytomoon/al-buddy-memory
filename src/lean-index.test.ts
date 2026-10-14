@@ -2,10 +2,10 @@
  * 0.8.3 (founder, 2026-09-26: "optimization is fine, but loss is not fine").
  *
  * 1. Recall reads float32 vectors as views instead of converting them to
- *    arrays: measured on a real 7,354-vector store, the conversion was 65 ms of
- *    a ~117 ms first lookup, and a view costs 4 ms.
+ *    arrays: the conversion was most of a first lookup, and a view costs
+ *    almost nothing.
  * 2. The keyword index stops keeping its own copy of every memory's text
- *    (contentless FTS5): 57 MB -> 43 MB on the same store.
+ *    (contentless FTS5), which made the file smaller.
  * Both must return exactly what they returned before.
  */
 import { copyFileSync, mkdtempSync, rmSync, statSync } from "node:fs";

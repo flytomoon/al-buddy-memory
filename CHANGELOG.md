@@ -292,11 +292,11 @@ command line, and the package installs as a Claude Code plugin.
 
 - **Recall reads vectors as views.** Stores that keep float32 vectors (SQLite since 0.8.1) now hand
   the scan a read-only numeric view instead of building an array per vector (optional
-  `listEmbeddingVectors`, governed like `listEmbeddings`). On a copy of a real 7,357-memory store
-  the first lookup went from 103 ms to 50 ms, with identical results.
+  `listEmbeddingVectors`, governed like `listEmbeddings`). The first lookup is faster, with
+  identical results (`src/lean-index.test.ts`).
 - **The keyword index keeps no copy of the text** (schema v10, contentless FTS5 with deletes).
   SQLite stored every memory's text a second time inside the index; search only ever reads the
-  rowid and the rank. Same store: 64 MB → 42 MB after `compact()`. A redundant embeddings index
+  rowid and the rank. `compact()` returns the space to the disk. A redundant embeddings index
   is dropped with it.
 - Proven with `compareStores` on that copy before release: every memory, edge and history row
   identical, and 36 of 36 lookups (meaning and keyword) returned the same top 10.
@@ -324,9 +324,10 @@ command line, and the package installs as a Claude Code plugin.
 
 ### Changed
 
-- **Vectors are stored as float32 bytes**, not JSON text. Measured on a real 6,819-vector store:
-  the embeddings column shrinks from 55 MB to 10.5 MB, and loading it for a recall no longer parses
-  text — 3 ms instead of 190–270 ms. A vector that 32 bits cannot hold exactly stays JSON, so no
+- **Vectors are stored as float32 bytes**, not JSON text. Measured with `bench/bench-vectors.mjs`
+  at 100,000 synthetic facts: a vector takes 1,536 bytes on disk instead of ~8,000, the file 277 MB
+  instead of 864 MB, and loading the vectors for a recall no longer parses text — the first recall
+  of a session takes 1.6 s instead of 3.2 s. A vector that 32 bits cannot hold exactly stays JSON, so no
   recall result changes. Existing stores are converted on open (schema v9); `compact()` returns the
   freed space to the disk when nothing else has the file open.
 
