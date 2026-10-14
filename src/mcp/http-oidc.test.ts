@@ -175,4 +175,24 @@ describe("remote connector signed in by the company's identity provider", () => 
     for (const path of ["/register", "/token", "/consent"]) expect((await fetch(`${base}${path}`, { method: "POST" })).status).toBe(404);
     expect((await fetch(`${base}/authorize`)).status).toBe(404);
   });
+
+  // Tools are built per request here, so the pinned tier rode every recall (Fable review M4): once per person now.
+  it("carries the pinned tier on each person's first recall, not on every one", async () => {
+    await (await tenantStore("acme")).restoreNode({
+      ...fact("n-pin", "Write dates as YYYY-MM-DD.", { visibility: "company", pinned: true, pinnedLabel: "format", pinnedAt: AT, tags: ["pinned"] }),
+      memoryType: "Lesson",
+    });
+    const blocks = async (bearer: string) => {
+      const r = await rpc(bearer, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "recall", arguments: { query: "dates" } } });
+      const text = await r.text();
+      const data = text.includes("data:") ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5)).at(-1)! : text;
+      const content = (JSON.parse(data) as { result: { content: { text: string }[] } }).result.content;
+      expect(content.length === 1 || content[0]!.text.includes("[format] Write dates as YYYY-MM-DD.")).toBe(true);
+      return content.length;
+    };
+    expect([await blocks(await alice()), await blocks(await alice()), await blocks(await alice())]).toEqual([2, 1, 1]);
+    expect(await blocks(await rob())).toBe(2);
+    // The same person in another tenant is someone else, with a tier of their own (empty there).
+    expect(await blocks(await token({ sub: "alice", tid: "globex-corp" }))).toBe(1);
+  });
 });
