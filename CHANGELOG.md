@@ -105,6 +105,20 @@ earlier were GitHub releases only.
   first call with an error that says `npm install pg`, where it used to fail at import. Its pool is
   made on that first call rather than in the constructor, and a call after `close()` fails with
   "this store is closed" rather than node-postgres's own error.
+- **Over HTTP, the pinned rules arrive once per app, not with every recall, and recall keeps its
+  vectors between requests.** Every POST built its own tool layer, so the "first recall" was every
+  recall (the whole pinned tier, each time) and the retriever's vector cache never outlived one
+  request (every recall read every stored vector). The owner's server now builds one tool layer at
+  start and serves it from each request's MCP server, learning the request's app from the request
+  itself; each signed-in app gets the pins with its first recall after signing in (a token refresh
+  is not a new sign-in), and again with its next recall after the tier changes. A server signed in
+  by an identity provider still asks `deps` on every request, but delivers the pins once per person
+  per tenant, and shares one retriever per store handle, so a `deps` that hands each person the
+  same handle keeps its vectors cached. Everywhere, stdio included, a pinned tier that changes now
+  rides the next recall again; it used to arrive once per connection and never again. New:
+  `PinDeliveries`, `GovernanceDeps.connection` and `.pinDeliveries`, `createGovernanceMcpServer(deps,
+  { tools })` and the `GovernanceTools` type. Retrievers are now shared by every tool layer over the
+  same store and embedder.
 
 ## 0.11.0 — 2026-10-08
 

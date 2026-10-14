@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryStore } from "../in-memory-store.js";
 import { PINNED_HEADER } from "../pinned.js";
 import { MemoryAudit } from "../governance/audit.js";
-import { PIN_MAX_CHARS, PIN_REFUSED, REMEMBER_MAX_CHARS, attachGovernanceServer, governanceTools, serverStore } from "./governance-server.js";
+import { PIN_MAX_CHARS, PIN_REFUSED, PinDeliveries, REMEMBER_MAX_CHARS, attachGovernanceServer, governanceTools, serverStore } from "./governance-server.js";
 
 const clock = (iso: string) => () => new Date(iso);
 
@@ -325,6 +325,42 @@ describe("pins reach the client", () => {
     await t.pin({ text: "never a yes-person", label: "tone" });
     expect(await t.pinnedPreamble()).toContain("never a yes-person");
     expect(await t.pinnedPreamble()).toBe("");
+  });
+
+  it("a changed tier rides the next recall again, once; two recalls at once carry it once", async () => {
+    const store = new InMemoryStore();
+    const t = governanceTools({ store, pinning: true });
+    await t.pin({ text: "never a yes-person", label: "tone" });
+    expect(await t.pinnedPreamble()).toContain("never a yes-person");
+    const added = await t.pin({ text: "dates as YYYY-MM-DD", label: "format" });
+    const both = await t.pinnedPreamble();
+    expect(both).toContain("never a yes-person");
+    expect(both).toContain("dates as YYYY-MM-DD");
+    expect(await t.pinnedPreamble()).toBe("");
+    await t.unpin({ id: added.nodeId });
+    const [x, y] = await Promise.all([t.pinnedPreamble(), t.pinnedPreamble()]);
+    expect([x, y].filter((p) => p !== "")).toHaveLength(1);
+    expect(x + y).not.toContain("YYYY");
+  });
+
+  it("each connection gets the tier once, from one ledger shared by every tool layer; the oldest is forgotten past the bound", async () => {
+    const store = new InMemoryStore();
+    await governanceTools({ store, pinning: true }).pin({ text: "never a yes-person" });
+    const deliveries = new PinDeliveries(2);
+    let who = "a";
+    const layer = () => governanceTools({ store, pinDeliveries: deliveries, connection: () => who });
+    expect(await layer().pinnedPreamble()).not.toBe("");
+    expect(await layer().pinnedPreamble()).toBe(""); // a new tool layer, the same connection
+    who = "b";
+    expect(await layer().pinnedPreamble()).not.toBe("");
+    deliveries.forget("b"); // signed in again
+    expect(await layer().pinnedPreamble()).not.toBe("");
+    who = "c"; // a third connection pushes out the least recently seen, "a"
+    expect(await layer().pinnedPreamble()).not.toBe("");
+    who = "a";
+    expect(await layer().pinnedPreamble()).not.toBe("");
+    who = "c";
+    expect(await layer().pinnedPreamble()).toBe("");
   });
 
   it("over the wire: the first recall returns the pins beside the facts, the second only the facts", async () => {

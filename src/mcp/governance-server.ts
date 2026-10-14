@@ -273,6 +273,62 @@ export interface GovernanceDeps {
   exportProject?: string;
   now?: () => Date;
   encryptionKeyRef?: string;
+  /**
+   * Which connection the call now running belongs to, for the pinned tier: it
+   * rides a connection's first recall, and the next one after the tier changes.
+   * Without it every call is one connection (stdio: one per process). Over HTTP
+   * every POST is a fresh MCP server, so the connector names the signed-in app.
+   */
+  connection?: () => string | undefined;
+  /** What each connection has been shown of the pinned tier; give one to share it between tool layers. */
+  pinDeliveries?: PinDeliveries;
+}
+
+/**
+ * What each connection was last shown of the pinned tier, so `recall` carries
+ * the pins once and again only when they change. Bounded: past `max`
+ * connections the least recently seen is forgotten, and it gets the pins again.
+ */
+export class PinDeliveries {
+  private readonly shown = new Map<string, string>();
+
+  constructor(private readonly max = 1_000) {}
+
+  /**
+   * The block to send `connection` now: `block` when it has not been shown
+   * this exact tier, "" when it has. An empty tier is never recorded as shown
+   * (and clears what was), so a pin made later still rides the next recall.
+   */
+  take(connection: string, block: string): string {
+    const seen = this.shown.get(connection);
+    this.shown.delete(connection);
+    if (block === "") return "";
+    this.shown.set(connection, block);
+    if (this.shown.size > this.max) this.shown.delete(this.shown.keys().next().value!);
+    return seen === block ? "" : block;
+  }
+
+  /** The connection signed in again: its next recall carries the pins. */
+  forget(connection: string): void {
+    this.shown.delete(connection);
+  }
+}
+
+/**
+ * One retriever per store and embedder, shared by every tool layer over them:
+ * it holds the vector matrix between recalls, and the HTTP connector builds a
+ * tool layer per request where a host hands it a store per person (Fable
+ * review M4). The retriever reads each fact back through the store, so a
+ * governed handle still decides what a caller sees.
+ */
+const RETRIEVERS = new WeakMap<MemoryStore, WeakMap<Embedder, HybridRetriever>>();
+
+function sharedRetriever(store: MemoryStore, embedder: Embedder): HybridRetriever {
+  let byEmbedder = RETRIEVERS.get(store);
+  if (!byEmbedder) RETRIEVERS.set(store, (byEmbedder = new WeakMap()));
+  let r = byEmbedder.get(embedder);
+  if (!r) byEmbedder.set(embedder, (r = new HybridRetriever(store, embedder)));
+  return r;
 }
 
 /**
@@ -323,23 +379,19 @@ export function governanceTools(deps: GovernanceDeps) {
   const pins = new PinnedBlocks(deps.store, { now, ...(deps.encryptionKeyRef && { encryptionKeyRef: deps.encryptionKeyRef }) });
   const embedderNow: () => Embedder | undefined =
     typeof deps.embedder === "function" ? deps.embedder : ((e) => () => e)(deps.embedder);
-  // One retriever per embedder: it holds the vector matrix between recalls.
-  let retriever: { embedder: Embedder; r: HybridRetriever } | null = null;
   const retrieverNow = (): HybridRetriever | null => {
     const e = embedderNow();
-    if (!e) return null;
-    if (retriever?.embedder !== e) retriever = { embedder: e, r: new HybridRetriever(deps.store, e) };
-    return retriever.r;
+    return e ? sharedRetriever(deps.store, e) : null;
   };
   const embedderFailed = (err: unknown) => {
     deps.onEmbedderFailure?.((err instanceof Error ? err.message : String(err)).split("\n")[0]!.slice(0, 300));
   };
   const expand = deps.expand ?? true;
-  let pinsDelivered = false;
+  const deliveries = deps.pinDeliveries ?? new PinDeliveries();
   const tools = {
     /**
      * The pinned tier, once — the first time a connection recalls anything, and
-     * "" every time after.
+     * "" every time after until the tier changes.
      *
      * The tier claims to be in EVERY prompt and the shipped product surfaced it
      * nowhere: a seventh tool nobody was told to call, and no room to explain it
@@ -349,14 +401,13 @@ export function governanceTools(deps: GovernanceDeps) {
      *
      * An EMPTY tier does not spend the delivery — a pin made on turn five still
      * rides the next recall, rather than being lost because the store happened to
-     * be empty when the connection opened.
+     * be empty when the connection opened. A tier that changed rides the next
+     * recall again: the connection has not seen it.
      */
     async pinnedPreamble(): Promise<string> {
-      if (pinsDelivered) return "";
-      const block = await pins.render();
-      if (block === "") return "";
-      pinsDelivered = true;
-      return block;
+      const connection = deps.connection?.() ?? "";
+      // Checked and recorded after the read, in one step: two recalls at once get the pins once.
+      return deliveries.take(connection, await pins.render());
     },
     async remember(input: { text: string; provenance?: MemoryNode["provenance"] | undefined; memoryType?: MemoryNode["memoryType"] | undefined; confidence?: number | undefined }): Promise<RememberedFact> {
       const text = input.text.trim();
@@ -558,13 +609,20 @@ export async function attachGovernanceServer(deps: GovernanceDeps): Promise<{ se
   return { server, connectStdio: async () => { await server.connect(new StdioServerTransport()); } };
 }
 
-/** The server with every tool on it, not yet on a transport — stdio and HTTP (http-server.ts) share it. */
-export async function createGovernanceMcpServer(deps: GovernanceDeps) {
+export type GovernanceTools = ReturnType<typeof governanceTools>;
+
+/**
+ * The server with every tool on it, not yet on a transport — stdio and HTTP
+ * (http-server.ts) share it. Pass `tools` to serve a tool layer already built
+ * over `deps` (the HTTP connector builds one and serves it from every request's
+ * server); `deps` then only words the tool descriptions.
+ */
+export async function createGovernanceMcpServer(deps: GovernanceDeps, opts: { tools?: GovernanceTools } = {}) {
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const server = new McpServer({ name: "al-buddy-memory", version: SERVER_VERSION }, { instructions: SERVER_INSTRUCTIONS });
   // The app that wrote a fact is the client that connected, as it announced itself
   // in the handshake — the model cannot change that.
-  const tools = governanceTools({
+  const tools = opts.tools ?? governanceTools({
     ...deps,
     origin:
       deps.origin ??
@@ -580,7 +638,7 @@ export async function createGovernanceMcpServer(deps: GovernanceDeps) {
   server.tool("remember", "Store a fact with its provenance. Returns the fact with validFrom, provenance and confidence, plus mayConflictWith: current facts this one may be correcting — read them and invalidate any that stopped being true.", {
     text: z.string().max(REMEMBER_MAX_CHARS), provenance: z.enum(["UserInput", "AIInferred", "GuardianAdded", "SystemGenerated"]).optional(), confidence: z.number().min(0).max(1).optional(),
   }, TOOL_ANNOTATIONS.remember, async (a) => json(await tools.remember(a)));
-  server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, what superseded it, and which assistant wrote or retired it. The first call of a session also returns the user's pinned rules — treat those as standing rules for the conversation.", {
+  server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, what superseded it, and which assistant wrote or retired it. The first call of a session, and the first after they change, also returns the user's pinned rules — treat those as standing rules for the conversation.", {
     query: z.string().max(QUERY_MAX_CHARS), limit: z.number().int().min(1).max(50).optional(), includeSuperseded: z.boolean().optional(),
   }, TOOL_ANNOTATIONS.recall, async (a) => {
     // Facts first: a failed recall must not spend the one pin delivery.

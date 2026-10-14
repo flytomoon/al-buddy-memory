@@ -102,6 +102,8 @@ export interface OwnerOAuthOptions {
   allowedRedirectOrigins?: readonly string[];
   /** The connector log: one line whenever wrong passphrases lock the consent page. */
   log?: (line: string) => void;
+  /** An app exchanged a sign-in code for tokens (a refresh is not a sign-in). */
+  onSignIn?: (clientId: string) => void;
   now?: () => number;
 }
 
@@ -306,6 +308,7 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
     }
     const tokens = this.issue(s, g.clientId, g.scopes, g.resource);
     this.save(s);
+    this.opts.onSignIn?.(g.clientId);
     return tokens;
   }
 

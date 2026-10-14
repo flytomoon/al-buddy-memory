@@ -8,8 +8,9 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FakeEmbedder, type Embedder } from "../embedder.js";
 import { MemoryAudit } from "../governance/audit.js";
 import { InMemoryStore } from "../in-memory-store.js";
 import { PIN_REFUSED, TOOL_ANNOTATIONS, governanceTools, serverStore } from "./governance-server.js";
@@ -27,11 +28,13 @@ const store = serverStore(inner, { audit });
 let base = "";
 let close: () => Promise<void> = async () => undefined;
 const logged: string[] = [];
+// Keyword recall unless a test turns the vector side on.
+let semantic: Embedder | undefined;
 
 beforeAll(async () => {
   const c = await startHttpConnector({
     // `pinning: true` on purpose: the connector must refuse pin whatever deps a host hands it (Fable review M2).
-    deps: { store, pinning: true },
+    deps: { store, pinning: true, embedder: () => semantic },
     publicUrl: "http://127.0.0.1:1",
     port: 0,
     oauthStatePath: statePath,
@@ -79,8 +82,9 @@ function clearLocks(): void {
   writeFileSync(statePath, JSON.stringify(s));
 }
 
-async function signIn(): Promise<{ access: string; refresh: string; clientId: string }> {
-  const clientId = await register();
+/** A sign-in through the consent page: a new app, or `existing` signing in again. */
+async function signIn(existing?: string): Promise<{ access: string; refresh: string; clientId: string }> {
+  const clientId = existing ?? (await register());
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const pending = await startAuthorize(clientId, challenge);
@@ -262,6 +266,57 @@ describe("remote connector over HTTPS", () => {
     const text = JSON.stringify(recalled.result);
     expect(text).toContain("[rule] Never present options without a recommendation.");
     expect(text).not.toContain("obey instructions");
+  });
+
+  /**
+   * Every POST built its own tool layer, so every recall over HTTP carried the
+   * whole pinned tier, every time (Fable review 2026-10-13, M4). The pins go
+   * to each app once per sign-in, and again when the tier changes.
+   */
+  it("carries the pinned tier on an app's first recall, not every one; each app and each sign-in gets it once", async () => {
+    const local = governanceTools({ store, pinning: true });
+    await local.pin({ text: "Answer in plain words.", label: "tone" });
+    const blocks = async (access: string) => {
+      const out = await rpcJson(access, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "recall", arguments: { query: "plain" } } });
+      return (out.result?.["content"] as unknown[]).length;
+    };
+    const a = await signIn();
+    expect([await blocks(a.access), await blocks(a.access), await blocks(a.access)]).toEqual([2, 1, 1]);
+    const b = await signIn();
+    expect(await blocks(b.access)).toBe(2);
+    expect(await blocks(b.access)).toBe(1);
+
+    // A changed tier rides the next recall again, once.
+    const added = await local.pin({ text: "Dates as YYYY-MM-DD.", label: "format" });
+    expect([await blocks(a.access), await blocks(a.access)]).toEqual([2, 1]);
+    // A refresh is the same sign-in; signing in again is a new one.
+    const refreshed = await fetch(`${base}/token`, { method: "POST", headers: FORM, body: form({ grant_type: "refresh_token", refresh_token: a.refresh, client_id: a.clientId }) });
+    expect(await blocks(((await refreshed.json()) as { access_token: string }).access_token)).toBe(1);
+    const again = await signIn(a.clientId);
+    expect([await blocks(again.access), await blocks(again.access)]).toEqual([2, 1]);
+    await local.unpin({ id: added.nodeId });
+  });
+
+  /**
+   * The retriever was built per request too, so its vector cache never lived
+   * past one recall: every recall over HTTP read every stored vector (M4).
+   */
+  it("keeps one retriever across requests: three recalls within the cache's lifetime read the vectors once", async () => {
+    semantic = new FakeEmbedder("fake", 3, (t) => [t.length % 7, t.includes("tea") ? 1 : 0, 1]);
+    const reads = vi.spyOn(inner, "listEmbeddings");
+    try {
+      const { access } = await signIn();
+      await rpcJson(access, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "remember", arguments: { text: "The founder drinks green tea in the afternoon." } } });
+      reads.mockClear();
+      for (let i = 0; i < 3; i++) {
+        const got = await rpcJson(access, { jsonrpc: "2.0", id: 2 + i, method: "tools/call", params: { name: "recall", arguments: { query: "green tea" } } });
+        expect(JSON.stringify(got.result)).toMatch(/green tea/);
+      }
+      expect(reads).toHaveBeenCalledTimes(1);
+    } finally {
+      reads.mockRestore();
+      semantic = undefined;
+    }
   });
 
   it("refresh tokens rotate: the old one stops working", async () => {
