@@ -17,6 +17,7 @@ import { compareRecency, effectiveConfidence } from "../decay.js";
 import { bothLabels, matchesLabels, matchesTags, mentionsAny, queryTokens, visibleRelevance } from "../query-filter.js";
 import { assertReadBoundary, boundaryFor } from "./boundary.js";
 import { buildSnapshotAsOf, canonicalJson, isHistoryCapable, nodeAsOf } from "../history.js";
+import { knownOrigin } from "../provenance.js";
 import type { AsOfFact, AsOfOptions, EmbeddingVector, HistoryCapable, MemoryEdge, MemoryEmbedding, MemoryNode, MemoryQueryOptions, MemoryStore, NewMemoryNode, NodeVersion } from "../types/memory.js";
 import { AUDIT_ID_SAMPLE, StoreAudit, type AuditCapable, type AuditEvent, type AuditSink } from "./audit.js";
 import { closureOf, judgeErase, judgeInvalidation } from "./cascade.js";
@@ -69,7 +70,7 @@ function touchesDeletion(
 
 function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
   const c = opts.context(purpose);
-  return { actor: c.actor, audience: c.audience, attributes: c.attributes, purpose, now: c.now ?? new Date() };
+  return { actor: c.actor, audience: c.audience, attributes: c.attributes, origin: c.origin, purpose, now: c.now ?? new Date() };
 }
 
 /**
@@ -91,7 +92,7 @@ function ctxFor(opts: GovernOptions, purpose: Purpose): PolicyContext {
  */
 function authorise(opts: GovernOptions, purpose: Purpose): () => PolicyContext {
   const c = opts.context(purpose);
-  return () => ({ actor: c.actor, audience: c.audience, attributes: c.attributes, purpose, now: c.now ?? new Date() });
+  return () => ({ actor: c.actor, audience: c.audience, attributes: c.attributes, origin: c.origin, purpose, now: c.now ?? new Date() });
 }
 
 /**
@@ -140,7 +141,9 @@ function assertAuditUsable(opts: GovernOptions): void {
 }
 
 function auditEvent(ctx: PolicyContext, outcome: "allowed" | "denied" | "hidden", ids: string[], extra: { policy?: string; reason?: string } = {}): AuditEvent {
-  return { at: ctx.now.toISOString(), actor: ctx.actor, audience: ctx.audience, purpose: ctx.purpose, outcome, nodeIds: ids.slice(0, AUDIT_ID_SAMPLE), count: ids.length, policy: extra.policy, reason: extra.reason };
+  // Left off entirely when nothing is known, so an event without an app hashes exactly as before.
+  const origin = knownOrigin(ctx.origin);
+  return { at: ctx.now.toISOString(), actor: ctx.actor, audience: ctx.audience, ...(origin && { origin }), purpose: ctx.purpose, outcome, nodeIds: ids.slice(0, AUDIT_ID_SAMPLE), count: ids.length, policy: extra.policy, reason: extra.reason };
 }
 
 /**

@@ -10,8 +10,9 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { MemoryAudit } from "../governance/audit.js";
 import { InMemoryStore } from "../in-memory-store.js";
-import { PIN_REFUSED, TOOL_ANNOTATIONS, governanceTools } from "./governance-server.js";
+import { PIN_REFUSED, TOOL_ANNOTATIONS, governanceTools, serverStore } from "./governance-server.js";
 import { startHttpConnector } from "./http-server.js";
 import { hashPassphrase } from "./owner-oauth.js";
 
@@ -19,7 +20,10 @@ const PASS = "correct horse battery staple";
 const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
 const dir = mkdtempSync(join(tmpdir(), "mem-http-"));
 const statePath = join(dir, "oauth.json");
-const store = new InMemoryStore();
+const inner = new InMemoryStore();
+const audit = new MemoryAudit();
+// What `al-buddy-memory-http` serves: the owner's governed handle, audited.
+const store = serverStore(inner, { audit });
 let base = "";
 let close: () => Promise<void> = async () => undefined;
 const logged: string[] = [];
@@ -212,6 +216,24 @@ describe("remote connector over HTTPS", () => {
     await rpcJson(access, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "remember", arguments: { text: "The founder takes his coffee black." } } });
     const got = await rpcJson(access, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "recall", arguments: { query: "coffee" } } });
     expect(JSON.stringify(got.result)).toMatch(/coffee black/);
+  });
+
+  /**
+   * The README, the consent page and SIGN-IN said an app's writes carried its
+   * name in the audit trail "as over stdio". No event named an app, and over
+   * HTTP not even the fact did: each POST gets a fresh server that never saw the
+   * handshake (Fable review 2026-10-13, H1). The app is the client the token was
+   * issued to, by the name the owner allowed — not the handshake's.
+   */
+  it("records the signed-in app on the fact and on the audit event for the write", async () => {
+    const { access } = await signIn(); // registered as "claude-test"
+    await rpcJson(access, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "1" } } });
+    const out = await rpcJson(access, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "remember", arguments: { text: "The founder's standup is at 9:15." } } });
+    const id = (JSON.parse((out.result?.["content"] as { text: string }[])[0]!.text) as { id: string }).id;
+
+    expect((await inner.getNode(id))?.contextualMetadata["origin"]).toEqual({ app: "claude-test", via: "mcp-http" });
+    const write = audit.events.filter((e) => e.purpose === "write" && e.nodeIds.includes(id)).at(-1);
+    expect(write).toMatchObject({ actor: "owner", outcome: "allowed", origin: { app: "claude-test", via: "mcp-http" } });
   });
 
   /**
