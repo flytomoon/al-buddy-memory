@@ -12,6 +12,7 @@ go wrong are in the data you put in it and the process that reads it.
   with an append-only audit trail.
 - **What is not:** encryption at rest. `encryptionKeyRef` names the key you manage; the
   store does not encrypt the file. Put it on an encrypted volume.
-- **Dependencies:** one runtime dependency (better-sqlite3). Advisories are checked weekly.
+- **Dependencies:** one runtime dependency (better-sqlite3); Postgres (`pg`), the MCP SDK
+  and the on-device model are optional and load only if you use them. Advisories are checked weekly.
 - **Reviews:** the enterprise surface (Postgres, data boundaries, erasure receipts, OIDC
   sign-in) was reviewed in October 2026: [docs/SECURITY-REVIEW-2026-10.md](docs/SECURITY-REVIEW-2026-10.md).

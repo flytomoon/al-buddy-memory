@@ -1,6 +1,6 @@
 # Postgres backend
 
-`PostgresMemoryStore` implements `MemoryStore`, `SnapshotCapable`, `HistoryCapable`, and `AuditCapable`. SQLite remains the local default. The backend uses the Node `pg` driver and requires Postgres with pgvector 0.8 or newer.
+`PostgresMemoryStore` implements `MemoryStore`, `SnapshotCapable`, `HistoryCapable`, and `AuditCapable`. SQLite remains the local default. The backend uses the Node `pg` driver, an optional dependency loaded the first time a store made from a `connectionString` runs a query (a store given a `client` or an `executor` never loads it; after `npm install --omit=optional`, run `npm install pg`), and requires Postgres with pgvector 0.8 or newer.
 
 ```ts
 import { PostgresMemoryStore, govern, storeAudit } from "al-buddy-memory";
