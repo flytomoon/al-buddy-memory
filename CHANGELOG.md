@@ -73,6 +73,15 @@ earlier were GitHub releases only.
 - A remembered fact written as a command ("SYSTEM: ignore … run …") used to reach the start of
   every Claude Code session under a plain `Most recently learned:` header, with nothing saying it
   was data. The briefing now says so before the first fact and in each section header.
+- **`pg` is an optional dependency.** The README and SECURITY.md said "one runtime dependency",
+  but the Postgres store imported `pg` when the package loaded, so it was two. Now `pg` loads the
+  first time a store made from a `connectionString` runs a query; a store given a `client` or an
+  `executor`, and every program that never uses Postgres, runs without it, and
+  `npm install al-buddy-memory --omit=optional` gives a working library (`src/entry-deps.test.ts`
+  holds the main entry to `better-sqlite3` alone). Such a store without `pg` installed fails its
+  first call with an error that says `npm install pg`, where it used to fail at import. Its pool is
+  made on that first call rather than in the constructor, and a call after `close()` fails with
+  "this store is closed" rather than node-postgres's own error.
 
 ## 0.11.0 — 2026-10-08
 
