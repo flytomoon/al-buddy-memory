@@ -602,7 +602,7 @@ reality rather than described.*
 - **Notes:** the cap is on the MCP surface only — a host calling `governanceTools`
   directly is its own trust boundary, and the library has never capped `addNode`.
   A reviewer should ask whether 4,000 is right; it is a judgement, not a
-  measurement, and it is ten times the length of any fact in our own store.
+  measurement.
 
 ### A starter guide that told you to bypass your own policy
 - **Reported by:** Fable 5.1, MCP-surface review, 2026-09-19.
@@ -1187,8 +1187,7 @@ reality rather than described.*
 *These come out of the section-B fixes above. Each one is the part of a fix that
 was not finished, kept here so nobody has to re-derive it from the code.*
 - **Fixed in 0.8.1, 2026-09-25** (rule 4: recorded here, not deleted): vectors are stored
-  as float32 bytes when that is exact, JSON otherwise. `src/binary-vectors.test.ts`; on a
-  real 6,819-vector store 102 MB → 53 MB and identical top-10 for 20 of 20 lookups;
+  as float32 bytes when that is exact, JSON otherwise. `src/binary-vectors.test.ts`;
   `bench/bench-vectors.mjs` at 100,000 facts: 864 MB → 277 MB, first recall 3.2 s → 1.6 s.
 - **What this entry teaches, 2026-09-26:** it was measured, the fix was named, and it was
   filed as open for six days until an unrelated question surfaced it. Publishing a limit

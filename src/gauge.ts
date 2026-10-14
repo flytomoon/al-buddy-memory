@@ -64,8 +64,8 @@ export interface GaugeBudgets {
 }
 
 /**
- * Where the numbers should be. Set from the 0.8.1 measurements on a real
- * 6,819-vector store (1,536-byte vectors, ~150 ms cold, ~8 KB per memory with
+ * Where the numbers should be. Set from the 0.8.1 measurements
+ * (1,536-byte vectors, ~150 ms cold, ~8 KB per memory with
  * history) with headroom — a breach means something got meaningfully worse.
  */
 export const DEFAULT_BUDGETS: GaugeBudgets = {
