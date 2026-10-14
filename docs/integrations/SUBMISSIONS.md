@@ -45,7 +45,7 @@ working `codeExample` using current patterns. Branch name they suggest:
     codeExample: `import { generateText, isStepCount } from 'ai';
 import { alBuddyMemoryTools, openAgentMemory } from 'al-buddy-memory/ai-sdk';
 
-const store = openAgentMemory('./brain.db');
+const { store } = openAgentMemory('./brain.db');
 
 const { text } = await generateText({
   model: 'anthropic/claude-sonnet-5',

@@ -10,7 +10,8 @@ Tested against `@langchain/langgraph` 1.4 and `@langchain/core` 1.2.
 import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
 import { AlBuddyMemoryStore, openAgentMemory } from "al-buddy-memory/langchain";
 
-const store = new AlBuddyMemoryStore({ store: openAgentMemory("./brain.db"), agent: "planner" });
+const memory = openAgentMemory("./brain.db");           // governed and audited; memory.close() on shutdown
+const store = new AlBuddyMemoryStore({ store: memory.store, agent: "planner" });
 const graph = new StateGraph(MessagesAnnotation)
   .addNode("remember", async (_state, config) => {
     await config.store!.put(["users", "u1"], "contact", { text: "Prefers email over calls" });
@@ -48,5 +49,12 @@ record `origin.via = "al-buddy-memory/langchain"`.
 
 ## Use a governed handle
 
-`openAgentMemory(path)` applies the personal-default policies. A raw
-`SqliteMemoryStore` works but skips them — don't hand one to an agent.
+`openAgentMemory(path)` returns `{ store, close }`. `store` applies the
+personal-default policies, and every write is audited into the `audit_events`
+table of the same file, in the same transaction as the fact. Check the trail with
+`al-buddy-memory verify-audit ./brain.db` (it prints `intact: N events, head …`).
+`close()` closes the file once your last call has finished. `{ audit: "none" }`
+keeps no trail; `{ audit: sink }` sends events to an `AuditSink` of your own.
+
+A raw `SqliteMemoryStore` works but skips the policies and keeps no trail — don't
+hand one to an agent.

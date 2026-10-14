@@ -41,7 +41,7 @@ import {
   type MemoryToolkit,
 } from "./shared.js";
 
-export { openAgentMemory, type MemoryIntegrationOptions } from "./shared.js";
+export { openAgentMemory, type AgentMemory, type AgentMemoryOptions, type MemoryIntegrationOptions } from "./shared.js";
 
 /** LangGraph's search result: an item and its relevance (not re-exported by @langchain/langgraph). */
 type SearchItem = Item & { score?: number };
