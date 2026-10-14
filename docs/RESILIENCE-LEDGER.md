@@ -586,7 +586,9 @@ reality rather than described.*
 - **Notes:** this is the second time the pinned tier has failed by never being
   read — the first was the 500-Lesson limit (Astra R12, 2026-09-18, in this file).
   A reviewer should ask why a tier this important has no test asserting it reaches
-  a prompt end to end; there is now one at the transport.
+  a prompt end to end; there is now one at the transport. Over HTTP the opposite
+  failure shipped: each POST built its own tool layer, so the tier rode every
+  recall, until 2026-10-14 (Fable review M4; `src/mcp/http-server.test.ts`).
 
 ### A fact could be ten megabytes
 - **Reported by:** Fable 5.1, MCP-surface review, 2026-09-19.

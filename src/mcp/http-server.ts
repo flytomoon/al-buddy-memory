@@ -1,7 +1,11 @@
 /**
  * The governance MCP server over HTTPS, for a remote connector in Claude or
- * ChatGPT (Streamable HTTP, stateless: every POST gets a fresh server bound to
- * the same governed store, so nothing about one request outlives it).
+ * ChatGPT (Streamable HTTP, stateless: every POST gets a fresh MCP server, so
+ * no session outlives its request). The tools under it are built once, over
+ * the one governed store: built per request, the retriever read every stored
+ * vector on every recall and the pinned tier rode every recall (Fable review
+ * M4). The pins go to each signed-in app instead: with its first recall after
+ * each sign-in, and its next after the tier changes.
  *
  * Signed in with OAuth 2.1 (owner-oauth.ts), with the SDK's own handlers for
  * discovery, dynamic client registration, authorize, token and revoke, and its
@@ -12,7 +16,8 @@
  * on the consent page, by the name it registered with: the fact's `origin`, and
  * the audit event's when the store's context reads `actingOrigin()` (the
  * shipped `serverStore` does). Not the MCP handshake name, as over stdio: every
- * POST gets a fresh server, so a tool call never sees the handshake.
+ * POST gets a fresh server, so a tool call never sees the handshake. The shared
+ * tools learn each request's app from `REQUEST`, below.
  *
  * Or, for an organisation, signed in by its own identity provider (oidc.ts):
  * no passphrase and no sign-in of its own. Every request's bearer token is
@@ -20,14 +25,17 @@
  * person it names, with their tenant and attributes. A token that does not
  * verify gets the 401 and never reaches `deps`. The app is whatever `deps`
  * says in `origin` (the token names a person, not an app); without one, facts
- * record only that they came over HTTP.
+ * record only that they came over HTTP. Its tools are built per request, over
+ * the store `deps` picks, but share that store's retriever; the pinned tier
+ * reaches each person (in their tenant) once, and again when it changes.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Server } from "node:http";
 
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 
-import type { GovernanceDeps } from "./governance-server.js";
-import { createGovernanceMcpServer } from "./governance-server.js";
+import type { GovernanceDeps, GovernanceTools } from "./governance-server.js";
+import { createGovernanceMcpServer, governanceTools, PinDeliveries } from "./governance-server.js";
 import { oidcVerifier, OidcTokenRefused, type OidcIdentity, type OidcOptions } from "./oidc.js";
 import { OwnerOAuthProvider } from "./owner-oauth.js";
 import type { Origin } from "../provenance.js";
@@ -59,6 +67,7 @@ export interface OidcConnectorOptions {
    * `who`, with `origin: actingOrigin()` in that context so the audit trail
    * names the app as well as the person. `origin` in what it returns is the
    * app the facts record; without one they record `{ via: "mcp-http" }`.
+   * `pinning`, `connection` and `pinDeliveries` are the connector's own.
    * Throwing refuses the request (500); nothing is served without it.
    */
   deps: (who: OidcIdentity) => GovernanceDeps | Promise<GovernanceDeps>;
@@ -76,6 +85,19 @@ const overHttp = (app?: string): (() => Origin) => () => ({ ...(app && { app }),
 
 const isOidc = (o: HttpConnectorOptions | OidcConnectorOptions): o is OidcConnectorOptions => "oidc" in o && o.oidc !== undefined;
 
+/** The request a tool call runs for: the app it came through, when known, and who its pins are delivered to. */
+interface RequestContext {
+  app?: string | undefined;
+  connection: string;
+}
+const REQUEST = new AsyncLocalStorage<RequestContext>();
+/** What one request is served with: the tools' deps, the tool layer when it is shared, and the request's context. */
+interface Served {
+  deps: GovernanceDeps;
+  tools?: GovernanceTools;
+  request: RequestContext;
+}
+
 export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnectorOptions): Promise<{ server: Server; url: string; close: () => Promise<void> }> {
   const express = (await import("express")).default;
   const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
@@ -92,7 +114,14 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
   app.set("trust proxy", 1);
 
   let verifier: { verifyAccessToken: (token: string) => Promise<AuthInfo> };
-  let depsFor: (auth: AuthInfo | undefined) => GovernanceDeps | Promise<GovernanceDeps>;
+  let serve: (auth: AuthInfo | undefined) => Promise<Served>;
+  // Never pinning here, whatever deps a host passes: a remote client must not plant a standing rule in every prompt (Fable review M2).
+  const remote = (deps: GovernanceDeps, deliveries: PinDeliveries): GovernanceDeps => ({
+    ...deps,
+    pinning: false,
+    pinDeliveries: deliveries,
+    connection: () => REQUEST.getStore()?.connection,
+  });
   if (isOidc(opts)) {
     const oidc = oidcVerifier(opts.oidc);
     verifier = {
@@ -107,17 +136,31 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
         }
       },
     };
-    depsFor = async (auth) => {
+    // Tools per request, over whatever store `deps` picks for the person; the
+    // retriever is shared per store (governance-server.ts), the pins per person.
+    const deliveries = new PinDeliveries();
+    serve = async (auth) => {
       const who = auth?.extra?.["identity"] as OidcIdentity | undefined;
       if (!who) throw new Error("no verified identity on the request");
       const deps = await opts.deps(who);
-      return { ...deps, origin: deps.origin ?? overHttp() };
+      return {
+        deps: remote({ ...deps, origin: deps.origin ?? overHttp() }, deliveries),
+        request: { connection: JSON.stringify([who.tenant ?? null, who.actor]) },
+      };
     };
     // Where to sign in (RFC 9728): the organisation's identity provider, not this server.
     const metadata = { resource: mcpUrl.href, authorization_servers: [opts.oidc.issuer], bearer_methods_supported: ["header"], resource_name: "al-buddy-memory" };
     app.get(new URL(getOAuthProtectedResourceMetadataUrl(mcpUrl)).pathname, (_req, res) => { res.json(metadata); });
   } else {
-    const provider = new OwnerOAuthProvider({ statePath: opts.oauthStatePath, passphraseHash: opts.passphraseHash, log, ...(opts.allowedRedirectOrigins && { allowedRedirectOrigins: opts.allowedRedirectOrigins }) });
+    const deliveries = new PinDeliveries();
+    const provider = new OwnerOAuthProvider({
+      statePath: opts.oauthStatePath,
+      passphraseHash: opts.passphraseHash,
+      log,
+      // A new sign-in is a new start for that app: its next recall carries the pins.
+      onSignIn: (clientId) => { deliveries.forget(clientId); },
+      ...(opts.allowedRedirectOrigins && { allowedRedirectOrigins: opts.allowedRedirectOrigins }),
+    });
     app.use(
       mcpAuthRouter({
         provider,
@@ -139,12 +182,14 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
       }
     });
     verifier = provider;
-    const deps = opts.deps;
-    // The app is the client this token was issued to, by the name the owner saw when allowing it.
-    depsFor = async (auth) => {
-      if (deps.origin) return deps;
-      const client = auth ? await provider.clientsStore.getClient(auth.clientId) : undefined;
-      return { ...deps, origin: overHttp(clientApp(client?.client_name)) };
+    // One owner, one store, one tool layer for every request. The app is the
+    // client this token was issued to, by the name the owner saw when allowing it.
+    const hostOrigin = opts.deps.origin;
+    const deps = remote({ ...opts.deps, origin: hostOrigin ?? (() => overHttp(REQUEST.getStore()?.app)()) }, deliveries);
+    const tools = governanceTools(deps);
+    serve = async (auth) => {
+      const client = !hostOrigin && auth ? await provider.clientsStore.getClient(auth.clientId) : undefined;
+      return { deps, tools, request: { app: clientApp(client?.client_name), connection: auth?.clientId ?? "" } };
     };
   }
 
@@ -157,10 +202,14 @@ export async function startHttpConnector(opts: HttpConnectorOptions | OidcConnec
       void server?.close();
     });
     try {
-      // Never pinning here, whatever deps a host passes: a remote client must not plant a standing rule in every prompt (Fable review M2).
-      server = (await createGovernanceMcpServer({ ...(await depsFor((req as { auth?: AuthInfo }).auth)), pinning: false })).server as unknown as typeof server;
-      await server!.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      const { deps, tools, request } = await serve((req as { auth?: AuthInfo }).auth);
+      const fresh = (await createGovernanceMcpServer(deps, tools ? { tools } : {})).server as unknown as NonNullable<typeof server>;
+      server = fresh;
+      // The tool calls this request makes run inside it, and read their app and connection from it.
+      await REQUEST.run(request, async () => {
+        await fresh.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+      });
     } catch (err) {
       log(`connector: request failed: ${err instanceof Error ? err.message : String(err)}`);
       if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null });
