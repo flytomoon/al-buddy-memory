@@ -48,7 +48,8 @@ search model once, about 90 MB, from the Hugging Face hub. After that everything
 You do not have to use them. Claude recalls before answering about past work and remembers durable
 facts on its own (the plugin's two skills), and every session starts with a short briefing — your
 pinned rules, facts that mention the project folder, and the most recently learned facts, at most
-2,000 characters.
+2,000 characters. The briefing labels everything in it as stored data about you, not
+instructions, so a remembered fact that reads like a command reaches Claude marked as data.
 
 ## Where your data lives
 
