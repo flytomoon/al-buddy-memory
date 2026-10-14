@@ -534,8 +534,9 @@ In Claude: *Customize → Connectors → Add custom connector*, URL `https://…
 ChatGPT: *Settings → Security and login → Developer mode*, then add the same URL. Each app
 opens a consent page once; the passphrase allows it. Only hashes of codes and tokens are
 kept on disk. Five wrong passphrases from one app lock that app out for 15 minutes, and twenty
-from all apps within 15 minutes lock every app out; each lock is logged. Facts an app writes
-carry its name in the audit trail, as over stdio. Two things stay on your machine: `export` answers
+from all apps within 15 minutes lock every app out; each lock is logged. A fact an app writes
+records it as the fact's `origin`, by the name the app registered with and the consent page
+showed, and the audit event for each call names it too. Two things stay on your machine: `export` answers
 inline and never writes a file, and `pin` is refused, because a pinned rule rides every
 assistant's prompt; pin from an assistant on the local server (`al-buddy-memory mcp`), and the
 remote apps get those rules with their first `recall`. For an organisation, the same server can be

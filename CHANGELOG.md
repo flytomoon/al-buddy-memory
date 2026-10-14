@@ -42,6 +42,23 @@ earlier were GitHub releases only.
   Rules already pinned still arrive with the first `recall`, and `pinned` and `unpin` are
   unchanged. A host that calls `governanceTools` or `attachGovernanceServer` and wants `pin` passes
   `pinning: true`.
+- **Over HTTP, a fact records the app that wrote it, and so does the audit trail.** The README and
+  the consent page said an app's writes carried its name in the audit trail "as over stdio"; in
+  fact no audit event named an app, and over HTTP not even the fact did, because every POST gets a
+  fresh server and a tool call never saw the MCP handshake: facts said only `{ via: "mcp" }`. Now
+  the owner's server records the client the token was issued to, by the name it registered with
+  and the consent page showed (one line, at most 80 characters): `origin` is
+  `{ app, via: "mcp-http" }`. A server signed in by an identity provider records the `origin` its
+  `deps` returns, or `{ via: "mcp-http" }`; a token names a person, not an app. A host's
+  `GovernanceDeps.origin` still wins on both.
+- **An audit event can name the app** (`AuditEvent.origin`). A governed store's `context` may
+  return `origin`, which `PolicyContext` now carries; every event the store writes copies it when
+  anything is known, and leaves it out otherwise, so an event without an app hashes exactly as
+  before and older trails verify unchanged. While an MCP tool call runs, `actingOrigin()` (from
+  `al-buddy-memory/mcp` and `/http`) is its app; `serverStore` and `serverExportView` put it in
+  their context, so the shipped servers' trails name the app over stdio and HTTP alike. A store
+  built with `govern()` by a host adds `origin: actingOrigin()` to its context to do the same
+  (docs/SIGN-IN.md shows it).
 
 ## 0.11.0 — 2026-10-08
 

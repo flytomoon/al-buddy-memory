@@ -16,7 +16,7 @@ import { storeAudit, type AuditEvent } from "../governance/audit.js";
 import { makeNode } from "../memory-store-conformance.spec.js";
 import { PostgresMemoryStore } from "../postgres-memory-store.js";
 import type { MemoryNode } from "../types/memory.js";
-import { startHttpConnector } from "./http-server.js";
+import { actingOrigin, startHttpConnector } from "./http-server.js";
 import type { OidcIdentity } from "./oidc.js";
 
 const ISSUER = "https://login.example.test/org/v2.0";
@@ -69,7 +69,11 @@ beforeAll(async () => {
     deps: async (who) => {
       seen.push(who);
       const inner = await tenantStore(who.tenant!);
-      return { store: govern(inner, { policies: [boundaries], context: () => ({ actor: who.actor, attributes: who.attributes }), audit: storeAudit(inner) }) };
+      return {
+        store: govern(inner, { policies: [boundaries], context: () => ({ actor: who.actor, attributes: who.attributes, origin: actingOrigin() }), audit: storeAudit(inner) }),
+        // The token names a person; which app is acting is the host's to say.
+        origin: () => ({ app: "acme-copilot", via: "mcp-http" }),
+      };
     },
     publicUrl: "http://127.0.0.1:1",
     port: 0,
@@ -124,6 +128,15 @@ describe("remote connector signed in by the company's identity provider", () => 
     const events: AuditEvent[] = [];
     expect((await (await tenantStore("acme")).verifyAudit({ visit: (e) => events.push(e) })).ok).toBe(true);
     expect(events.some((e) => e.actor === "alice" && e.purpose === "write" && e.outcome === "allowed")).toBe(true);
+  });
+
+  it("records the app deps names on the fact and on the audit event, the person from the token (Fable review H1)", async () => {
+    const written = JSON.parse(await call(await rob(), "remember", { text: "The red team retro is on Fridays." })) as { id: string; origin: unknown };
+    expect(written.origin).toEqual({ app: "acme-copilot", via: "mcp-http" });
+    const events: AuditEvent[] = [];
+    expect((await (await tenantStore("acme")).verifyAudit({ visit: (e) => events.push(e) })).ok).toBe(true);
+    const write = events.filter((e) => e.purpose === "write" && e.nodeIds.includes(written.id)).at(-1);
+    expect(write).toMatchObject({ actor: "rob", outcome: "allowed", origin: { app: "acme-copilot", via: "mcp-http" } });
   });
 
   it("the tenant claim picks the store: another tenant with the same groups sees none of it", async () => {

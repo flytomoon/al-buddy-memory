@@ -4,6 +4,7 @@
  * what, who may see what, what may leave, what may be erased. Policies are plain
  * objects with up to five hooks, composed in order, and every decision is auditable.
  */
+import type { Origin } from "../provenance.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 
 export type Purpose = "write" | "recall" | "export" | "invalidate" | "import" | "erase";
@@ -23,6 +24,12 @@ export interface PolicyContext {
    * authenticated context. A {@link ReadBoundary} refers to these by name.
    */
   attributes?: Readonly<Record<string, string | readonly string[]>> | undefined;
+  /**
+   * The app the actor is acting through (an MCP client, a host's agent), when
+   * the host knows it. The audit event carries it; policies may read it, but
+   * it is what a client said about itself, so it is not a credential.
+   */
+  origin?: Origin | undefined;
   now: Date;
 }
 
