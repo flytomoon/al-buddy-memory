@@ -35,12 +35,12 @@ export interface CaptureInput {
 }
 
 export interface ProjectMemoryOptions {
-  /** Directory that holds the per-project DB files. Default `~/.al-buddy/memory`. */
+  /** Directory that holds the per-project DB files. Default `~/.al-buddy-memory/projects`. */
   baseDir?: string;
 }
 
 /** Default directory for per-project memory databases. */
-export const DEFAULT_MEMORY_DIR = join(homedir(), ".al-buddy", "memory");
+export const DEFAULT_MEMORY_DIR = join(homedir(), ".al-buddy-memory", "projects");
 
 /**
  * A readable, filename-safe stub of a project name. Lossy on purpose — it is
