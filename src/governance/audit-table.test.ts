@@ -378,7 +378,7 @@ describe("verify-audit reads the table", () => {
   });
 
   it("checks a 0.4.1-shaped single log beside the database too", async () => {
-    // The founder's own store has `<db>.audit.jsonl` — the shape before the
+    // A store running since before 0.4.2 has `<db>.audit.jsonl` — the shape before the
     // per-process directory. A verifier that ignored it would be the
     // "delete a log and the rest verify clean" problem again.
     await threeEvents();

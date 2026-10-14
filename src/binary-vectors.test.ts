@@ -1,9 +1,10 @@
 /**
  * Vectors stored as 32-bit binary instead of JSON text (2026-09-25).
  *
- * Measured on a real 6,819-vector store: the JSON column was 55 MB and every
- * cold recall spent 0.19–0.27 s just parsing it back into numbers. As float32
- * the same vectors are 10.5 MB and decode in about 3 ms. Recall must not change
+ * Measured with `bench/bench-vectors.mjs` at 100,000 synthetic facts: a vector
+ * took ~8,000 bytes as JSON and the first recall of a session 3.2 s, most of it
+ * parsing text back into numbers. As float32 a vector is 1,536 bytes and the
+ * first recall 1.6 s. Recall must not change
  * by a single rank: a vector that is not exactly representable in 32 bits
  * stays JSON.
  */

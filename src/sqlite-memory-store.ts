@@ -159,8 +159,8 @@ function labelCondition(filter: LabelFilter, params: Record<string, unknown>): s
 
 /**
  * Vectors are stored as float32 bytes when that is exact (0.8.1): 5x smaller
- * than JSON, and decoding is a view instead of a parse — measured on a
- * 6,819-vector store, 3 ms against 190-270 ms per cold recall. A vector that
+ * than JSON, and decoding is a view instead of a parse (`bench/bench-vectors.mjs`
+ * at 100,000 facts: first recall 1.6 s against 3.2 s). A vector that
  * 32 bits cannot represent exactly stays JSON, so no ranking ever changes.
  */
 export function encodeVector(vector: readonly number[]): string | Buffer {
@@ -390,8 +390,7 @@ const MIGRATION_V9 = (db: Database.Database): void => {
 
 /**
  * v10 — the keyword index keeps no copy of the text (0.8.3). FTS5 stored every
- * memory's text a second time beside memory_nodes (13 MB of a 57 MB real
- * store); nothing ever read it back — search takes the rowid and the rank. A
+ * memory's text a second time beside memory_nodes; nothing ever read it back — search takes the rowid and the rank. A
  * contentless table with deletes enabled holds the same index, so ranking is
  * unchanged. Space returns to the disk with `compact()`.
  */
