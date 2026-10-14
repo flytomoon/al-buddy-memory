@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
  * it only loads when used.
  */
 const root = join(import.meta.dirname, "..");
-const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { optionalDependencies?: Record<string, string>; exports: Record<string, { import: string }> };
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string>; exports: Record<string, { import: string }> };
 const optional = Object.keys(pkg.optionalDependencies ?? {});
 
 function staticImports(file: string): string[] {
@@ -44,6 +44,14 @@ describe("the main entry", () => {
     const { files, packages } = reachable(join(root, "src", "index.ts"));
     expect(files.size).toBeGreaterThan(10); // the walk really walked
     expect([...packages].filter((p) => optional.includes(p))).toEqual([]);
+  });
+
+  // README and SECURITY.md say "one runtime dependency". `pg` was a second, imported
+  // by the Postgres store at load time (Fable review 2026-10-13); it now loads on
+  // first use from a connectionString, so this holds the claim to the code.
+  it("needs exactly one package to load: better-sqlite3", () => {
+    expect([...reachable(join(root, "src", "index.ts")).packages].sort()).toEqual(["better-sqlite3"]);
+    expect(Object.keys(pkg.dependencies ?? {})).toEqual(["better-sqlite3"]);
   });
 
   it("still publishes the MCP server at its own subpath", () => {

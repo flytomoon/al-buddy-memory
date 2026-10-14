@@ -110,4 +110,26 @@ describe("docs — the claims a reader will check", () => {
       for (const item of enterpriseOnly) expect(item).not.toMatch(claimedAs);
     }
   });
+
+  /**
+   * README and SECURITY.md said "one runtime dependency" while `pg` sat in
+   * `dependencies` and the Postgres store imported it at load (Fable review,
+   * 2026-10-13, M3). Both now name the one and the optional rest; this holds
+   * them to package.json. That the main entry loads none of the optional ones
+   * is `entry-deps.test.ts`.
+   */
+  it("README and SECURITY.md name the one runtime dependency, and the optional ones are optional", () => {
+    const pkg = JSON.parse(read("package.json")) as { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> };
+    expect(Object.keys(pkg.dependencies ?? {})).toEqual(["better-sqlite3"]);
+    const optional = Object.keys(pkg.optionalDependencies ?? {});
+    for (const name of ["pg", "@modelcontextprotocol/sdk", "@huggingface/transformers"]) expect(optional).toContain(name);
+
+    const readme = read("README.md");
+    expect(readme).toMatch(/One runtime dependency \(`better-sqlite3`/);
+    expect(readme).toMatch(/Postgres \(`pg`\), the MCP SDK and the on-device model \(transformers\.js\) are optional/);
+    expect(readme).toMatch(/npm install --omit=optional/);
+    const security = read("SECURITY.md");
+    expect(security).toMatch(/one runtime dependency \(better-sqlite3\)/);
+    expect(security).toMatch(/Postgres \(`pg`\), the MCP SDK\s+and the on-device model are optional/);
+  });
 });
