@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { InMemoryStore } from "./in-memory-store.js";
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { DERIVED_FROM as DERIVED_FROM_KEY, type DependentsCapable } from "./derived.js";
@@ -57,6 +57,7 @@ export interface PostgresMemoryStoreOptions {
   tenantId: string;
   /** A client with its own `transaction`, such as PGlite. Omit to create a node-postgres pool; for an existing pool use `executor: poolExecutor(pool)`. */
   client?: PostgresQueryClient;
+  /** The store makes a node-postgres pool from this on its first call, loading the optional `pg` package then. */
   connectionString?: string;
   /** Runs every statement instead of `client` or a pool from `connectionString`; see {@link QueryExecutor}. */
   executor?: QueryExecutor;
@@ -89,6 +90,22 @@ export function poolExecutor(pool: Pick<Pool, "query" | "connect">): QueryExecut
       } finally { connection.release(); }
     },
   };
+}
+
+/**
+ * The pool for a `connectionString`. `pg` is an optional dependency, loaded
+ * here and nowhere else, so a store given a `client` or an `executor` (and any
+ * program that never makes a Postgres store) runs without it.
+ */
+async function createPool(connectionString: string): Promise<Pool> {
+  let pg: typeof import("pg");
+  try {
+    pg = await import("pg");
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND") throw new Error("a connectionString needs the optional `pg` package: npm install pg", { cause: error });
+    throw error;
+  }
+  return new pg.Pool({ connectionString });
 }
 
 /** A client handed in as `client`: its own `transaction` (PGlite has one), as the store has always used it. */
@@ -157,7 +174,9 @@ interface Scope {
  * erasure operation and removes dependent rows.
  */
 export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapable, AuditCapable, AuditVerifiable, DependentsCapable {
-  private readonly pool: Pool | undefined;
+  /** The pool from `connectionString`, made on first use (`openPool`); one promise, so two first calls at once share it. */
+  private pool: Promise<Pool> | undefined;
+  private closed = false;
   private readonly executor: QueryExecutor;
   private readonly context = new AsyncLocalStorage<PostgresQueryClient>();
   readonly tenantId: string;
@@ -175,8 +194,18 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     this.accessAudit = options.accessAudit;
     this.dimensions = options.indexedDimensions ?? 1536;
     if (!Number.isInteger(this.dimensions) || this.dimensions < 1 || this.dimensions > 2000) throw new Error("indexedDimensions must be an integer from 1 to 2000");
-    this.pool = options.executor || options.client ? undefined : new Pool({ connectionString: options.connectionString });
-    this.executor = options.executor ?? (options.client ? clientExecutor(options.client) : poolExecutor(this.pool!));
+    const connectionString = options.connectionString!;
+    // The constructor cannot wait for `pg` to load, so the pool's executor is reached through `openPool` on each call.
+    const pooled = async () => poolExecutor(await this.openPool(connectionString));
+    this.executor = options.executor ?? (options.client ? clientExecutor(options.client) : {
+      query: async (sql, values) => (await pooled()).query(sql, values),
+      transaction: async work => (await pooled()).transaction(work),
+    });
+  }
+
+  private openPool(connectionString: string): Promise<Pool> {
+    if (this.closed) return Promise.reject(new Error("this store is closed"));
+    return (this.pool ??= createPool(connectionString));
   }
 
   async initialize(): Promise<void> {
@@ -226,7 +255,12 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     await this.executor.query("INSERT INTO memory_tenants(tenant_key) VALUES($1) ON CONFLICT DO NOTHING", [this.tenantId]);
   }
 
-  async close(): Promise<void> { await this.pool?.end(); }
+  /** Ends the pool from `connectionString`, if a call made one; a pool that failed to load has nothing to end. */
+  async close(): Promise<void> {
+    this.closed = true;
+    const pool = await this.pool?.catch(() => undefined);
+    await pool?.end();
+  }
 
   private async transaction<T>(work: (db: PostgresQueryClient) => Promise<T>, lock = false): Promise<T> {
     const active = this.context.getStore();

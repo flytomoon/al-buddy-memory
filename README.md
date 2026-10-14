@@ -67,7 +67,8 @@ entry before you upgrade.
 
 Node ≥ 20. One runtime dependency (`better-sqlite3`, with prebuilt binaries for Node 22, 24, 25
 and 26 on macOS, Linux and Windows; on Node 20 it compiles from source, which needs Python and a
-C++ toolchain); transformers.js is optional.
+C++ toolchain). Postgres (`pg`), the MCP SDK and the on-device model (transformers.js) are optional:
+they load only if you use them, and `npm install --omit=optional` leaves them out.
 
 Prior art: the Letta project published the idea of a pinned memory tier and a background pass over memory (memory blocks; sleep-time agents). What is different here: every derived fact must cite the raw it rests on or it is refused, the raw is never rewritten, and a whole pass can be reviewed and undone, with the undo and its reason kept on record.
 
