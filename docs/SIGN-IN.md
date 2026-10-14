@@ -7,7 +7,7 @@ and hooks already read; one claim can name the tenant, which picks the store. Th
 sign-in of its own: no passphrase page, no client registration, no tokens it issues.
 
 ```ts
-import { startHttpConnector } from "al-buddy-memory/http";
+import { actingOrigin, startHttpConnector } from "al-buddy-memory/http";
 import { PostgresMemoryStore, govern, storeAudit } from "al-buddy-memory";
 import { boundaries } from "./boundaries.js"; // your policy, e.g. docs/policies/boundaries.ts
 
@@ -39,7 +39,7 @@ await startHttpConnector({
     return {
       store: govern(inner, {
         policies: [boundaries],
-        context: () => ({ actor: who.actor, attributes: who.attributes }),
+        context: () => ({ actor: who.actor, attributes: who.attributes, origin: actingOrigin() }),
         audit: storeAudit(inner),
       }),
     };
@@ -137,8 +137,11 @@ oidc: {
   facts and audit identity.
 - **Attributes come only from the token**, unless `deps` adds more. Whoever can change a claim at
   your provider can change what that person sees here.
-- **The audit trail records `actorClaim`'s value** as the actor, and the connecting app's name as
-  the origin, as for the owner's server.
+- **The audit trail records `actorClaim`'s value** as the actor. A token names a person, not an
+  app, so which app is acting is whatever `deps` returns as `origin` (say, from a client-id claim
+  you trust); without one, facts record only `{ via: "mcp-http" }`. That origin is written on each
+  fact as `origin`, and on its audit events too when the store's `context` includes
+  `origin: actingOrigin()`, as above.
 - The owner's passphrase server is unchanged, and the `al-buddy-memory-http` command still runs
   it. A server signed in by your provider is started from your own code, because it needs your
   policy and your stores.

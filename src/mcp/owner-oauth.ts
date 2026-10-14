@@ -212,7 +212,7 @@ h1{font-size:20px;margin:0 0 8px}p{color:#5b6878;margin:0 0 16px}input,button{wi
 input{border:1px solid #cfd6de;margin-bottom:12px}button{border:0;background:#0f2a44;color:#fff;font-weight:600}.err{color:#b4432e}
 @media (prefers-color-scheme:dark){body{background:#101418;color:#e6e9ee}main{background:#1a2027}input{background:#101418;color:#e6e9ee;border-color:#334}}
 </style></head><body><main><h1>Connect ${esc(appName)} to your memory</h1>
-<p>${esc(appName)} will be able to read and add to your al-buddy-memory. Every change it makes is recorded in the audit trail under its name.</p>
+<p>${esc(appName)} will be able to read and add to your al-buddy-memory. Every fact it adds is marked with this name, and so is each of its calls in the audit trail, which records them as yours.</p>
 ${dest ? `<p>Access goes to <strong>${esc(dest)}</strong>. Only allow it if that is where you started.</p>` : ""}
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="${esc(this.consentPath)}"><input type="hidden" name="pending" value="${esc(pendingId)}">
