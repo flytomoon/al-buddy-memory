@@ -540,7 +540,8 @@ records it as the fact's `origin`, by the name the app registered with and the c
 showed, and the audit event for each call names it too. Two things stay on your machine: `export` answers
 inline and never writes a file, and `pin` is refused, because a pinned rule rides every
 assistant's prompt; pin from an assistant on the local server (`al-buddy-memory mcp`), and the
-remote apps get those rules with their first `recall`. For an organisation, the same server can be
+remote apps get those rules with their first `recall` after signing in, and again with the next
+one after the rules change. For an organisation, the same server can be
 signed in by your own identity provider instead: [docs/SIGN-IN.md](docs/SIGN-IN.md).
 
 ## Use it as a Claude Code plugin
