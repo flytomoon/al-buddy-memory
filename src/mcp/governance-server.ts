@@ -14,6 +14,7 @@
  */
 import { explainFact, type Explanation } from "../explain.js";
 import { defineMentalModel, getMentalModel, listMentalModels, QUESTION_MAX_CHARS, type MentalModel } from "../mental-models.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
@@ -182,18 +183,32 @@ export function toGovernedFact(n: MemoryNode): GovernedFact {
   };
 }
 
+const ACTING = new AsyncLocalStorage<Origin | undefined>();
+
+/**
+ * The app the tool call now running is acting for — what `remember` writes as
+ * the fact's `origin` — or undefined outside a tool call. One store serves
+ * every connection, so the app cannot be fixed when the store is built: put
+ * `origin: actingOrigin()` in a governed store's context and its audit events
+ * name the app too. `serverStore` and `serverExportView` already do.
+ */
+export function actingOrigin(): Origin | undefined {
+  return ACTING.getStore();
+}
+
 /**
  * The store the shipped server serves: the owner's memory behind the owner's
  * own policy, with the AI client as the AUDIENCE. So a secret an agent writes is
  * classified Sensitive and stays out of any AI's recall, Sealed facts never
- * reach the client, erasure is the owner's alone, and every call is audited. It
- * served the raw store until 0.4.0 — a "governance" server that applied none.
+ * reach the client, erasure is the owner's alone, and every call is audited,
+ * as the owner's, naming the app it came through. It served the raw store
+ * until 0.4.0 — a "governance" server that applied none.
  */
 export function serverStore(inner: MemoryStore, opts: { owner?: string; audit?: AuditSink } = {}): MemoryStore {
   const owner = opts.owner ?? "owner";
   return govern(inner, {
     policies: [personalDefaults({ owner })],
-    context: () => ({ actor: owner, audience: "mcp-client" }),
+    context: () => ({ actor: owner, audience: "mcp-client", origin: actingOrigin() }),
     audit: opts.audit,
   });
 }
@@ -208,14 +223,18 @@ export function serverExportView(inner: MemoryStore, opts: { owner?: string; aud
   const owner = opts.owner ?? "owner";
   return exportView(inner, {
     policies: [personalDefaults({ owner })],
-    context: () => ({ actor: owner, audience: "mcp-client" }),
+    context: () => ({ actor: owner, audience: "mcp-client", origin: actingOrigin() }),
     audit: opts.audit,
   });
 }
 
 export interface GovernanceDeps {
   store: MemoryStore;
-  /** Who is writing, asked at each write. The shipped server answers from the MCP handshake. */
+  /**
+   * Which app is acting, asked at each tool call: the fact's `origin`, and
+   * `actingOrigin()` while the call runs. Over stdio the shipped server answers
+   * from the MCP handshake; over HTTP, from the signed-in client (http-server.ts).
+   */
   origin?: () => Origin | undefined;
   /**
    * Turns recall hybrid (keyword + vector). A function is asked at every call,
@@ -317,7 +336,7 @@ export function governanceTools(deps: GovernanceDeps) {
   };
   const expand = deps.expand ?? true;
   let pinsDelivered = false;
-  return {
+  const tools = {
     /**
      * The pinned tier, once — the first time a connection recalls anything, and
      * "" every time after.
@@ -502,6 +521,13 @@ export function governanceTools(deps: GovernanceDeps) {
       return { path, bytes: bytes + 1, facts, edges, formatVersion: artifact.formatVersion };
     },
   };
+  // Every tool runs with its app as `actingOrigin()`, so a governed store whose
+  // context reads it audits the call under that app, not only the fact.
+  for (const name of Object.keys(tools) as (keyof typeof tools)[]) {
+    const run = tools[name] as (...args: unknown[]) => Promise<unknown>;
+    (tools as Record<string, unknown>)[name] = (...args: unknown[]) => ACTING.run(knownOrigin(deps.origin?.()), () => run(...args));
+  }
+  return tools;
 }
 
 /**

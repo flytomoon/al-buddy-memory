@@ -135,6 +135,23 @@ describe("the shipped server's store", () => {
     expect(audit.events.every((e) => e.audience === "mcp-client")).toBe(true);
   });
 
+  it("audits each call under the app that made it, and leaves origin off an event when no app is known (Fable review H1)", async () => {
+    const audit = new MemoryAudit();
+    const inner = new InMemoryStore();
+    const store = serverStore(inner, { owner: "owner", audit });
+    const fact = await governanceTools({ store, origin: () => ({ app: "claude-code", appVersion: "2.1", via: "mcp" }) }).remember({ text: "prefers Pacific time" });
+    const write = audit.events.find((e) => e.purpose === "write" && e.nodeIds.includes(fact.id));
+    expect(write).toMatchObject({ actor: "owner", origin: { app: "claude-code", appVersion: "2.1", via: "mcp" } });
+    expect(audit.events.every((e) => e.origin?.app === "claude-code")).toBe(true);
+
+    // Outside a tool call, or with nothing known, the event is exactly the old shape.
+    audit.events.length = 0;
+    await store.searchNodes({ query: "Pacific" });
+    await governanceTools({ store, origin: () => ({ app: "" }) }).recall({ query: "Pacific" });
+    expect(audit.events.length).toBeGreaterThan(1);
+    expect(audit.events.every((e) => !("origin" in e))).toBe(true);
+  });
+
   it("a hidden secret never takes the place of a fact the AI may see (no probing by page count)", async () => {
     const inner = new InMemoryStore();
     const owner = governanceTools({ store: inner });

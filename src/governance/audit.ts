@@ -7,12 +7,19 @@
 import { dirname, join } from "node:path";
 
 import { GENESIS, LINE_LABELS, chainDigest, linkFault } from "./chain.js";
+import type { Origin } from "../provenance.js";
 import type { Purpose } from "./policy.js";
 
 export interface AuditEvent {
   at: string;
   actor: string;
   audience?: string | undefined;
+  /**
+   * The app the actor acted through, when the host knew it (`PolicyContext.origin`):
+   * over MCP, the client. Absent on events written before it existed, and on
+   * events whose host knew no app; the chain covers it like every other field.
+   */
+  origin?: Origin | undefined;
   purpose: Purpose;
   outcome: "allowed" | "denied" | "hidden";
   /** Facts touched (capped — the count is exact, the ids are a sample). */
