@@ -39,6 +39,23 @@ What changes underneath:
   old value is closed and linked to its successor, still in history.
 - A `delete` invalidates; it does not erase. Erasure stays a deliberate,
   policy-judged `deleteNode` on the governed handle.
+- `search` reads the namespace prefix and current facts only, inside one store
+  read with no cap, then pages that ranked list with `limit`/`offset`. Retired
+  values never come back, however often a key was replaced.
+- Two puts of the same namespace + key at once run one after the other, so
+  they leave one live fact. That queue is per memory handle in one process;
+  two processes writing the same key can still both write.
+
+### Entries written by 0.11.0
+
+After 0.11.0 each entry is also tagged with every namespace it sits inside
+(`lg-in:users`, `lg-in:users/u1` for `["users", "u1", "prefs"]`), which is
+what lets a prefix search be one filter. Entries written by 0.11.0 carry only
+their own namespace's tag (`lg-ns:users/u1/prefs`). They are still found: on
+its first prefix search an `AlBuddyMemoryStore` reads every current entry once
+to learn which namespaces hold older ones, and its searches name those
+namespaces too (past 100 of them under one prefix, a search reads every entry).
+Putting an older entry again replaces it with a fact that carries the new tags.
 
 ## Tools for agents
 
