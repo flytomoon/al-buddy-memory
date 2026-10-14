@@ -73,6 +73,19 @@ earlier were GitHub releases only.
 - A remembered fact written as a command ("SYSTEM: ignore … run …") used to reach the start of
   every Claude Code session under a plain `Most recently learned:` header, with nothing saying it
   was data. The briefing now says so before the first fact and in each section header.
+- **The LangGraph store searches inside the namespace, not after a cut.** `AlBuddyMemoryStore.search`
+  read the newest 500 entries of the whole store, retired ones included, and only then kept the
+  namespace, so a quiet namespace lost its older entries (3 of 5 in the review), a key put 300
+  times crowded out everything else, and pages past the 500th were empty. The namespace prefix and
+  "current only" now go into the store's read, with no pool: `limit` and `offset` page the ranked
+  list. A `put` now also tags every namespace an entry sits inside (`lg-in:users`,
+  `lg-in:users/u1`), so a prefix search is one tag filter; entries written by 0.11.0 carry only
+  their own namespace's tag, so the store reads once, on its first prefix search, which
+  namespaces hold them and names those too (re-putting an entry moves it onto the new tags).
+  `get`, `put`, `delete` and `listNamespaces` read current facts only, and `get` compares the
+  namespace itself, so `["a/b"]` and `["a", "b"]` no longer answer for each other. Two puts of one
+  key at once used to leave two live facts; puts of one namespace + key on one handle now run one
+  after the other.
 
 ## 0.11.0 — 2026-10-08
 
