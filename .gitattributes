@@ -1,2 +1,10 @@
 # Parallel branches each add lines under "## Unreleased": keep both sides instead of a merge conflict.
 CHANGELOG.md merge=union
+# Benchmark results are data the runner writes (a 50-question sweep is 1-2 MB). Diffs show them as
+# "Binary files differ" so a branch's diff stays the code and the docs: jobs #1003 and #1004 handed
+# the landing review a 4.8 MB and a 5.6 MB diff, 98% result rows, and both were held at review.
+# `git diff --text` (or `git show <rev>:<file>`) still shows one. Merges stay textual (no -merge).
+bench/results/*.json -diff linguist-generated=true
+bench/results/*.jsonl -diff linguist-generated=true
+# A summary is a few lines a reviewer checks the docs' numbers against: keep it in the diff.
+bench/results/*.summary.json diff -linguist-generated
