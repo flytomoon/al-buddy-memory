@@ -23,6 +23,16 @@ earlier were GitHub releases only.
   `--content-words`. `recall-sweep.mjs` takes it as an arm, joined to others with `+`; it also
   takes `build:<dir>` to recall with another build over an exact copy of the memory, and
   `--repeat N` to time each arm as the median of N recalls.
+- **Benchmark: the reranker behind the time-window gate** (review § 5, change 5). `run.mjs
+  --rerank-when window` lets the cross-encoder read only questions that name a period ("last
+  Saturday", "in April"); every other question recalls with `rerank: false`, exactly as with no
+  reranker. `recall-sweep.mjs` takes it as a `:window` suffix on a cross-encoder arm
+  (`minilm:q8:30:window`) and holds such an arm to its bar against the same arm without the
+  cross-encoder (window recalls p95 within `--budget-ms`, evidence gained on them, the other
+  questions' rounds and time unchanged), as its `RESULT:` line. Measured with a stand-in of the
+  same architecture (review § 9): a window recall at depth 30 took 1.5 s at p50 and 2.9–4.0 s at
+  p95, against a 300 ms budget, while every other question kept its rounds and its time. The
+  library does not change and no reranker is switched on.
 - **`MemoryStore.getNodes(ids)`**, optional: several nodes in one read, each as `getNode` returns
   it. `SqliteMemoryStore` and `InMemoryStore` have it; recall looks its vector candidates up with
   it (one statement per batch, not one per candidate) and falls back to `getNode` on a store

@@ -13,6 +13,10 @@
 // An arm is `none`, or parts joined by `+`:
 //   <model>:<dtype>:<depth>   a cross-encoder — model `minilm`, `bge` or a Hugging
 //                             Face cross-encoder id, depth a number of candidates or `all`
+//   <model>:<dtype>:<depth>:window
+//                             the same, reading only questions that name a period
+//                             (run.mjs --rerank-when window); every other question
+//                             recalls with rerank: false
 //   content-words             recall option contentWords
 //   build:<dir>               another build of the library (e.g. the commit before,
 //                             compiled to <dir>), recalling over an exact copy of the
@@ -25,7 +29,10 @@
 // turn, in how many questions it would see the same rounds as the first arm,
 // and which questions newly see (or no longer see) every evidence turn
 // against the first arm. A question's accuracy can only move when the rounds
-// it is shown do. The last line printed is `RESULT: …`, one sentence.
+// it is shown do. A `:window` arm whose arm without the cross-encoder is also
+// swept (`minilm:q8:30:window` and `none`, say) is held to its bar against it
+// (`windowGateCheck`), and the last such check is the RESULT. The last line
+// printed is `RESULT: …`, one sentence.
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, loadavg, totalmem } from "node:os";
@@ -36,8 +43,8 @@ import { parseArgs } from "node:util";
 import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { corpusOf, isAbstention, loadInstances, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
-import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
-import { retrievalMetrics, shownEvidence, summarizeRecallTime, summarizeRetrieval } from "./metrics.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
+import { retrievalMetrics, sameRounds, shownEvidence, summarizeRecallTime, summarizeRetrieval, windowGateCheck } from "./metrics.mjs";
 
 const RERANK_MODELS = { minilm: "Xenova/ms-marco-MiniLM-L-6-v2", bge: "Xenova/bge-reranker-base" };
 
@@ -105,7 +112,7 @@ const rerankers = new Map();
 const builds = new Map();
 const arms = [];
 for (const spec of args.arm) {
-  const arm = { name: "none", reranker: null, depth: null, recallOptions: {}, build: null };
+  const arm = { name: "none", reranker: null, depth: null, when: "always", rerankPart: null, recallOptions: {}, build: null };
   if (spec === "none") {
     arms.push(arm);
     continue;
@@ -122,16 +129,18 @@ for (const spec of args.arm) {
       arm.build = dir;
     } else {
       if (arm.reranker) fail(`--arm ${spec}: one cross-encoder per arm`);
-      const [short, dtype = "fp32", depthSpec = "all"] = part.split(":");
+      const [short, dtype = "fp32", depthSpec = "all", gate, ...extra] = part.split(":");
       // A Hugging Face id is always owner/name, so anything else is a typo or an arm that is gone.
       if (!RERANK_MODELS[short] && !short.includes("/")) fail(`--arm ${spec}: unknown part "${part}" (have: none, content-words, build:<dir>, ${Object.keys(RERANK_MODELS).join(", ")} or a Hugging Face cross-encoder id)`);
       const model = RERANK_MODELS[short] ?? short;
       const depth = depthSpec === "all" ? null : Number(depthSpec);
       if (depth !== null && (!Number.isInteger(depth) || depth < 1)) fail(`--arm ${spec}: depth must be an integer >= 1 or "all"`);
+      if ((gate !== undefined && gate !== "window") || extra.length > 0) fail(`--arm ${spec}: after the depth, only ":window" (rerank only questions that name a period)`);
       const key = `${model}:${dtype}`;
       if (!rerankers.has(key)) rerankers.set(key, new lib.LocalReranker({ model, dtype }));
-      Object.assign(arm, { reranker: rerankers.get(key), depth });
-      names.push(`${short}:${dtype}:${depthSpec}`);
+      const rerankPart = `${short}:${dtype}:${depthSpec}${gate ? ":window" : ""}`;
+      Object.assign(arm, { reranker: rerankers.get(key), depth, when: gate ?? "always", rerankPart });
+      names.push(rerankPart);
       continue;
     }
     names.push(part);
@@ -165,7 +174,7 @@ const settings = {
   aggregateTopK,
   arms: arms.map((a) => ({
     name: a.name,
-    reranker: a.reranker ? { model: a.reranker.model, dtype: a.reranker.dtype, depth: a.depth ?? `all recalled (${recallPool})` } : null,
+    reranker: a.reranker ? { model: a.reranker.model, dtype: a.reranker.dtype, depth: a.depth ?? `all recalled (${recallPool})`, when: a.when } : null,
     recallOptions: a.recallOptions,
     build: a.build ? relative(REPO_ROOT, a.build) || "." : null,
   })),
@@ -233,7 +242,8 @@ for (const instance of todo) {
         const armLib = arm.build ? builds.get(arm.build) : lib;
         const armMemory = arm.build ? copies.get(arm.build) : memory;
         const retriever = new armLib.HybridRetriever(armMemory.store, queryEmbedder, arm.reranker ? { reranker: arm.reranker, ...(arm.depth ? { rerankDepth: arm.depth } : {}) } : {});
-        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: args.expand, recallPool, recallOptions: arm.recallOptions });
+        const recallOptions = arm.reranker ? { ...arm.recallOptions, ...rerankGate(lib, instance, arm.when) } : arm.recallOptions;
+        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: args.expand, recallPool, recallOptions });
         times.get(arm.name).push({ ...recall, load1: round2(loadavg()[0]) });
         if (rep > 0) continue;
         const shown = rounds.slice(0, k).map((r) => r.id);
@@ -261,7 +271,6 @@ for (const instance of todo) {
 // --- the result ------------------------------------------------------------------
 const byId = new Map(readFileSync(progressPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).map((r) => [r.question_id, r]));
 const rows = instances.map((x) => byId.get(x.question_id)).filter(Boolean);
-const sameRounds = (a, b) => [...a].sort().join("\n") === [...b].sort().join("\n");
 const allShown = (r, name) => r.arms[name].retrieval.shown?.all;
 const summary = Object.fromEntries(
   arms.map((arm) => {
@@ -286,6 +295,12 @@ const summary = Object.fromEntries(
     ];
   }),
 );
+// Each `:window` arm against the same arm without its cross-encoder, when that one was swept too.
+const gateChecks = arms
+  .filter((a) => a.when === "window")
+  .map((a) => ({ arm: a.name, base: a.name.split("+").filter((p) => p !== a.rerankPart).join("+") || "none" }))
+  .filter(({ base }) => arms.some((b) => b.name === base))
+  .map(({ arm, base }) => windowGateCheck(rows, { arm, base, budgetMs }));
 const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), "lme-recall-sweep");
 writeJson(out, {
   benchmark: "LongMemEval recall sweep",
@@ -296,6 +311,7 @@ writeJson(out, {
   machine: { cpu: cpus()[0]?.model ?? null, cores: cpus().length, memoryGb: Math.round(totalmem() / 2 ** 30), loadAverage: { atStart: loadAtStart, atEnd: loadavg().map(round2) } },
   wallClockSeconds: Math.round((Date.now() - started) / 1000),
   summary,
+  ...(gateChecks.length > 0 ? { windowGate: gateChecks } : {}),
   questions: rows,
 });
 rmSync(progressPath, { force: true });
@@ -312,11 +328,20 @@ for (const arm of arms) {
 }
 const load = summary[arms[0].name].recall.load1;
 if (load) console.log(`Machine load (1 min) while recalling: ${load.mean} on average, ${load.max} at most, on ${cpus().length} cores.`);
-// One sentence for whoever started this unattended: the best arm by evidence shown, against the first.
+/** One sentence on a `:window` arm against its bar. */
+const gateSentence = (g) =>
+  `${g.arm} against ${g.base}: ${g.pass ? "PASS" : `FAIL (${Object.keys(g.checks).filter((k) => !g.checks[k]).join(", ")})`}; ` +
+  `the ${g.window.n} questions that name a period recalled in ${g.window.recallMs ? `${g.window.recallMs.p50} ms p50 and ${g.window.recallMs.p95} ms p95` : "—"} (budget ${g.budgetMs} ms) ` +
+  `and showed every evidence turn in ${g.window.allEvidence.arm} against ${g.window.allEvidence.base} of ${g.window.allEvidence.of} (+${g.window.gained.length} / -${g.window.lost.length}); ` +
+  `the other ${g.other.n} showed the same rounds in ${g.other.sameRounds}, in ${(g.other.pairedMs ?? 0) >= 0 ? "+" : ""}${g.other.pairedMs ?? 0} ms against ${g.base} by the paired median`;
+for (const g of gateChecks) console.log(`Window gate: ${gateSentence(g)}.`);
+// One sentence for whoever started this unattended: the window gate's verdict, or the best arm by evidence shown, against the first.
 const best = arms.slice(1).reduce((b, a) => (b === null || (summary[a.name].shown?.allEvidence ?? -1) > (summary[b.name].shown?.allEvidence ?? -1) ? a : b), null);
 const first = summary[arms[0].name];
 console.log(
-  best
+  gateChecks.length > 0
+    ? `RESULT: over ${rows.length} questions, ${gateSentence(gateChecks[gateChecks.length - 1])}.`
+    : best
     ? `RESULT: over ${rows.length} questions, ${best.name} showed every evidence turn in ${pct(summary[best.name].shown?.allEvidence)} against ${pct(first.shown?.allEvidence)} for ${arms[0].name} (+${summary[best.name].allEvidenceVs.gained.length} / -${summary[best.name].allEvidenceVs.lost.length} questions), recall p50 ${summary[best.name].recall.ms.p50} ms against ${first.recall.ms.p50} ms.`
     : `RESULT: over ${rows.length} questions, ${arms[0].name} showed every evidence turn in ${pct(first.shown?.allEvidence)}, recall p50 ${first.recall.ms.p50} ms.`,
 );

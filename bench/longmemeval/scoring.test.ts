@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { checkInstance, corpusOf, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
-import { dcg, evaluateRetrieval, evaluateRetrievalTurn2Session, ndcg, percentile, retrievalMetrics, shownEvidence, summarizeQa, summarizeRecallTime, summarizeRetrieval } from "./metrics.mjs";
+import { dcg, evaluateRetrieval, evaluateRetrievalTurn2Session, ndcg, percentile, retrievalMetrics, sameRounds, shownEvidence, summarizeQa, summarizeRecallTime, summarizeRetrieval, windowGateCheck } from "./metrics.mjs";
 import { ANSWER_TEMPLATES, CHAIN_OF_NOTE_TEMPLATE, answerPrompt, formatHistory, judgeLabel, judgePrompt, pythonJsonDumps } from "./prompts.mjs";
 import { digest, pairwise, report } from "./compare.mjs";
 import { instance } from "./fixture.js";
@@ -228,6 +228,67 @@ describe("Recall time — not an official metric", () => {
     expect(s).toEqual({ n: 20, ms: { p50: 10, p95: 19, max: 20, mean: 10.5 }, cpuMs: { p50: 30, p95: 57, max: 60, mean: 31.5 }, load1: { mean: 3, max: 4 } });
     // A result from before recall was timed has nothing to summarise.
     expect(summarizeRecallTime([{ question_id: "old" }])).toBeNull();
+  });
+});
+
+describe("The window gate's bar (review 2026-10, change 5) — not an official metric", () => {
+  /** A sweep row: `none` and `gated`, each with its shown rounds, all-evidence flag and recall ms. */
+  const row = (id: string, windows: string[], none: [string[], number | undefined, number], gated: [string[], number | undefined, number]) => ({
+    question_id: id,
+    cues: { windows },
+    arms: Object.fromEntries(
+      (
+        [
+          ["none", none],
+          ["gated", gated],
+        ] as const
+      ).map(([name, [shownRounds, all, ms]]) => [name, { shownRounds, retrieval: all === undefined ? { skipped: "abstention" } : { skipped: null, shown: { all } }, recall: { ms, cpuMs: ms } }]),
+    ),
+  });
+  const passing = [
+    row("w1", ["last week"], [["a", "b"], 0, 10], [["a", "c"], 1, 120]),
+    row("w2", ["in May"], [["a"], 1, 12], [["a"], 1, 250]),
+    row("w3", ["in May"], [["a"], undefined, 11], [["b"], undefined, 90]),
+    row("o1", [], [["a", "b"], 1, 10], [["b", "a"], 1, 10.5]),
+    row("o2", [], [["c"], 0, 20], [["c"], 0, 19]),
+  ];
+
+  it("passes when window recalls stay in budget and gain evidence, and the others are untouched", () => {
+    const g = windowGateCheck(passing, { arm: "gated", base: "none", budgetMs: 300 });
+    expect(g.pass).toBe(true);
+    expect(g.checks).toEqual({ windowP95: true, windowEvidence: true, otherSameRounds: true, otherTime: true });
+    expect(g.window).toEqual({
+      n: 3,
+      recallMs: { p50: 120, p95: 250, max: 250 },
+      baseRecallMs: { p50: 11, p95: 12, max: 12 },
+      allEvidence: { arm: 2, base: 1, of: 2 }, // w3 is an abstention: no evidence to show
+      gained: ["w1"],
+      lost: [],
+    });
+    // Rounds are compared as a set: the reader's prompt lists them by date.
+    expect(g.other).toMatchObject({ n: 2, sameRounds: 2, pairedMs: -1 });
+    expect(sameRounds(["a", "b"], ["b", "a"])).toBe(true);
+    expect(sameRounds(["a"], ["a", "b"])).toBe(false);
+  });
+
+  it("fails each check on its own", () => {
+    const fails = (rows: ReturnType<typeof row>[], opts = {}) => {
+      const g = windowGateCheck(rows, { arm: "gated", base: "none", ...opts });
+      expect(g.pass).toBe(false);
+      return Object.keys(g.checks).filter((k) => !g.checks[k as keyof typeof g.checks]);
+    };
+    expect(fails(passing, { budgetMs: 200 })).toEqual(["windowP95"]);
+    expect(fails([...passing, row("w4", ["in May"], [["a"], 1, 10], [["b"], 0, 100])])).toEqual(["windowEvidence"]);
+    expect(fails([...passing, row("o3", [], [["a"], 1, 10], [["b"], 1, 10])])).toEqual(["otherSameRounds"]);
+    const slower = passing.map((r) => (r.cues.windows.length ? r : { ...r, arms: { ...r.arms, gated: { ...r.arms.gated, recall: { ms: r.arms.none.recall.ms + 5, cpuMs: 0 } } } }));
+    expect(fails(slower)).toEqual(["otherTime"]);
+    // Faster is noise as well, and no harm: the bar is "no slower".
+    const faster = passing.map((r) => (r.cues.windows.length ? r : { ...r, arms: { ...r.arms, gated: { ...r.arms.gated, recall: { ms: r.arms.none.recall.ms - 5, cpuMs: 0 } } } }));
+    expect(windowGateCheck(faster, { arm: "gated", base: "none" }).pass).toBe(true);
+    // No question that names a period: nothing was measured, so nothing passes.
+    expect(fails(passing.filter((r) => r.cues.windows.length === 0))).toEqual(["windowP95", "windowEvidence"]);
+    // And no other question: those two checks have nothing to hold.
+    expect(windowGateCheck(passing.filter((r) => r.cues.windows.length > 0), { arm: "gated", base: "none" }).checks).toMatchObject({ otherSameRounds: true, otherTime: true });
   });
 });
 

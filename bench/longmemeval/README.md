@@ -63,6 +63,7 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | `--rerank none\|minilm\|bge\|<model>` | `none` | Rerank recall with an on-device cross-encoder (`LocalReranker`): `minilm` is `Xenova/ms-marco-MiniLM-L-6-v2` (~23 M parameters), `bge` is `Xenova/bge-reranker-base` (278 M, about ten times slower), or any Hugging Face cross-encoder id. Downloaded once to the transformers.js cache, like the embedder. About 200 question–passage pairs per question (100 messages, long ones in windows); a MiniLM-L6 forward pass managed 12 pairs a second on a machine at load 160, so expect seconds per question on an idle one with `minilm`, and about ten times that with `bge`. |
 | `--rerank-dtype fp32\|q8\|…` | `fp32` | The cross-encoder's weights. `q8` is a quarter of the download and faster, at some cost in accuracy. |
 | `--rerank-depth N` | all recalled | The cross-encoder reads only the best N fused candidates (`HybridRetriever`'s `rerankDepth`); the rest keep their order after them. See [Recall time](#recall-time) for why N at or below the rounds shown changes almost nothing the reader sees. |
+| `--rerank-when always\|window` | `always` | `window`: the cross-encoder reads only questions that name a period ("last Saturday", "in April", "two weeks ago", as `analyzeQuery` reads them against the question's date); every other question recalls with `rerank: false`, exactly as without `--rerank`. Each row's `reranked` says which it got. |
 | `--expand` | off | Recall with `expand`: the library reads the question's time and counting cues (`analyzeQuery`), resolving "last week" against the question's date. |
 | `--content-words` | off | Recall with `contentWords`: the question's own keyword search reads its content words (`keywordsOf`), not "how", "did", "I". |
 | `--aggregate-top-k N` | off | How many rounds the reader sees for a question `analyzeQuery` marks as counting across memories ("how many", "total", "A and B", "which … first"). Other questions still see `--top-k`. |
@@ -228,7 +229,13 @@ node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
 
 An arm is `none` or `<model>:<dtype>:<depth>` (`minilm`, `bge` or a Hugging Face id; `fp32`, `q8`,
 …; a number of candidates or `all`), or the recall option `content-words`, joined with `+`
-(`content-words+minilm:q8:30`). `build:<dir>` recalls with
+(`content-words+minilm:q8:30`). A cross-encoder part ending in `:window` (`minilm:q8:30:window`)
+reads only questions that name a period, as `run.mjs --rerank-when window` does; when the same arm
+without it is swept too (`none`, or `content-words` for `content-words+minilm:q8:30:window`), the
+sweep holds it to its bar: window recalls within `--budget-ms` at p95, more of them newly showing
+every evidence turn than no longer, and every other question showing the same rounds, no slower
+(the paired median at most 1 ms more). The verdict goes in the result file's `windowGate` and is
+the `RESULT:` line. `build:<dir>` recalls with
 another build of the library compiled to `<dir>` (the commit before a change, say), over an exact
 copy of the memory — the same ids, anchors and vectors — so a change meant to be rank-identical
 can be held to "the same rounds in every question" in one run. Per arm it also lists the questions

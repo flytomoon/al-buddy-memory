@@ -281,6 +281,9 @@ reader.
 3. **One job: the window gate** (change 5). Bench flag first. The reranker ships behind the gate
    only if the gain set shows the coverage gain again, the other questions keep the same rounds,
    and escalated recalls stay ≤ 300 ms p95. If they don't, leave it off: steps 1–2 stand alone.
+   *Measured in § 9: the gate leaves every other question untouched, but a window recall takes
+   1.5 s at p50 and 2.9–4.0 s at p95 at depth 30, ten times the budget. Left off; the bench flag
+   stays.*
 4. **Then, and only then, re-measure the reader's context** (30 rounds for counting questions):
    diversity may have made the last 10 rounds redundant, which would cut a quarter of the
    largest prompts.
@@ -406,3 +409,94 @@ full 500, before `contentWords` is switched on in the shipped server. (c) `node 
 for keyword recall at 100,000 facts against the README's "Limits, measured", which change 3
 should lower. It was not run here: the README's numbers come from a quiet machine, and this one
 was at load 300.
+
+## 9. Step 3, the window gate, measured (2026-10-15, job #1004)
+
+**Verdict: not shipped.** The gate does what it should for every other question: the same rounds,
+the same time. But a recall that runs the reranker takes **1.5 s at p50 and 2.9–4.0 s at p95**,
+against a 300 ms budget. None of the 68 came in under budget; the fastest took 879 ms. The library
+does not change: no reranker is on by default, and none is switched on. Steps 1–2 stand alone.
+The bench now has the gate, so the real model can be measured
+without new code (the `LONG RUN` below).
+
+**What was built (bench only).** `run.mjs --rerank-when window` lets the cross-encoder read only
+questions that name a period (`analyzeQuery`'s windows, read against the question's date). Every
+other question recalls with `rerank: false`, exactly as with no reranker. `recall-sweep.mjs` takes
+it as a `:window` suffix on an arm (`minilm:q8:30:window`). It holds such an arm to this step's
+bar against the same arm without the cross-encoder, as `windowGateCheck` in `metrics.mjs`:
+window recalls p95 ≤ `--budget-ms`, more window questions newly shown every evidence turn than
+no longer, and every other question with the same rounds and no slower (paired median ≤ 1 ms).
+The verdict is its `RESULT:` line. No library option was added: `RecallOptions.rerank` already
+skips the reranker per recall, and there is nothing to ship behind the gate yet.
+
+**How, and the one substitution.** `Xenova/ms-marco-MiniLM-L-6-v2` could not be downloaded in the
+session that ran this (huggingface.co is blocked there). The cached `Xenova/all-MiniLM-L6-v2` has
+the **identical encoder**: BERT, 6 layers, hidden size 384, 12 heads, feed-forward 1,536, 512
+positions, the same uncased vocabulary. The cross-encoder only adds a 384-to-1 head on top. So
+the same question–passage pairs, tokenized and batched (16 at a time) as `LocalReranker` does,
+cost the same forward passes. Its scores are meaningless, so this measures **time** and the
+**other questions' rounds**, not evidence gained. The sweep ran on 68 + 38 questions: every one
+of the 500 that names a period (68), and the 38 gain-set questions that do not. Four arms each
+recalled from one memory build: `none`, the gated stand-in at depth 30, `content-words`, and
+`content-words` with the gated stand-in. Each time is the median of 3 recalls, `--expand
+--aggregate-top-k 40`, fp32 (q8 is not cached). Load 28–279, p50 80, on 10 cores. File:
+[`2026-10-15-lme-window-gate-standin.json`](../../bench/results/2026-10-15-lme-window-gate-standin.json).
+
+| Gated arm (depth 30, fp32) | Window recall p50 / p95 / max | Without the reranker | Pairs scored p50 (range) | Within 300 ms | Other questions: same rounds | Paired time, other |
+|---|---|---|---|---|---|---|
+| none + gate | **1,527 / 4,021 / 7,330 ms** | 20.3 / 48.4 ms | 55 (37–88) | **0 of 68** | **38 of 38**, 0 pairs scored | **+0.4 ms** |
+| content words + gate (the fast path) | **1,569 / 2,880 / 6,618 ms** | 16.3 / 54.1 ms | 54 (37–89) | **0 of 68** | **38 of 38**, 0 pairs scored | **−0.1 ms** |
+
+**Against the bar (§ 5, change 5).**
+
+- **Window recalls p95 ≤ 300 ms: fail, by 10–13×.** Even at load under 40, close to the published
+  run's 32, the 7 recalls timed there took 1,396 ms p50 and 1,988 ms p95.
+- **Non-window recalls unchanged: pass.** The same rounds in 38 of 38 questions, the reranker
+  read nothing, and the paired median moved +0.4 / −0.1 ms, which is noise. This holds by
+  construction (`rerank: false` skips the whole branch), and a test holds it in
+  `runner.test.ts`: the same memory, recalled with and without the gated reranker, gives the
+  same rounds in the same order.
+- **Coverage gain on the window questions: not measured.** It needs the real model's scores.
+  § 3's +8 to +11 points came from the committed 2026-09-29 run (all 100 candidates, fp32).
+
+**Why it is slow, and why no setting rescues it.** The 30 candidates are LongMemEval messages,
+and an assistant reply runs to thousands of characters. `rerankTexts` scores each in
+1,000-character windows, so 30 candidates make **37–89 pairs** of ~300 tokens each. A pair costs
+**~27 ms** here (p50; 18 ms at best). That is ~7 GFLOP of encoder per pair, so roughly
+0.4 TFLOP per recall and **6.6 s of CPU** across onnxruntime's threads. The 300 ms budget buys
+about **11 pairs**: depth 6 as messages are windowed, or 11 at one window each. The README's "Reranking only the top
+20 changes almost nothing the reader sees" applies there: below the 20 rounds the reader is
+shown, the cross-encoder only reorders what is shown anyway. Depth 30 with the first window
+only is still ~30 pairs, ~800 ms. q8 weights typically run 1.5–3× faster on CPU (not measured
+here), which would leave the p95 at ~1–2 s. **The 0.12 s that § 2 quoted from Hindsight does
+not carry over:** Hindsight reranks extracted facts, a sentence or two each, not raw turns
+(from memory, not re-checked today).
+
+**What this does to the plan.** The plan's slow path is out at this budget. The fast path (§ 8)
+is the plan: change 3 on, content words pending its full-500 run. Two leads remain, neither
+tested:
+
+- **A much smaller cross-encoder:** a 2-layer, 128-wide MS MARCO TinyBERT is ~20× less
+  encoder compute per pair on paper (~1.5 ms). That would put 55 pairs near 100 ms, before
+  the fixed cost of each call. First check that an ONNX
+  build exists for transformers.js, then add it as a sweep arm by its Hugging Face id. Its
+  quality is lower, so it must win the coverage check on its own.
+- **Spending the budget on window questions without a model:** they are 43% of the losses (§ 3).
+  `expand`'s in-period list is one fused list today, and its 2× / 3× weight recovered 1 of 18
+  in the 2026-10-13 sweep. It is free to sweep further.
+
+**Still owed.** The real model's time and coverage, on the gain set, with q8 and fp32. That is the
+`LONG RUN:` of this job's commit, which needs the one-time download this session could not do:
+
+```sh
+npm run build && node bench/longmemeval/recall-sweep.mjs --limit 50 --types multi-session,temporal-reasoning \
+  --expand --aggregate-top-k 40 --arm none --arm minilm:fp32:30:window --arm minilm:q8:30:window \
+  --arm content-words --arm content-words+minilm:q8:30:window --repeat 3 --resume \
+  --out bench/results/2026-10-15-lme50-gain-window-gate.json
+```
+
+Its `RESULT:` is the fast path plus the q8 gate against the fast path, PASS or FAIL with the
+checks it failed. If it unexpectedly passes the time check (q8 on a quiet machine), the coverage
+check decides. Shipping then still needs a library option (`HybridRetriever`'s `rerankWhen`) and
+a reranker configured in the server, a job of its own. On the evidence above, expect FAIL on
+`windowP95`.
