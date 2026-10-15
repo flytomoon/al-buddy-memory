@@ -84,8 +84,8 @@ function roundOf(session, turn) {
  * embedder and cross-encoder run on their own). Grouping into rounds is not
  * in it; it is the benchmark's bookkeeping, not the library's work.
  *
- * `recallOptions` go to `recall` as they are (`contentWords`,
- * `keywordWeight`, `diversify`): the A/B arms that are recall options.
+ * `recallOptions` go to `recall` as they are (`contentWords`, say): the A/B
+ * arms that are recall options.
  */
 export async function recallRounds(memory, instance, { freshness = 0, expand = false, recallPool = RECALL_POOL, recallOptions = {} } = {}) {
   const cpu = process.cpuUsage();
@@ -124,22 +124,11 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
 }
 
 /**
- * The recall options a run's `--content-words`, `--keyword-weight X` and
- * `--diversify N` flags stand for (N memories per session first), and how a
+ * The recall options a run's `--content-words` flag stands for, and how a
  * result file's settings spell them.
  */
-export function fastPathOptions({ contentWords = false, keywordWeight = null, diversify = null } = {}) {
-  const options = {
-    ...(contentWords ? { contentWords: true } : {}),
-    ...(keywordWeight !== null ? { keywordWeight } : {}),
-    ...(diversify !== null ? { diversify: { by: "session", perGroup: diversify } } : {}),
-  };
-  const text = [
-    contentWords && "contentWords: true",
-    keywordWeight !== null && `keywordWeight: ${keywordWeight}`,
-    diversify !== null && `diversify: { by: "session", perGroup: ${diversify} }`,
-  ].filter(Boolean);
-  return { options, text: text.length ? `, ${text.join(", ")}` : "" };
+export function fastPathOptions({ contentWords = false } = {}) {
+  return contentWords ? { options: { contentWords: true }, text: ", contentWords: true" } : { options: {}, text: "" };
 }
 
 /**

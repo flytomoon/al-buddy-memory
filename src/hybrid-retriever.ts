@@ -72,24 +72,6 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * search is then this one, not a second list.
    */
   contentWords?: boolean;
-  /**
-   * How much each keyword list counts in the fusion against each vector list
-   * (default 1, the same). Below 1, a keyword list crowded by common words
-   * moves the vector side's finds less. The time lists keep their scale.
-   */
-  keywordWeight?: number;
-  /**
-   * Put at most `perGroup` memories from each group first, in rank order, and
-   * then the rest, in rank order: a reordering of what recall found, never a
-   * filter. Off by default. One conversation that matched well can fill the
-   * top of the list with its own memories and push another conversation's
-   * single mention below where a reader stops; a question that counts across
-   * conversations then misses one. `by: "session"` groups by
-   * `contextualMetadata.session`, and a memory without one by the calendar
-   * day (UTC) it is valid from; a function returning `undefined` puts that
-   * memory in a group of its own.
-   */
-  diversify?: { by: "session" | ((node: MemoryNode) => string | undefined); perGroup: number };
 }
 
 export interface HybridRetrieverOptions {
@@ -171,16 +153,10 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const {
-      limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates,
-      contentWords: _contentWords, keywordWeight: _keywordWeight, diversify: _diversify, ...scope
-    } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, contentWords: _contentWords, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
     const basePool = options.candidates ?? CANDIDATE_POOL;
     if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
-    const keywordWeight = options.keywordWeight ?? 1;
-    if (!Number.isFinite(keywordWeight) || keywordWeight < 0) throw new Error(`recall: keywordWeight must be a finite number >= 0 (got ${options.keywordWeight})`);
-    const groupOf = options.diversify ? diversityKey(options.diversify) : null;
     const cues = options.expand ? analyzeQuery(query, { now: (typeof options.expand === "object" ? options.expand.now : undefined) ?? validAt }) : null;
     // What the query's own keyword search reads.
     const ownKeywords = options.contentWords ? keywordsOf(query) || query : query;
@@ -203,7 +179,7 @@ export class HybridRetriever {
 
     if (!cues) {
       // Keyword list — BM25-ordered by the store.
-      addList(await this.store.searchNodes({ ...filter, query: ownKeywords, limit: basePool }), keywordWeight);
+      addList(await this.store.searchNodes({ ...filter, query: ownKeywords, limit: basePool }));
       // Vector list — full scan of the embedder's model space (local scale).
       addList((await this.vectorCandidates(query, filter, basePool)).map((v) => v.node));
     } else {
@@ -212,15 +188,15 @@ export class HybridRetriever {
       const queries = expandedQueries(query, cues);
       const vectors = this.embedder ? await this.embedder.embed(queries) : [];
       let lists = 0;
-      const addRelevance = (nodes: MemoryNode[], weight = 1) => {
+      const addRelevance = (nodes: MemoryNode[]) => {
         if (nodes.length > 0) lists += 1;
-        addList(nodes, weight);
+        addList(nodes);
       };
       for (const [i, q] of queries.entries()) {
         // The query itself is searched exactly as recall without `expand` searches
         // it, so expanding can only add to what plain recall finds; what it reads
         // out of the query is searched by content words alone.
-        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? ownKeywords : keywordsOf(q), limit: pool }), keywordWeight);
+        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? ownKeywords : keywordsOf(q), limit: pool }));
         const vector = vectors[i];
         if (vector) addRelevance((await this.vectorCandidatesFor(vector, filter, pool)).map((v) => v.node));
       }
@@ -228,7 +204,7 @@ export class HybridRetriever {
       // its content words, so the things it names last are searched at all —
       // unless its own search above already was that one.
       const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
-      if (long && !options.contentWords && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }), keywordWeight);
+      if (long && !options.contentWords && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
       relevanceWeight = Math.max(1, lists);
     }
 
@@ -264,8 +240,9 @@ export class HybridRetriever {
       if (cues.order === "earliest") addList([...relevance].sort((a, b) => compareValidFrom(b, a)), ORDER_WEIGHT * timeScale);
     }
 
-    const ranked = rankFused(scores).map((e) => e.node);
-    return (groupOf ? diversified(ranked, groupOf, options.diversify!.perGroup) : ranked).slice(0, limit);
+    return rankFused(scores)
+      .slice(0, limit)
+      .map((e) => e.node);
   }
 
   /**
@@ -403,39 +380,6 @@ function rankFused(scores: Map<string, { score: number; node: MemoryNode }>): { 
   return [...scores.values()]
     .map((e) => ({ ...e, eff: effectiveConfidence(e.node, now) }))
     .sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node));
-}
-
-/** The group `diversify` puts a memory in; `undefined` is a group of its own. */
-function diversityKey(diversify: NonNullable<RecallOptions["diversify"]>): (node: MemoryNode) => string | undefined {
-  const { by, perGroup } = diversify;
-  if (!Number.isInteger(perGroup) || perGroup < 1) throw new Error(`recall: diversify.perGroup must be an integer >= 1 (got ${perGroup})`);
-  if (typeof by === "function") return by;
-  if (by !== "session") throw new Error(`recall: diversify.by must be "session" or a function (got ${String(by)})`);
-  return (node) => {
-    const session = node.contextualMetadata["session"];
-    if (typeof session === "string" || (typeof session === "number" && Number.isFinite(session))) return `session:${session}`;
-    const t = Date.parse(node.validFrom);
-    return Number.isFinite(t) ? `day:${new Date(t).toISOString().slice(0, 10)}` : undefined;
-  };
-}
-
-/**
- * `items` with at most `perGroup` of each group first, in their order, then the
- * rest in their order: the same items, never fewer.
- */
-export function diversified<T>(items: readonly T[], groupOf: (item: T) => string | undefined, perGroup: number): T[] {
-  const taken = new Map<string, number>();
-  const first: T[] = [];
-  const rest: T[] = [];
-  for (const item of items) {
-    const group = groupOf(item);
-    const n = group === undefined ? 0 : (taken.get(group) ?? 0);
-    if (n < perGroup) {
-      if (group !== undefined) taken.set(group, n + 1);
-      first.push(item);
-    } else rest.push(item);
-  }
-  return [...first, ...rest];
 }
 
 /**

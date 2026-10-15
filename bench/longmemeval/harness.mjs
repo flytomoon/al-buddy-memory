@@ -26,7 +26,7 @@ import { UsageLimitError } from "./answerers.mjs";
  * in every row as `cues`. `rerankDepth` bounds how many candidates the
  * reranker reads (default all of them). `queryEmbedder` embeds the question
  * (default `embedder`; see `ingestHistory`). `recallOptions` go to `recall`
- * as they are (`contentWords`, `keywordWeight`, `diversify`).
+ * as they are (`contentWords`, say).
  *
  * Every row records `recall`: how long `HybridRetriever.recall` alone took
  * (`ms`, `cpuMs`) and the machine's 1-minute load average just after

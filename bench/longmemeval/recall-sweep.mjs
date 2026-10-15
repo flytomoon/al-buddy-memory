@@ -14,12 +14,10 @@
 //   <model>:<dtype>:<depth>   a cross-encoder — model `minilm`, `bge` or a Hugging
 //                             Face cross-encoder id, depth a number of candidates or `all`
 //   content-words             recall option contentWords
-//   keyword-weight:<x>        recall option keywordWeight
-//   diversify:<n>             recall option diversify, n memories per session first
 //   build:<dir>               another build of the library (e.g. the commit before,
 //                             compiled to <dir>), recalling over an exact copy of the
 //                             memory: same ids, anchors and vectors, so ties fall the same way
-// e.g. `--arm none --arm diversify:2 --arm content-words+keyword-weight:0.5+diversify:3`.
+// e.g. `--arm none --arm build:../base/dist --arm content-words --arm content-words+minilm:q8:30`.
 //
 // Writes bench/results/<date>-lme-recall-sweep.json: per arm, the recall call's
 // wall-clock and CPU time, the share of recalls within --budget-ms, the
@@ -113,17 +111,11 @@ for (const spec of args.arm) {
     continue;
   }
   const names = [];
-  let contentWords = false, keywordWeight = null, diversify = null;
+  let contentWords = false;
   for (const part of spec.split("+")) {
     const [kind, ...rest] = part.split(":");
     if (part === "content-words") contentWords = true;
-    else if (kind === "keyword-weight") {
-      keywordWeight = Number(rest[0]);
-      if (rest.length !== 1 || !(Number.isFinite(keywordWeight) && keywordWeight >= 0)) fail(`--arm ${spec}: keyword-weight must be a number >= 0`);
-    } else if (kind === "diversify") {
-      diversify = Number(rest[0]);
-      if (rest.length !== 1 || !Number.isInteger(diversify) || diversify < 1) fail(`--arm ${spec}: diversify must be an integer >= 1`);
-    } else if (kind === "build") {
+    else if (kind === "build") {
       const dir = resolve(rest.join(":"));
       if (!existsSync(join(dir, "index.js"))) fail(`--arm ${spec}: ${dir}/index.js is missing (compile that commit's src/ there first)`);
       if (!builds.has(dir)) builds.set(dir, await import(pathToFileURL(join(dir, "index.js")).href));
@@ -131,6 +123,8 @@ for (const spec of args.arm) {
     } else {
       if (arm.reranker) fail(`--arm ${spec}: one cross-encoder per arm`);
       const [short, dtype = "fp32", depthSpec = "all"] = part.split(":");
+      // A Hugging Face id is always owner/name, so anything else is a typo or an arm that is gone.
+      if (!RERANK_MODELS[short] && !short.includes("/")) fail(`--arm ${spec}: unknown part "${part}" (have: none, content-words, build:<dir>, ${Object.keys(RERANK_MODELS).join(", ")} or a Hugging Face cross-encoder id)`);
       const model = RERANK_MODELS[short] ?? short;
       const depth = depthSpec === "all" ? null : Number(depthSpec);
       if (depth !== null && (!Number.isInteger(depth) || depth < 1)) fail(`--arm ${spec}: depth must be an integer >= 1 or "all"`);
@@ -142,7 +136,7 @@ for (const spec of args.arm) {
     }
     names.push(part);
   }
-  arm.recallOptions = fastPathOptions({ contentWords, keywordWeight, diversify }).options;
+  arm.recallOptions = fastPathOptions({ contentWords }).options;
   // An older build may not know the newer options; it would read them as a scope.
   if (arm.build && Object.keys(arm.recallOptions).length > 0) fail(`--arm ${spec}: a build arm recalls as that build does; give it no recall options`);
   arm.name = names.join("+");
