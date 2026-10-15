@@ -131,6 +131,23 @@ export function fastPathOptions({ contentWords = false } = {}) {
   return contentWords ? { options: { contentWords: true }, text: ", contentWords: true" } : { options: {}, text: "" };
 }
 
+/** What `--rerank-when` takes. */
+export const RERANK_WHEN = ["always", "window"];
+
+/**
+ * The recall option a reranked run's `--rerank-when` stands for, for this
+ * question: `always` leaves recall as it is; `window` lets the cross-encoder
+ * read only a question that names a period ("last Saturday", "in April", "two
+ * weeks ago"), as `analyzeQuery` reads it against the question's date, and
+ * skips it for every other question (`rerank: false`), which then recalls
+ * exactly as it would with no reranker (review 2026-10, change 5).
+ */
+export function rerankGate(lib, instance, when = "always") {
+  if (!RERANK_WHEN.includes(when)) throw new Error(`rerank-when must be ${RERANK_WHEN.join(" or ")} (got ${when})`);
+  if (when === "always") return {};
+  return { rerank: lib.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) }).windows.length > 0 };
+}
+
 /**
  * The same embedder with a memo of every text it has embedded. LongMemEval
  * histories share most of their filler sessions, and each question gets a
