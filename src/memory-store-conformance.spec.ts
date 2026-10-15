@@ -65,6 +65,15 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       expect(await store.getNode("does-not-exist")).toBeUndefined();
     });
 
+    it("getNodes, where offered, answers each id as getNode does, in the order asked", async () => {
+      if (!store.getNodes) return;
+      const a = await store.addNode(makeNode({ content: { text: "met Alice" }, contextualMetadata: { session: "s1" } }));
+      const b = await store.addNode(makeNode({ content: { text: "met Bob" } }));
+      const ids = [b.nodeId, "does-not-exist", a.nodeId, b.nodeId];
+      expect(await store.getNodes(ids)).toEqual(await Promise.all(ids.map((id) => store.getNode(id))));
+      expect(await store.getNodes([])).toEqual([]);
+    });
+
     describe("transaction time", () => {
       beforeEach(() => vi.useFakeTimers());
       afterEach(() => vi.useRealTimers());
@@ -464,10 +473,34 @@ export function runMemoryStoreConformance(label: string, makeStore: () => Memory
       }
       for (const query of [undefined, "coffee", "milk"]) {
         const all = (await store.searchNodes(query === undefined ? {} : { query })).map((n) => n.nodeId);
-        for (const limit of [1, 2, 7, 10, 15, 20]) {
+        for (const limit of [1, 2, 5, 7, 10, 15, 20, 50, 100]) {
           const page = (await store.searchNodes(query === undefined ? { limit } : { query, limit })).map((n) => n.nodeId);
           expect(page, `query=${query} limit=${limit}`).toEqual(all.slice(0, limit));
         }
+        // Paged reads are slices of the same list too.
+        for (const at of [0, 49, 120]) {
+          if (at >= all.length) continue;
+          for (const limit of [1, 50]) {
+            const after = all[at]!;
+            const page = (await store.searchNodes(query === undefined ? { after, limit } : { query, after, limit })).map((n) => n.nodeId);
+            expect(page, `query=${query} after=${at} limit=${limit}`).toEqual(all.slice(at + 1, at + 1 + limit));
+          }
+        }
+      }
+    });
+
+    /**
+     * A bounded search ranks on a few columns and reads only its page whole
+     * (SQLite, review 2026-10-13 change C): what it hands back must still be
+     * the whole fact, as getNode returns it.
+     */
+    it("a limited search hands back whole facts, the same as getNode", async () => {
+      await store.addNode(makeNode({ content: { text: "coffee in Lisbon", structuredData: { city: "Lisbon" }, attachmentRefs: ["att-1"] }, contextualMetadata: { tags: ["trip"], session: "s1" } }));
+      await store.addNode(makeNode({ content: { text: "coffee at home" }, decayRate: 0.01, confidenceWeight: 0.8 }));
+      for (const options of [{ query: "coffee", limit: 5 }, { limit: 5 }, { query: "coffee", limit: 1 }]) {
+        const page = await store.searchNodes(options);
+        expect(page.length).toBeGreaterThan(0);
+        expect(page).toEqual(await Promise.all(page.map((n) => store.getNode(n.nodeId))));
       }
     });
 

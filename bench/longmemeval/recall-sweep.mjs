@@ -10,25 +10,35 @@
 // no arm always goes first. One question at a time: a recall is never timed
 // while another is running.
 //
-// An arm is `none` or `<model>:<dtype>:<depth>` — model `minilm`, `bge` or a
-// Hugging Face cross-encoder id, depth a number of candidates or `all`.
+// An arm is `none`, or parts joined by `+`:
+//   <model>:<dtype>:<depth>   a cross-encoder — model `minilm`, `bge` or a Hugging
+//                             Face cross-encoder id, depth a number of candidates or `all`
+//   content-words             recall option contentWords
+//   keyword-weight:<x>        recall option keywordWeight
+//   diversify:<n>             recall option diversify, n memories per session first
+//   build:<dir>               another build of the library (e.g. the commit before,
+//                             compiled to <dir>), recalling over an exact copy of the
+//                             memory: same ids, anchors and vectors, so ties fall the same way
+// e.g. `--arm none --arm diversify:2 --arm content-words+keyword-weight:0.5+diversify:3`.
 //
 // Writes bench/results/<date>-lme-recall-sweep.json: per arm, the recall call's
 // wall-clock and CPU time, the share of recalls within --budget-ms, the
 // official retrieval averages, how often the reader would see every evidence
-// turn, and in how many questions it would see the same rounds as the first
-// arm. A question's accuracy can only move when the rounds it is shown do.
+// turn, in how many questions it would see the same rounds as the first arm,
+// and which questions newly see (or no longer see) every evidence turn
+// against the first arm. A question's accuracy can only move when the rounds
+// it is shown do. The last line printed is `RESULT: …`, one sentence.
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, loadavg, totalmem } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { corpusOf, isAbstention, loadInstances, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
-import { cachingEmbedder, ingestHistory, recallRounds } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
 import { retrievalMetrics, shownEvidence, summarizeRecallTime, summarizeRetrieval } from "./metrics.mjs";
 
 const RERANK_MODELS = { minilm: "Xenova/ms-marco-MiniLM-L-6-v2", bge: "Xenova/bge-reranker-base" };
@@ -45,6 +55,7 @@ const { values: args } = parseArgs({
     expand: { type: "boolean", default: false },
     arm: { type: "string", multiple: true, default: ["none"] },
     "budget-ms": { type: "string", default: "300" },
+    repeat: { type: "string", default: "1" },
     out: { type: "string" },
     resume: { type: "boolean", default: false },
     fresh: { type: "boolean", default: false },
@@ -91,17 +102,52 @@ const topK = int("top-k", 1);
 const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top-k", 1) : null;
 const recallPool = int("recall-pool", 1);
 const budgetMs = int("budget-ms", 1);
+const repeat = int("repeat", 1);
 const rerankers = new Map();
-const arms = args.arm.map((spec) => {
-  if (spec === "none") return { name: "none", reranker: null, depth: null };
-  const [short, dtype = "fp32", depthSpec = "all"] = spec.split(":");
-  const model = RERANK_MODELS[short] ?? short;
-  const depth = depthSpec === "all" ? null : Number(depthSpec);
-  if (depth !== null && (!Number.isInteger(depth) || depth < 1)) fail(`--arm ${spec}: depth must be an integer >= 1 or "all"`);
-  const key = `${model}:${dtype}`;
-  if (!rerankers.has(key)) rerankers.set(key, new lib.LocalReranker({ model, dtype }));
-  return { name: `${short}:${dtype}:${depthSpec}`, reranker: rerankers.get(key), depth };
-});
+const builds = new Map();
+const arms = [];
+for (const spec of args.arm) {
+  const arm = { name: "none", reranker: null, depth: null, recallOptions: {}, build: null };
+  if (spec === "none") {
+    arms.push(arm);
+    continue;
+  }
+  const names = [];
+  let contentWords = false, keywordWeight = null, diversify = null;
+  for (const part of spec.split("+")) {
+    const [kind, ...rest] = part.split(":");
+    if (part === "content-words") contentWords = true;
+    else if (kind === "keyword-weight") {
+      keywordWeight = Number(rest[0]);
+      if (rest.length !== 1 || !(Number.isFinite(keywordWeight) && keywordWeight >= 0)) fail(`--arm ${spec}: keyword-weight must be a number >= 0`);
+    } else if (kind === "diversify") {
+      diversify = Number(rest[0]);
+      if (rest.length !== 1 || !Number.isInteger(diversify) || diversify < 1) fail(`--arm ${spec}: diversify must be an integer >= 1`);
+    } else if (kind === "build") {
+      const dir = resolve(rest.join(":"));
+      if (!existsSync(join(dir, "index.js"))) fail(`--arm ${spec}: ${dir}/index.js is missing (compile that commit's src/ there first)`);
+      if (!builds.has(dir)) builds.set(dir, await import(pathToFileURL(join(dir, "index.js")).href));
+      arm.build = dir;
+    } else {
+      if (arm.reranker) fail(`--arm ${spec}: one cross-encoder per arm`);
+      const [short, dtype = "fp32", depthSpec = "all"] = part.split(":");
+      const model = RERANK_MODELS[short] ?? short;
+      const depth = depthSpec === "all" ? null : Number(depthSpec);
+      if (depth !== null && (!Number.isInteger(depth) || depth < 1)) fail(`--arm ${spec}: depth must be an integer >= 1 or "all"`);
+      const key = `${model}:${dtype}`;
+      if (!rerankers.has(key)) rerankers.set(key, new lib.LocalReranker({ model, dtype }));
+      Object.assign(arm, { reranker: rerankers.get(key), depth });
+      names.push(`${short}:${dtype}:${depthSpec}`);
+      continue;
+    }
+    names.push(part);
+  }
+  arm.recallOptions = fastPathOptions({ contentWords, keywordWeight, diversify }).options;
+  // An older build may not know the newer options; it would read them as a scope.
+  if (arm.build && Object.keys(arm.recallOptions).length > 0) fail(`--arm ${spec}: a build arm recalls as that build does; give it no recall options`);
+  arm.name = names.join("+");
+  arms.push(arm);
+}
 if (new Set(arms.map((a) => a.name)).size !== arms.length) fail("Each --arm must be different.");
 const queryEmbedder = new lib.LocalEmbedder();
 const embedder = cachingEmbedder(queryEmbedder);
@@ -123,10 +169,16 @@ const settings = {
   expand: args.expand,
   topK,
   aggregateTopK,
-  arms: arms.map((a) => ({ name: a.name, reranker: a.reranker ? { model: a.reranker.model, dtype: a.reranker.dtype, depth: a.depth ?? `all recalled (${recallPool})` } : null })),
-  armOrder: "rotates by one arm per question",
+  arms: arms.map((a) => ({
+    name: a.name,
+    reranker: a.reranker ? { model: a.reranker.model, dtype: a.reranker.dtype, depth: a.depth ?? `all recalled (${recallPool})` } : null,
+    recallOptions: a.recallOptions,
+    build: a.build ? relative(REPO_ROOT, a.build) || "." : null,
+  })),
+  armOrder: repeat > 1 ? "rotates by one arm per question and per repetition" : "rotates by one arm per question",
+  repeat,
   budgetMs,
-  recallTiming: "per question and arm, the wall-clock and CPU time of the HybridRetriever.recall call alone (query embedding, keyword and vector search, fusion and any reranking), one recall at a time",
+  recallTiming: `per question and arm, the wall-clock and CPU time of the HybridRetriever.recall call alone (query embedding, keyword and vector search, fusion and any reranking), one recall at a time${repeat > 1 ? `; the median of ${repeat} recalls, each with a fresh retriever` : ""}`,
 };
 const runKey = createHash("sha256")
   .update(JSON.stringify({ dataSha256, commit: info.commit, settings, ids: instances.map((x) => x.question_id) }))
@@ -143,6 +195,25 @@ if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== ""
 const todo = instances.filter((x) => !done.has(x.question_id));
 console.log(`LongMemEval_${args.variant} recall sweep: ${instances.length} questions (${done.size} already done), arms ${arms.map((a) => a.name).join(", ")}${args.expand ? ", expand" : ""}, top ${topK} rounds${aggregateTopK ? ` (${aggregateTopK} when counting)` : ""}. No model is called.`);
 
+/**
+ * The same memory in another build's store: every node restored as it is
+ * (id, anchors, valid time) and every vector as stored, so the two builds
+ * rank the same data and differ only in their code.
+ */
+async function copyMemory(buildLib, memory) {
+  const store = new buildLib.SqliteMemoryStore(":memory:");
+  try {
+    for (const node of await memory.store.listNodes()) await store.restoreNode(node);
+    for (const e of await memory.store.listEmbeddings(queryEmbedder.model)) {
+      await store.setEmbedding({ nodeId: e.nodeId, model: e.model, modelVersion: e.modelVersion, dimensions: e.dimensions, metric: e.metric, vector: e.vector });
+    }
+  } catch (e) {
+    store.close();
+    throw e;
+  }
+  return { ...memory, store };
+}
+
 // --- the sweep -----------------------------------------------------------------
 const started = Date.now();
 const loadAtStart = loadavg().map(round2);
@@ -152,26 +223,41 @@ for (const instance of todo) {
   const t0 = Date.now();
   const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder });
   const row = { question_id: instance.question_id, question_type: instance.question_type, abstention: isAbstention(instance.question_id), memories: memory.memories, arms: {} };
+  const copies = new Map();
   try {
+    for (const [dir, buildLib] of builds) copies.set(dir, await copyMemory(buildLib, memory));
     const cues = lib.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) });
     const k = cues.aggregation && aggregateTopK ? aggregateTopK : topK;
     const { corpus, correct } = corpusOf(instance);
     const skipped = retrievalSkipReason(instance);
     Object.assign(row, { cues: { aggregation: cues.aggregation, order: cues.order, windows: cues.windows.map((w) => w.phrase), parts: cues.parts.length }, rounds: k });
     const first = position.get(instance.question_id) % arms.length;
-    for (let j = 0; j < arms.length; j += 1) {
-      const arm = arms[(first + j) % arms.length];
-      const retriever = new lib.HybridRetriever(memory.store, queryEmbedder, arm.reranker ? { reranker: arm.reranker, ...(arm.depth ? { rerankDepth: arm.depth } : {}) } : {});
-      const { rounds, recall } = await recallRounds({ ...memory, retriever }, instance, { expand: args.expand, recallPool });
-      const shown = rounds.slice(0, k).map((r) => r.id);
-      row.arms[arm.name] = {
-        recall: { ...recall, load1: round2(loadavg()[0]) },
-        retrieval: skipped ? { skipped } : { skipped: null, metrics: retrievalMetrics(rounds.map((r) => r.id), correct, corpus.map((c) => c.id)), shown: shownEvidence(shown, correct) },
-        shownRounds: shown,
-      };
+    const times = new Map(arms.map((a) => [a.name, []]));
+    for (let rep = 0; rep < repeat; rep += 1) {
+      for (let j = 0; j < arms.length; j += 1) {
+        const arm = arms[(first + rep + j) % arms.length];
+        const armLib = arm.build ? builds.get(arm.build) : lib;
+        const armMemory = arm.build ? copies.get(arm.build) : memory;
+        const retriever = new armLib.HybridRetriever(armMemory.store, queryEmbedder, arm.reranker ? { reranker: arm.reranker, ...(arm.depth ? { rerankDepth: arm.depth } : {}) } : {});
+        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: args.expand, recallPool, recallOptions: arm.recallOptions });
+        times.get(arm.name).push({ ...recall, load1: round2(loadavg()[0]) });
+        if (rep > 0) continue;
+        const shown = rounds.slice(0, k).map((r) => r.id);
+        row.arms[arm.name] = {
+          retrieval: skipped ? { skipped } : { skipped: null, metrics: retrievalMetrics(rounds.map((r) => r.id), correct, corpus.map((c) => c.id)), shown: shownEvidence(shown, correct) },
+          shownRounds: shown,
+        };
+      }
+    }
+    // With --repeat, each time is the median of the arm's recalls of this question.
+    for (const arm of arms) {
+      const t = times.get(arm.name);
+      const mid = (f) => t.map(f).sort((a, b) => a - b)[Math.floor((t.length - 1) / 2)];
+      row.arms[arm.name].recall = { ms: mid((x) => x.ms), cpuMs: mid((x) => x.cpuMs), load1: mid((x) => x.load1), ...(repeat > 1 ? { recalls: t.length } : {}) };
     }
   } finally {
     memory.store.close();
+    for (const copy of copies.values()) copy.store.close();
   }
   appendFileSync(progressPath, `${JSON.stringify(row)}\n`);
   finished += 1;
@@ -182,10 +268,12 @@ for (const instance of todo) {
 const byId = new Map(readFileSync(progressPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).map((r) => [r.question_id, r]));
 const rows = instances.map((x) => byId.get(x.question_id)).filter(Boolean);
 const sameRounds = (a, b) => [...a].sort().join("\n") === [...b].sort().join("\n");
+const allShown = (r, name) => r.arms[name].retrieval.shown?.all;
 const summary = Object.fromEntries(
   arms.map((arm) => {
     const armRows = rows.map((r) => ({ question_id: r.question_id, question_type: r.question_type, ...r.arms[arm.name] }));
     const retrieval = summarizeRetrieval(armRows);
+    const scored = rows.filter((r) => allShown(r, arm.name) !== undefined && allShown(r, arms[0].name) !== undefined);
     return [
       arm.name,
       {
@@ -194,6 +282,12 @@ const summary = Object.fromEntries(
         retrieval: { questions: retrieval.questions, session: retrieval.session, turn: retrieval.turn },
         shown: retrieval.shown ?? null,
         sameRoundsAs: { arm: arms[0].name, questions: rows.filter((r) => sameRounds(r.arms[arm.name].shownRounds, r.arms[arms[0].name].shownRounds)).length, of: rows.length },
+        // Which questions this arm newly shows every evidence turn for, and which it no longer does.
+        allEvidenceVs: {
+          arm: arms[0].name,
+          gained: scored.filter((r) => allShown(r, arm.name) === 1 && allShown(r, arms[0].name) === 0).map((r) => r.question_id),
+          lost: scored.filter((r) => allShown(r, arm.name) === 0 && allShown(r, arms[0].name) === 1).map((r) => r.question_id),
+        },
       },
     ];
   }),
@@ -215,12 +309,20 @@ rmSync(progressPath, { force: true });
 const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed(1)}%`);
 console.log(`\nWrote ${out}`);
 const w = Math.max(...arms.map((a) => a.name.length));
-console.log(`${"arm".padEnd(w)}  recall p50 / p95 / max (ms)   CPU p50 / p95 (ms)   <=${budgetMs} ms   every evidence turn shown   same rounds as ${arms[0].name}`);
+console.log(`${"arm".padEnd(w)}  recall p50 / p95 / max (ms)   CPU p50 / p95 (ms)   <=${budgetMs} ms   every evidence turn shown   +/- vs ${arms[0].name}   same rounds as ${arms[0].name}`);
 for (const arm of arms) {
   const s = summary[arm.name];
   console.log(
-    `${arm.name.padEnd(w)}  ${`${s.recall.ms.p50} / ${s.recall.ms.p95} / ${s.recall.ms.max}`.padEnd(28)} ${`${s.recall.cpuMs.p50} / ${s.recall.cpuMs.p95}`.padEnd(20)} ${pct(s.withinBudget.ms).padEnd(9)} ${pct(s.shown?.allEvidence).padEnd(27)} ${s.sameRoundsAs.questions} of ${s.sameRoundsAs.of}`,
+    `${arm.name.padEnd(w)}  ${`${s.recall.ms.p50} / ${s.recall.ms.p95} / ${s.recall.ms.max}`.padEnd(28)} ${`${s.recall.cpuMs.p50} / ${s.recall.cpuMs.p95}`.padEnd(20)} ${pct(s.withinBudget.ms).padEnd(9)} ${pct(s.shown?.allEvidence).padEnd(27)} ${`+${s.allEvidenceVs.gained.length} / -${s.allEvidenceVs.lost.length}`.padEnd(arms[0].name.length + 9)} ${s.sameRoundsAs.questions} of ${s.sameRoundsAs.of}`,
   );
 }
 const load = summary[arms[0].name].recall.load1;
 if (load) console.log(`Machine load (1 min) while recalling: ${load.mean} on average, ${load.max} at most, on ${cpus().length} cores.`);
+// One sentence for whoever started this unattended: the best arm by evidence shown, against the first.
+const best = arms.slice(1).reduce((b, a) => (b === null || (summary[a.name].shown?.allEvidence ?? -1) > (summary[b.name].shown?.allEvidence ?? -1) ? a : b), null);
+const first = summary[arms[0].name];
+console.log(
+  best
+    ? `RESULT: over ${rows.length} questions, ${best.name} showed every evidence turn in ${pct(summary[best.name].shown?.allEvidence)} against ${pct(first.shown?.allEvidence)} for ${arms[0].name} (+${summary[best.name].allEvidenceVs.gained.length} / -${summary[best.name].allEvidenceVs.lost.length} questions), recall p50 ${summary[best.name].recall.ms.p50} ms against ${first.recall.ms.p50} ms.`
+    : `RESULT: over ${rows.length} questions, ${arms[0].name} showed every evidence turn in ${pct(first.shown?.allEvidence)}, recall p50 ${first.recall.ms.p50} ms.`,
+);

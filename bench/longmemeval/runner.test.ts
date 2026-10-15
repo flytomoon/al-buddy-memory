@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as lib from "../../src/index.js";
 import { UsageLimitError } from "./answerers.mjs";
 import { evaluateInstance, runInstances, summarize } from "./harness.mjs";
-import { cachingEmbedder, ingestHistory, recallRounds } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
 /** A word-presence embedder: deterministic, and enough to give the vector side something to rank. */
@@ -261,6 +261,21 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(rows).toHaveLength(4);
     expect(inside.most).toBe(1);
     expect(reading.most).toBeGreaterThan(1);
+  });
+
+  it("--content-words, --keyword-weight and --diversify reach recall as its options", async () => {
+    expect(fastPathOptions({ contentWords: true, keywordWeight: 0.5, diversify: 2 })).toEqual({
+      options: { contentWords: true, keywordWeight: 0.5, diversify: { by: "session", perGroup: 2 } },
+      text: ', contentWords: true, keywordWeight: 0.5, diversify: { by: "session", perGroup: 2 }',
+    });
+    expect(fastPathOptions()).toEqual({ options: {}, text: "" });
+    await expect(evaluateInstance(lib, instance(), { recallOptions: { keywordWeight: -1 } })).rejects.toThrow(/keywordWeight/);
+    // A grouping that hears every recalled memory's session: the option reached recall.
+    const sessions = new Set<unknown>();
+    const by = (n: { contextualMetadata: Record<string, unknown> }) => (sessions.add(n.contextualMetadata["session"]), undefined);
+    const row = await evaluateInstance(lib, instance(), { recallOptions: { diversify: { by, perGroup: 1 } } });
+    expect(sessions.size).toBeGreaterThan(0);
+    expect(row.shownRounds).toEqual((await evaluateInstance(lib, instance())).shownRounds);
   });
 
   it("--rerank-depth: the reranker reads only the best candidates", async () => {
