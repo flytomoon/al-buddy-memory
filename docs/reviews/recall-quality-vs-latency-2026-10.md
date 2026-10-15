@@ -273,9 +273,11 @@ reader.
 
 1. **One job: content words + session diversity** (changes 1, 2 and 4 as arms). It is the
    only step that raises the score and lowers recall time together. Expected **+1 to +2
-   points**, recall −3 ms.
+   points**, recall −3 ms. *Measured in § 8: content words pass and are kept as an option;
+   diversity and the ½ keyword weight fail and are removed.*
 2. **One job: read only the page, batched lookups** (change 3). Rank-identical by test. Expected
-   recall **~6–7 ms p50**, roughly half of today.
+   recall **~6–7 ms p50**, roughly half of today. *Measured in § 8: the same rounds in 100 of 100
+   questions, and faster; done in the same job as step 1.*
 3. **One job: the window gate** (change 5). Bench flag first. The reranker ships behind the gate
    only if the gain set shows the coverage gain again, the other questions keep the same rounds,
    and escalated recalls stay ≤ 300 ms p95. If they don't, leave it off: steps 1–2 stand alone.
@@ -286,3 +288,121 @@ reader.
 The whole plan keeps **no model in recall except behind the gate, and nothing stored but raw
 text**. It aims at **~93.5–94.5% at ~6–7 ms p50**, against today's 92.6% at 11.7 ms. The top of
 the field is at 94–95% for about a second per recall.
+
+## 8. Steps 1–2, measured (2026-10-15, job #1003)
+
+All four changes were built behind options and measured retrieval-only (free, no model call) on
+both § 5 sets. **Kept: change 1 (`contentWords`, opt-in) and change 3 (on; rank-identical).
+Dropped: change 2 (session diversity) and change 4 (keyword lists at ½ weight).** Each failed
+its bar, and neither is in the library any more. Commit `4d72e2e` has both options, so the runs
+below can be reproduced from it.
+
+**How.** `recall-sweep.mjs`, not `run.mjs --answerer none`: the same recall and the same
+`shown` per question, but every arm reads one memory build, so the arms differ only in recall.
+Settings `--expand --aggregate-top-k 40`, as published. A new `build:<dir>` arm recalled with the
+commit before this job (`8845101`, compiled) over an exact copy of each memory, with the same ids,
+anchors and vectors. The base arm agrees with the published run's shown-all-evidence on **50 of 50**
+gain questions and **42 of 42** scored break questions, so the harness reproduces it. Result
+files: [`2026-10-15-lme50-gain-sweep.json`](../../bench/results/2026-10-15-lme50-gain-sweep.json),
+[`2026-10-15-lme50-break-sweep.json`](../../bench/results/2026-10-15-lme50-break-sweep.json) and
+the timing run [`2026-10-15-lme50-gain-timed.json`](../../bench/results/2026-10-15-lme50-gain-timed.json).
+SQLite ran through `node:sqlite` (the sandbox cannot load better-sqlite3's binding). **The machine
+was far busier than in any earlier run: load 140–440 on 10 cores**, so absolute times are inflated
+several-fold. Read the paired differences (the median, over questions, of arm minus base for the
+same question). They are steadier than the gap between two p50s.
+
+**Evidence shown.** Questions where the reader would see every evidence turn (gain set: 50
+scored; break set: 42 scored, the 8 abstentions have no evidence). "+ / −" counts the questions
+against base, by id.
+
+| Arm | Gain: all evidence | + / − | of the 6 lost-to-recall | Break: all evidence | + / − | recall_all@10 gain / break |
+|---|---|---|---|---|---|---|
+| base (this branch, change 3 in) | 42 | | 0 | 40 | | 0.58 / 0.881 |
+| commit before (`8845101`) | 42 | +0 / −0, **same rounds 50 of 50** | 0 | 40 | +0 / −0, **same rounds 50 of 50** | 0.58 / 0.881 |
+| **1: content words** | **44** | **+3 / −1** | **2** (gpt4_a56e767c, gpt4_7fce9456) | **40** | **+0 / −0** | **0.68 / 0.905** |
+| 4: keyword lists at ½ | 43 | +3 / −2 | 2 | 39 | +0 / **−1** (b46e15ed) | 0.62 / 0.905 |
+| 2: diversify, 1 per session | 13 | +0 / −29 | 0 | 19 | +0 / −21 | 0.22 / 0.524 |
+| 2: diversify, 2 | 18 | +0 / −24 | 0 | 24 | +0 / −16 | 0.36 / 0.714 |
+| 2: diversify, 3 | 24 | +0 / −18 | 0 | 27 | +0 / −13 | 0.46 / 0.762 |
+| 2: diversify, 4 | 31 | +0 / −11 | 0 | 31 | +0 / −9 | 0.50 / 0.833 |
+| 4 + 2 (½ weight, diversify 2 / 3) | 18 / 24 | | 0 | 24 / 28 | | |
+| 1 + 2 (diversify 2) | 19 | | 0 | 23 | | |
+| 1 + 4 + 2 (diversify 2 / 3) | 19 / 22 | | 0 | 24 / 28 | | |
+
+**Recall time** (first sweeps, one recall per arm and question):
+
+| | Gain p50 / p95 | Paired wall / CPU vs base | Faster than base in | Break p50 / p95 | Paired wall / CPU vs base | Faster in |
+|---|---|---|---|---|---|---|
+| commit before | 37.5 / 200 ms | +7.7 / +11.6 ms | — | 26.3 / 88.5 ms | +3.4 / +12.5 ms | — |
+| base (change 3) | 29.7 / 139 ms | 0 | 39 of 50 vs before | 21.4 / 89.1 ms | 0 | 32 of 50 vs before |
+| content words | 22.3 / 157 ms | −0.6 / −7.2 ms | 25 of 50 | 18.6 / 76.8 ms | −2.6 / −10.5 ms | 32 of 50 |
+| content words vs before | | **−10.6 / −26.0 ms** | | | **−5.2 / −24.6 ms** | |
+
+**The timing run** settles what one recall per arm could not. It covers the gain set again, with
+the arms that survived the evidence check plus content words with ½ weight, and `--repeat 5`:
+each time is the median of 5 recalls per question, in rotating order. The load was 63–420,
+207 on average. Its evidence numbers match the first sweep's exactly.
+
+| Gain set, median of 5 | p50 / p95 | Paired wall vs base | Paired CPU vs base | Faster than base in | All evidence (+ / −) |
+|---|---|---|---|---|---|
+| commit before (`8845101`) | 22.4 / 48.6 ms | +6.5 ms | +14.4 ms | — | 42 (same rounds 50 of 50) |
+| **base: change 3** | **15.3 / 31.2 ms** | 0 | 0 | 48 of 50 vs before | 42 |
+| **change 1 + 3: content words** | **13.4 / 32.6 ms** | **−2.1 ms** | **−20.6 ms** | 38 of 50 | **44 (+3 / −1)** |
+| content words + ½ weight | 12.8 / 40.4 ms | −2.3 ms | −12.8 ms | 43 of 50 | 44 (+5 / **−3**) |
+| ½ weight alone | 15.6 / 35.3 ms | 0.0 ms | +0.1 ms | 22 of 50 | 43 (+3 / −2) |
+
+Against the commit before, content words and change 3 together are **−8.1 ms paired (wall) and
+−37.8 ms of CPU per recall, faster in 48 of 50 questions, p50 22.4 → 13.4 ms (−40%)**. That is
+about the −40 to −50% the 10-13 review expected (11.7 → 6–7 ms), at a load where every number is
+inflated.
+
+**Each against its bar (§ 5).**
+
+- **Change 3, keyword search reads only the page + batched lookups: pass.** The same rounds in
+  50 of 50 questions on both sets (the bar). Against the commit before: p50 22.4 → 15.3 ms in the
+  timing run, paired −6.5 ms wall and −14.4 ms CPU, faster in 48 of 50 (bar: p50 −3 ms or
+  better). Also held by test: the
+  conformance suite now checks every limited and paged read against the unlimited one on random
+  tie-heavy stores, with decay on and off (limits 1–100, cursors at 0, 49 and 120). And a recall
+  over a store without `getNodes` returns exactly what one with it does. Postgres was left as it
+  is: its search has no candidate pool to trim, and every read there goes through the audit
+  callback. It falls back to `getNode`.
+- **Change 1, content words: pass, kept as an option (off by default).** Gain set +3 / −1 (bar:
+  up about 1–2) and 2 of the 6 lost-to-recall questions recovered. On the break set no question
+  goes from shown to not shown (the bar). Recall time on top of change 3, in the timing run:
+  p50 15.3 → 13.4 ms, paired −2.1 ms wall and −20.6 ms CPU (bar: −2 ms or better). One recall
+  per arm had read −0.6 / −2.6 ms wall: too noisy at this load to decide. It changes the rounds shown in 47 of 50
+  gain and 48 of 50 break questions, mostly where the evidence count does not move, so the reader sees a different context
+  almost everywhere. That is why it stays opt-in until an answered run says the reader agrees.
+- **Change 2, session diversity: fail, removed.** It never raised shown-all-evidence on a single
+  question, and it lost 9 to 29 per set at every cap. The prototype's +7 of 18 does not reproduce
+  at the message level, and the cause is in the data. A haystack holds about 50 conversations,
+  and recall's 100 candidates touch most of them. With a cap of 1, the 40 rounds a counting
+  question shows come from 40 different conversations, against 15–18 without the cap (the three
+  lost questions checked by hand): each filler
+  conversation's best weak match goes ahead of the second and third evidence turns of the
+  conversation that holds the answer (0a995998: 3 of 3 evidence turns shown without the cap,
+  1 of 3 with it). LongMemEval's evidence is clustered within sessions, not spread one per
+  session. The 2026-10-13 prototype capped rounds in the harness, after recall. Whatever it did
+  differently, the library option as briefed loses evidence.
+- **Change 4, keyword lists at ½ weight: fail, removed.** +3 / −2 on the gain set, and on the break
+  set it hides evidence the base showed (b46e15ed, temporal-reasoning). That breaks the "no
+  question goes from shown to not shown" rule. On top of content words it adds 2 questions and
+  hides 2 more (+5 / −3 against +3 / −1). Content words fix the same noise at its source without
+  that cost.
+
+**What this does to the plan.** The fast path is change 1 + change 3. The +0.8 to +1.4 points
+expected from diversity (§ 5) are not there, so the step 1–2 expectation drops to change 1's
+share: **+0.4 to +0.8 points (est.)**, at **about −40% recall time against the commit before**
+(p50 22.4 → 13.4 ms at load ~200; on the published run's machine that would be ~11.7 → ~7 ms,
+est.). Step 3 (the window gate) is unaffected, and so is step 4. Step 4 was to
+re-measure the reader's context "once diversity puts more distinct evidence in the first rounds",
+and that premise is gone, so it needs content words' full-500 numbers instead.
+
+**Still owed.** (a) The free full 500 for content words, on the `LONG RUN:` line of this job's
+last commit: `recall-sweep.mjs` over all 500 with arms `none` and `content-words`. (b) Only if (a)
+holds, the answered `--limit 50` on both sets (about 200 subscription calls), then an answered
+full 500, before `contentWords` is switched on in the shipped server. (c) `node bench/bench.mjs`
+for keyword recall at 100,000 facts against the README's "Limits, measured", which change 3
+should lower. It was not run here: the README's numbers come from a quiet machine, and this one
+was at load 300.

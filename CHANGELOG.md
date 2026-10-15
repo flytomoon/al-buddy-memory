@@ -13,16 +13,16 @@ earlier were GitHub releases only.
 
 ### Added
 
-- **Recall fast-path options**, each off by default, so recall without them is unchanged
-  (`src/recall-fast-path.test.ts`): `contentWords` searches the query's own keyword list by its
-  content words (`keywordsOf`), not by "how", "did" and "I"; `keywordWeight` sets how much each
-  keyword list counts against each vector list in the fusion; `diversify: { by: "session" |
-  (node) => key, perGroup }` puts at most `perGroup` memories of each conversation first and then
-  the rest, a reordering and never a filter. Measured on LongMemEval, retrieval only, in
-  `docs/reviews/recall-quality-vs-latency-2026-10.md` § 8. The benchmark takes them as
-  `--content-words`, `--keyword-weight X` and `--diversify N`, and `recall-sweep.mjs` as arms
-  (`content-words+diversify:2`), plus `build:<dir>` to recall with another build over an exact
-  copy of the memory.
+- **`RecallOptions.contentWords`**, off by default, so recall without it is unchanged
+  (`src/recall-fast-path.test.ts`): the query's own keyword search reads its content words
+  (`keywordsOf`), not "how", "did" and "I", or the query as written when nothing is left. On
+  LongMemEval, retrieval only (`docs/reviews/recall-quality-vs-latency-2026-10.md` § 8): every
+  evidence turn shown in 44 of 50 questions on the gain set against 42, none lost on the break
+  set, and about 7–10 ms less CPU per recall. Session diversity and keyword lists at half weight
+  were measured beside it and failed; they are not in the library. The benchmark takes it as
+  `--content-words`. `recall-sweep.mjs` takes it as an arm, joined to others with `+`; it also
+  takes `build:<dir>` to recall with another build over an exact copy of the memory, and
+  `--repeat N` to time each arm as the median of N recalls.
 - **`MemoryStore.getNodes(ids)`**, optional: several nodes in one read, each as `getNode` returns
   it. `SqliteMemoryStore` and `InMemoryStore` have it; recall looks its vector candidates up with
   it (one statement per batch, not one per candidate) and falls back to `getNode` on a store

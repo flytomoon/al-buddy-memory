@@ -263,19 +263,16 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(reading.most).toBeGreaterThan(1);
   });
 
-  it("--content-words, --keyword-weight and --diversify reach recall as its options", async () => {
-    expect(fastPathOptions({ contentWords: true, keywordWeight: 0.5, diversify: 2 })).toEqual({
-      options: { contentWords: true, keywordWeight: 0.5, diversify: { by: "session", perGroup: 2 } },
-      text: ', contentWords: true, keywordWeight: 0.5, diversify: { by: "session", perGroup: 2 }',
-    });
+  it("--content-words reaches recall as its option", async () => {
+    expect(fastPathOptions({ contentWords: true })).toEqual({ options: { contentWords: true }, text: ", contentWords: true" });
     expect(fastPathOptions()).toEqual({ options: {}, text: "" });
-    await expect(evaluateInstance(lib, instance(), { recallOptions: { keywordWeight: -1 } })).rejects.toThrow(/keywordWeight/);
-    // A grouping that hears every recalled memory's session: the option reached recall.
-    const sessions = new Set<unknown>();
-    const by = (n: { contextualMetadata: Record<string, unknown> }) => (sessions.add(n.contextualMetadata["session"]), undefined);
-    const row = await evaluateInstance(lib, instance(), { recallOptions: { diversify: { by, perGroup: 1 } } });
-    expect(sessions.size).toBeGreaterThan(0);
-    expect(row.shownRounds).toEqual((await evaluateInstance(lib, instance())).shownRounds);
+    // Keyword-only, so the keyword search is all there is: "I", "to" and "for" match
+    // messages that "move" and "work" do not, and those drop out.
+    const x = instance({ question: "Where did I move to for work?" });
+    const plain = await evaluateInstance(lib, x);
+    const content = await evaluateInstance(lib, x, { recallOptions: { contentWords: true } });
+    expect(content.memoriesRecalled).toBeGreaterThan(0);
+    expect(content.memoriesRecalled).toBeLessThan(plain.memoriesRecalled);
   });
 
   it("--rerank-depth: the reranker reads only the best candidates", async () => {

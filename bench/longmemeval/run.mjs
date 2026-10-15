@@ -41,8 +41,6 @@ const { values: args } = parseArgs({
     "rerank-depth": { type: "string" },
     expand: { type: "boolean", default: false },
     "content-words": { type: "boolean", default: false },
-    "keyword-weight": { type: "string" },
-    diversify: { type: "string" },
     "aggregate-top-k": { type: "string" },
     "chain-of-note": { type: "boolean", default: false },
     reading: { type: "string", default: "con" },
@@ -131,10 +129,7 @@ const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top
 const recallPool = int("recall-pool", 1);
 const rerankDepth = args["rerank-depth"] !== undefined ? int("rerank-depth", 1) : null;
 if (rerankDepth !== null && !reranker) fail("--rerank-depth needs --rerank.");
-const keywordWeight = args["keyword-weight"] !== undefined ? Number(args["keyword-weight"]) : null;
-if (keywordWeight !== null && !(Number.isFinite(keywordWeight) && keywordWeight >= 0)) fail(`--keyword-weight must be a number >= 0 (got ${args["keyword-weight"]})`);
-const diversify = args.diversify !== undefined ? int("diversify", 1) : null;
-const fastPath = fastPathOptions({ contentWords: args["content-words"], keywordWeight, diversify });
+const fastPath = fastPathOptions({ contentWords: args["content-words"] });
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
@@ -158,8 +153,6 @@ const settings = {
   reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: rerankDepth !== null ? `the best ${rerankDepth} of ${recallPool} recalled` : `all recalled (${recallPool})` } : null,
   expand: args.expand,
   contentWords: args["content-words"],
-  keywordWeight,
-  diversify,
   freshness,
   topK,
   aggregateTopK,
@@ -188,7 +181,7 @@ if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== ""
 }
 const todo = instances.filter((x) => !done.has(x.question_id));
 
-const options = [reranker && `rerank ${reranker.model} ${reranker.dtype}${rerankDepth !== null ? ` top ${rerankDepth}` : ""}`, args.expand && "expand", args["content-words"] && "content words", keywordWeight !== null && `keyword weight ${keywordWeight}`, diversify !== null && `${diversify} per session first`, aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
+const options = [reranker && `rerank ${reranker.model} ${reranker.dtype}${rerankDepth !== null ? ` top ${rerankDepth}` : ""}`, args.expand && "expand", args["content-words"] && "content words", aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
 console.log(
   `LongMemEval_${args.variant}: ${instances.length} questions (${done.size} already done), retrieval ${args.retrieval}, top ${topK} rounds, reading ${args.reading}${options.length ? ` (${options.join(", ")})` : ""}, ` +
     `answerer ${answererInfo ? `${answererInfo.kind} ${answererInfo.requestedModel ?? answererInfo.command}` : "none"}, judge ${judgeInfo ? `${judgeInfo.kind} ${judgeInfo.requestedModel ?? judgeInfo.command}` : "none"}` +
