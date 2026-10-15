@@ -61,6 +61,35 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * More gives a reranker more to choose from, at the cost of reading more.
    */
   candidates?: number;
+  /**
+   * Search the query's own keyword list by its content words (`keywordsOf`:
+   * its question words, pronouns and counting words left out), or by the
+   * query as written when nothing is left. Off by default. A long natural
+   * question searched word by word matches nearly every memory through "I",
+   * "did" and "the", and those matches crowd the keyword list; without them
+   * the list is the memories that say what the question is about, and the
+   * search reads far fewer rows. With `expand`, the query's content-word
+   * search is then this one, not a second list.
+   */
+  contentWords?: boolean;
+  /**
+   * How much each keyword list counts in the fusion against each vector list
+   * (default 1, the same). Below 1, a keyword list crowded by common words
+   * moves the vector side's finds less. The time lists keep their scale.
+   */
+  keywordWeight?: number;
+  /**
+   * Put at most `perGroup` memories from each group first, in rank order, and
+   * then the rest, in rank order: a reordering of what recall found, never a
+   * filter. Off by default. One conversation that matched well can fill the
+   * top of the list with its own memories and push another conversation's
+   * single mention below where a reader stops; a question that counts across
+   * conversations then misses one. `by: "session"` groups by
+   * `contextualMetadata.session`, and a memory without one by the calendar
+   * day (UTC) it is valid from; a function returning `undefined` puts that
+   * memory in a group of its own.
+   */
+  diversify?: { by: "session" | ((node: MemoryNode) => string | undefined); perGroup: number };
 }
 
 export interface HybridRetrieverOptions {
@@ -85,6 +114,8 @@ const DUPLICATE_THRESHOLD = 0.9;
 /** Confidence bump when a duplicate observation reinforces a node. */
 const REINFORCE_STEP = 0.05;
 const RERANK_DEPTH = 50;
+/** The fewest vector candidates looked up in one `getNodes` call, so a narrow scope that skips most of them still reads in few statements. */
+const MIN_LOOKUP_BATCH = 32;
 /** A reranked order stands for the keyword and vector lists it replaces, so it counts as two lists. */
 const RERANKED_WEIGHT = 2;
 /** `expand`: the in-period list counts as one list; the earliest/latest list as half of one. */
@@ -140,11 +171,19 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, ...scope } = options;
+    const {
+      limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates,
+      contentWords: _contentWords, keywordWeight: _keywordWeight, diversify: _diversify, ...scope
+    } = options;
     const filter: NodeFilter = { ...scope, validAt };
     const basePool = options.candidates ?? CANDIDATE_POOL;
     if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
+    const keywordWeight = options.keywordWeight ?? 1;
+    if (!Number.isFinite(keywordWeight) || keywordWeight < 0) throw new Error(`recall: keywordWeight must be a finite number >= 0 (got ${options.keywordWeight})`);
+    const groupOf = options.diversify ? diversityKey(options.diversify) : null;
     const cues = options.expand ? analyzeQuery(query, { now: (typeof options.expand === "object" ? options.expand.now : undefined) ?? validAt }) : null;
+    // What the query's own keyword search reads.
+    const ownKeywords = options.contentWords ? keywordsOf(query) || query : query;
 
     // Reciprocal-rank fusion across every list.
     let scores = new Map<string, { score: number; node: MemoryNode }>();
@@ -164,7 +203,7 @@ export class HybridRetriever {
 
     if (!cues) {
       // Keyword list — BM25-ordered by the store.
-      addList(await this.store.searchNodes({ ...filter, query, limit: basePool }));
+      addList(await this.store.searchNodes({ ...filter, query: ownKeywords, limit: basePool }), keywordWeight);
       // Vector list — full scan of the embedder's model space (local scale).
       addList((await this.vectorCandidates(query, filter, basePool)).map((v) => v.node));
     } else {
@@ -173,22 +212,23 @@ export class HybridRetriever {
       const queries = expandedQueries(query, cues);
       const vectors = this.embedder ? await this.embedder.embed(queries) : [];
       let lists = 0;
-      const addRelevance = (nodes: MemoryNode[]) => {
+      const addRelevance = (nodes: MemoryNode[], weight = 1) => {
         if (nodes.length > 0) lists += 1;
-        addList(nodes);
+        addList(nodes, weight);
       };
       for (const [i, q] of queries.entries()) {
         // The query itself is searched exactly as recall without `expand` searches
         // it, so expanding can only add to what plain recall finds; what it reads
         // out of the query is searched by content words alone.
-        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? q : keywordsOf(q), limit: pool }));
+        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? ownKeywords : keywordsOf(q), limit: pool }), keywordWeight);
         const vector = vectors[i];
         if (vector) addRelevance((await this.vectorCandidatesFor(vector, filter, pool)).map((v) => v.node));
       }
       // A question longer than the keyword search reads is searched once more by
-      // its content words, so the things it names last are searched at all.
+      // its content words, so the things it names last are searched at all —
+      // unless its own search above already was that one.
       const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
-      if (long && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
+      if (long && !options.contentWords && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }), keywordWeight);
       relevanceWeight = Math.max(1, lists);
     }
 
@@ -224,9 +264,8 @@ export class HybridRetriever {
       if (cues.order === "earliest") addList([...relevance].sort((a, b) => compareValidFrom(b, a)), ORDER_WEIGHT * timeScale);
     }
 
-    return rankFused(scores)
-      .slice(0, limit)
-      .map((e) => e.node);
+    const ranked = rankFused(scores).map((e) => e.node);
+    return (groupOf ? diversified(ranked, groupOf, options.diversify!.perGroup) : ranked).slice(0, limit);
   }
 
   /**
@@ -308,15 +347,37 @@ export class HybridRetriever {
     // of them makes the pool — and which one findDuplicate reinforces — has to be
     // decided by the fact, not by where the cut fell (review 2026-09-14; the 0.3.5
     // comment here claimed recency settled it, and nothing did).
+    //
+    // A store with `getNodes` is read in batches (one statement each, not one
+    // per candidate): as many as could still make the pool, then the rest of
+    // the boundary's tie group. The walk over them is the same.
     const out: { node: MemoryNode; similarity: number }[] = [];
-    for (const { nodeId, similarity } of scored) {
-      if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break;
-      const node = await this.store.getNode(nodeId);
-      if (!node) continue;
-      // Same boundary as searchNodes: in scope, currently valid, never Sealed,
-      // never Archived / PendingDeletion unless the scope names them.
-      if (!matchesFilter(node, filter)) continue;
-      out.push({ node, similarity });
+    const store = this.store;
+    let next = 0;
+    walk: while (next < scored.length) {
+      let end: number;
+      if (out.length < pool) end = next + (store.getNodes ? Math.max(pool - out.length, MIN_LOOKUP_BATCH) : 1);
+      else {
+        // The pool is full: only the boundary's tie group can still come in.
+        const boundary = out[out.length - 1]!.similarity;
+        for (end = next; end < scored.length && scored[end]!.similarity >= boundary; end += 1);
+        if (end === next) break;
+      }
+      const batch = scored.slice(next, end);
+      next += batch.length;
+      const ids = batch.map((c) => c.nodeId);
+      const nodes: (MemoryNode | undefined)[] = [];
+      if (store.getNodes) nodes.push(...(await store.getNodes(ids)));
+      else for (const id of ids) nodes.push(await store.getNode(id));
+      for (const [i, { similarity }] of batch.entries()) {
+        if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break walk;
+        const node = nodes[i];
+        if (!node) continue;
+        // Same boundary as searchNodes: in scope, currently valid, never Sealed,
+        // never Archived / PendingDeletion unless the scope names them.
+        if (!matchesFilter(node, filter)) continue;
+        out.push({ node, similarity });
+      }
     }
     const now = Date.now();
     return out
@@ -342,6 +403,39 @@ function rankFused(scores: Map<string, { score: number; node: MemoryNode }>): { 
   return [...scores.values()]
     .map((e) => ({ ...e, eff: effectiveConfidence(e.node, now) }))
     .sort((a, b) => b.score - a.score || b.eff - a.eff || compareRecency(a.node, b.node));
+}
+
+/** The group `diversify` puts a memory in; `undefined` is a group of its own. */
+function diversityKey(diversify: NonNullable<RecallOptions["diversify"]>): (node: MemoryNode) => string | undefined {
+  const { by, perGroup } = diversify;
+  if (!Number.isInteger(perGroup) || perGroup < 1) throw new Error(`recall: diversify.perGroup must be an integer >= 1 (got ${perGroup})`);
+  if (typeof by === "function") return by;
+  if (by !== "session") throw new Error(`recall: diversify.by must be "session" or a function (got ${String(by)})`);
+  return (node) => {
+    const session = node.contextualMetadata["session"];
+    if (typeof session === "string" || (typeof session === "number" && Number.isFinite(session))) return `session:${session}`;
+    const t = Date.parse(node.validFrom);
+    return Number.isFinite(t) ? `day:${new Date(t).toISOString().slice(0, 10)}` : undefined;
+  };
+}
+
+/**
+ * `items` with at most `perGroup` of each group first, in their order, then the
+ * rest in their order: the same items, never fewer.
+ */
+export function diversified<T>(items: readonly T[], groupOf: (item: T) => string | undefined, perGroup: number): T[] {
+  const taken = new Map<string, number>();
+  const first: T[] = [];
+  const rest: T[] = [];
+  for (const item of items) {
+    const group = groupOf(item);
+    const n = group === undefined ? 0 : (taken.get(group) ?? 0);
+    if (n < perGroup) {
+      if (group !== undefined) taken.set(group, n + 1);
+      first.push(item);
+    } else rest.push(item);
+  }
+  return [...first, ...rest];
 }
 
 /**

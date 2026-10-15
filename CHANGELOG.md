@@ -13,6 +13,29 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **Recall fast-path options**, each off by default, so recall without them is unchanged
+  (`src/recall-fast-path.test.ts`): `contentWords` searches the query's own keyword list by its
+  content words (`keywordsOf`), not by "how", "did" and "I"; `keywordWeight` sets how much each
+  keyword list counts against each vector list in the fusion; `diversify: { by: "session" |
+  (node) => key, perGroup }` puts at most `perGroup` memories of each conversation first and then
+  the rest, a reordering and never a filter. Measured on LongMemEval, retrieval only, in
+  `docs/reviews/recall-quality-vs-latency-2026-10.md` § 8. The benchmark takes them as
+  `--content-words`, `--keyword-weight X` and `--diversify N`, and `recall-sweep.mjs` as arms
+  (`content-words+diversify:2`), plus `build:<dir>` to recall with another build over an exact
+  copy of the memory.
+- **`MemoryStore.getNodes(ids)`**, optional: several nodes in one read, each as `getNode` returns
+  it. `SqliteMemoryStore` and `InMemoryStore` have it; recall looks its vector candidates up with
+  it (one statement per batch, not one per candidate) and falls back to `getNode` on a store
+  without it, with the same results.
+
+### Changed
+
+- **A limited `SqliteMemoryStore.searchNodes` turns only its page into nodes.** It ranks the
+  candidate pool (ten times the page, at least 200 rows) on the columns the order reads and then
+  reads the page's rows whole, inside one read transaction; it used to turn every pooled row into
+  a node first. The same page, by the same comparators: the conformance suite holds every limited
+  and paged read to the unlimited one, with decay on and off.
+
 - **Extension points**, each optional and off by default, so nothing changes for a caller that
   leaves them out (`src/extension-points.test.ts` holds the defaults to the same statements,
   results and queue). `PostgresMemoryStore` takes an `executor` (`QueryExecutor`) that runs every
