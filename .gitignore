@@ -9,3 +9,4 @@ bench/longmemeval/data/
 bench/results/.progress/
 # The Claude Desktop extension build (npm run build:mcpb).
 build/
+.gstack/
