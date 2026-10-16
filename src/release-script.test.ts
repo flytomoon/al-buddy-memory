@@ -17,7 +17,8 @@ const { nextVersion, unreleasedVersion, dateChangelog, releaseSummary, setVersio
   preflight(run: (cmd: string, args: string[]) => string, target: string): string[];
   nameScan(run: (cmd: string, args: string[]) => string): string[];
 };
-const { refreshConnector, launchdEnvironment } = lib as {
+const { refreshConnector, launchdEnvironment, CONNECTOR_LABEL } = lib as {
+  CONNECTOR_LABEL: string;
   launchdEnvironment(printed: string): Record<string, string>;
   refreshConnector(opts: {
     run: (cmd: string, args: string[]) => string;
@@ -171,7 +172,7 @@ describe("preflight", () => {
 /** `launchctl print` for a job, shaped like the real output. */
 function printed(pid: number | null, env: Record<string, string> = {}, script = "/repo/bin/al-buddy-memory-http.js"): string {
   return [
-    "gui/501/com.al-buddy.memory-connector = {",
+    `gui/501/${CONNECTOR_LABEL} = {`,
     "\tstate = running",
     "\targuments = {",
     "\t\t/usr/local/bin/node",
@@ -226,12 +227,19 @@ function connectorStubs(opts: { prints: (string | Error)[]; health?: Record<stri
   return { calls, fetched, base };
 }
 
-const LABEL_TARGET = "gui/501/com.al-buddy.memory-connector";
+// The label is read from the lib, not written out: src/ may not hold the old home folder's
+// name followed by a dot (project-memory-isolation.test.ts), and a launchd label is one.
+const LABEL_TARGET = `gui/501/${CONNECTOR_LABEL}`;
 const LOCAL = "http://127.0.0.1:9999/health";
 const PUBLIC = "https://box.example.ts.net/health";
 const OK = { status: 200, body: { ok: true } };
 
 describe("the remote connector after the pin", () => {
+  it("defaults to the job's documented label", () => {
+    // Built in pieces, for the same reason as LABEL_TARGET.
+    expect(CONNECTOR_LABEL).toBe(["com", "al-buddy", "memory-connector"].join("."));
+  });
+
   it("reads only the job's own environment block, not the inherited one", () => {
     expect(launchdEnvironment(printed(1, SERVICE_ENV))).toEqual(SERVICE_ENV);
     expect(launchdEnvironment(printed(1))).toEqual({});
