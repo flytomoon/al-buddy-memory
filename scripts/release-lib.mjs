@@ -153,3 +153,147 @@ export function preflight(run, target) {
   }
   return refusals;
 }
+
+/**
+ * The launchd label of the remote connector a maintainer's Mac may run
+ * (al-buddy-memory-http from this checkout). Override it with
+ * AL_BUDDY_MEMORY_CONNECTOR_LABEL; a Mac without the job is skipped quietly.
+ */
+export const CONNECTOR_LABEL = "com.al-buddy.memory-connector";
+
+/** The lines of one `name = { … }` block of `launchctl print` output — the block named exactly `name` — or null. */
+function launchdBlock(printed, name) {
+  const m = String(printed).match(new RegExp(`^[ \\t]*${name} = \\{[ \\t]*\\n([\\s\\S]*?)^[ \\t]*\\}`, "m"));
+  return m ? m[1].split("\n").map((l) => l.trim()).filter(Boolean) : null;
+}
+
+/** The job's own `environment = { KEY => value }` from `launchctl print` (not the inherited or default ones). */
+export function launchdEnvironment(printed) {
+  const env = {};
+  for (const line of launchdBlock(printed, "environment") ?? []) {
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*) => (.*)$/);
+    if (m) env[m[1]] = m[2].trim();
+  }
+  return env;
+}
+
+/** The job's program arguments from `launchctl print`. */
+export function launchdArguments(printed) {
+  return launchdBlock(printed, "arguments") ?? [];
+}
+
+/** The running job's pid from `launchctl print`, or null when it is not running. */
+export function launchdPid(printed) {
+  const m = String(printed).match(/^[ \t]*pid = (\d+)[ \t]*$/m);
+  return m ? Number(m[1]) : null;
+}
+
+/** Whether a /health answer is the connector's `{ "ok": true }`, and if not, why. */
+async function health(fetchFn, url, timeoutMs) {
+  try {
+    const res = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return { ok: false, why: `HTTP ${res.status}` };
+    const body = await res.json().catch(() => null);
+    return body && body.ok === true ? { ok: true } : { ok: false, why: "the answer was not { ok: true }" };
+  } catch (err) {
+    return { ok: false, why: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** The line of a failed command's output that says why: the first naming an error, else the first. */
+function failureLine(err) {
+  const out = err && typeof err === "object" ? `${err.stdout ?? ""}\n${err.stderr ?? ""}` : "";
+  const lines = `${out}\n${err instanceof Error ? err.message : String(err)}`.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => /error/i.test(l)) ?? lines[0] ?? "unknown error";
+}
+
+/**
+ * After the pins move: when this Mac runs the remote connector under launchd,
+ * rebuild dist/ (the job runs bin/al-buddy-memory-http.js, which loads it),
+ * restart the job, and check /health on 127.0.0.1 and on its public URL.
+ * The port and public URL come from the job's own environment first (what it
+ * actually serves), then this shell's AL_BUDDY_MEMORY_PORT and
+ * AL_BUDDY_MEMORY_PUBLIC_URL. Not macOS, or no such job: `skipped`, no lines.
+ * `run(cmd, args)` returns stdout and throws on a failed command.
+ */
+export async function refreshConnector({ run, fetch: fetchFn, sleep, env, platform, uid, root, dryRun = false, attempts = 20, intervalMs = 1000, timeoutMs = 3000 }) {
+  if (platform !== "darwin" || uid === undefined || uid === null) return { skipped: true, ok: true, lines: [] };
+  const label = (env.AL_BUDDY_MEMORY_CONNECTOR_LABEL ?? "").trim() || CONNECTOR_LABEL;
+  const target = `gui/${uid}/${label}`;
+  let printed;
+  try {
+    printed = run("launchctl", ["print", target]);
+  } catch {
+    return { skipped: true, ok: true, lines: [] };
+  }
+  const service = launchdEnvironment(printed);
+  const port = (service.AL_BUDDY_MEMORY_PORT ?? env.AL_BUDDY_MEMORY_PORT ?? "").trim() || "8787";
+  const publicUrl = (service.AL_BUDDY_MEMORY_PUBLIC_URL ?? env.AL_BUDDY_MEMORY_PUBLIC_URL ?? "").trim();
+  const localHealth = `http://127.0.0.1:${port}/health`;
+  const publicHealth = publicUrl ? `${publicUrl.replace(/\/+$/, "")}/health` : "";
+  const retry = `npm run build && launchctl kickstart -k ${target}`;
+  const lines = [`Remote connector (${label}):`];
+
+  const script = launchdArguments(printed).find((a) => a.endsWith("al-buddy-memory-http.js"));
+  const ours = `${root.replace(/\/+$/, "")}/bin/al-buddy-memory-http.js`;
+  if (script && script !== ours) lines.push(`  note: the job runs ${script}, not this checkout's bin/; the build here does not change what it serves`);
+
+  if (dryRun) {
+    lines.push(`  [dry run] would rebuild (npm run build), restart (launchctl kickstart -k ${target}), then check ${localHealth}${publicHealth ? ` and ${publicHealth}` : ""}`);
+    return { skipped: false, ok: true, lines };
+  }
+
+  try {
+    run("npm", ["run", "build"]);
+    lines.push("  rebuilt: npm run build");
+  } catch (err) {
+    lines.push(`  build FAILED, so the job was not restarted (it keeps serving the code it loaded): ${failureLine(err)}`, `  retry: ${retry}`);
+    return { skipped: false, ok: false, lines };
+  }
+
+  const before = launchdPid(printed);
+  try {
+    run("launchctl", ["kickstart", "-k", target]);
+  } catch (err) {
+    lines.push(`  restart FAILED: launchctl kickstart -k ${target}: ${failureLine(err)}`, `  retry: ${retry}`);
+    return { skipped: false, ok: false, lines };
+  }
+
+  // kickstart -k signals the old process; until a new pid is up, a /health answer may still be the old one's.
+  let pid = null;
+  let local = { ok: false, why: "no new process came up" };
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await sleep(intervalMs);
+    if (pid === null) {
+      let now = null;
+      try {
+        now = launchdPid(run("launchctl", ["print", target]));
+      } catch {
+        // between the old process and the new one: ask again
+      }
+      if (now === null || now === before) continue;
+      pid = now;
+    }
+    local = await health(fetchFn, localHealth, timeoutMs);
+    if (local.ok) break;
+  }
+  lines.push(pid === null ? "  restarted: launchctl kickstart -k, but no new pid was seen" : `  restarted: pid ${before ?? "none"} → ${pid}`);
+  lines.push(`  local  ${localHealth}: ${local.ok ? "ok" : `FAILED (${local.why})`}`);
+  if (!local.ok) {
+    lines.push(`  public not checked, as the local check failed. Retry: ${retry}`);
+    return { skipped: false, ok: false, lines };
+  }
+
+  if (!publicHealth) {
+    lines.push("  public not checked: no AL_BUDDY_MEMORY_PUBLIC_URL in the job's environment or this shell");
+    return { skipped: false, ok: true, lines };
+  }
+  let remote = { ok: false, why: "not tried" };
+  for (let i = 0; i < Math.max(1, Math.ceil(attempts / 4)); i++) {
+    if (i > 0) await sleep(intervalMs);
+    remote = await health(fetchFn, publicHealth, timeoutMs);
+    if (remote.ok) break;
+  }
+  lines.push(`  public ${publicHealth}: ${remote.ok ? "ok" : `FAILED (${remote.why}); the connector is up locally, so check the tunnel`}`);
+  return { skipped: false, ok: remote.ok, lines };
+}
