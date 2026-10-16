@@ -46,6 +46,14 @@ npm run release:pin   # moves the README install line to the published version, 
 The pin waits because an install line that names a version npm does not have yet fails for
 everyone who copies it.
 
+If your Mac serves the [remote connector](README.md#as-a-remote-connector-in-claude-and-chatgpt)
+from this checkout under launchd, `release:pin` then rebuilds `dist/`, restarts the job
+(`launchctl kickstart -k`) and checks `/health` on `127.0.0.1` and on the job's
+`AL_BUDDY_MEMORY_PUBLIC_URL`, printing each result; it exits non-zero if one fails (the pin is
+already pushed by then). The job's label is `com.al-buddy.memory-connector` unless
+`AL_BUDDY_MEMORY_CONNECTOR_LABEL` names another. With no such job, it skips this step and
+prints nothing.
+
 The release also moves `server.json` — the [MCP Registry](https://registry.modelcontextprotocol.io)
 entry — to the new version. The registry reads `mcpName` from that version on npm, so list it
 only after npm serves it, from `main` with [`mcp-publisher`](https://github.com/modelcontextprotocol/registry)
