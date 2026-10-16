@@ -11,6 +11,15 @@ earlier were GitHub releases only.
 
 ## Unreleased
 
+### Fixed
+
+- **Facts written in the same millisecond keep their write order** (#5). Node ids were random
+  (UUIDv4), and reads settle a tie on "most recently learned" by id, so two facts stored in one
+  millisecond (a question and its instant reply, a batch of events) came back in random order.
+  New node ids are time-ordered UUIDv7s with a per-process monotonic counter, so the existing
+  id tiebreak now follows write order. Timestamps are unchanged; ids already stored keep their
+  values. **Behaviour change:** new node ids are v7 instead of v4 (same format, still unique).
+
 ### Added
 
 - **Extension points**, each optional and off by default, so nothing changes for a caller that
