@@ -10,13 +10,16 @@
 //     after that approval: once npm serves the new version, move the README's
 //     install line and the Claude Code plugin's pins (plugin/) to it, test,
 //     commit and push. Never before — a pin to a
-//     version npm does not have yet is an install line that fails.
+//     version npm does not have yet is an install line that fails. Then, if this
+//     Mac runs the remote connector under launchd (AL_BUDDY_MEMORY_CONNECTOR_LABEL,
+//     default com.al-buddy.memory-connector), rebuild, restart it and check /health
+//     locally and on its public URL; without that job, nothing more happens.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { dateChangelog, movePin, movePluginPin, nextVersion, pinnedVersion, PLUGIN_PIN_FILES, preflight, releaseSummary, setVersion, unreleasedVersion } from "./release-lib.mjs";
+import { dateChangelog, movePin, movePluginPin, nextVersion, pinnedVersion, PLUGIN_PIN_FILES, preflight, refreshConnector, releaseSummary, setVersion, unreleasedVersion } from "./release-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -73,6 +76,22 @@ if (pinMode) {
   step("push main");
   if (!dryRun) run("git", ["push", "-q", "origin", "main"]);
   console.log(`\nDone: the README's install line names ${current}.`);
+  // A maintainer's Mac that serves the remote connector from this checkout: rebuild, restart, check.
+  const connector = await refreshConnector({
+    run,
+    fetch,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    env: process.env,
+    platform: process.platform,
+    uid: process.getuid?.(),
+    root,
+    dryRun,
+  });
+  if (!connector.skipped) console.log(`\n${connector.lines.join("\n")}`);
+  if (!connector.ok) {
+    console.error("\nThe pin is committed and pushed; only the connector needs attention (above).");
+    process.exit(1);
+  }
   process.exit(0);
 }
 

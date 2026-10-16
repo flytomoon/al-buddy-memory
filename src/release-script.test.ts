@@ -17,6 +17,20 @@ const { nextVersion, unreleasedVersion, dateChangelog, releaseSummary, setVersio
   preflight(run: (cmd: string, args: string[]) => string, target: string): string[];
   nameScan(run: (cmd: string, args: string[]) => string): string[];
 };
+const { refreshConnector, launchdEnvironment } = lib as {
+  launchdEnvironment(printed: string): Record<string, string>;
+  refreshConnector(opts: {
+    run: (cmd: string, args: string[]) => string;
+    fetch: (url: string, init?: unknown) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+    sleep: (ms: number) => Promise<void>;
+    env: Record<string, string | undefined>;
+    platform: string;
+    uid: number | undefined;
+    root: string;
+    dryRun?: boolean;
+    attempts?: number;
+  }): Promise<{ skipped: boolean; ok: boolean; lines: string[] }>;
+};
 
 const CHANGELOG = [
   "# Changelog",
@@ -151,5 +165,179 @@ describe("preflight", () => {
     const run = fakeGit({ ...CLEAN, "git grep": "src/x.ts:3: // compare with SomeOtherProject\n" });
     expect(nameScan(run)).toEqual(["src/x.ts:3: // compare with SomeOtherProject"]);
     expect(preflight(run, "0.6.1").join("\n")).toMatch(/name scan found 1 line/);
+  });
+});
+
+/** `launchctl print` for a job, shaped like the real output. */
+function printed(pid: number | null, env: Record<string, string> = {}, script = "/repo/bin/al-buddy-memory-http.js"): string {
+  return [
+    "gui/501/com.al-buddy.memory-connector = {",
+    "\tstate = running",
+    "\targuments = {",
+    "\t\t/usr/local/bin/node",
+    `\t\t${script}`,
+    "\t}",
+    "\tinherited environment = {",
+    "\t\tAL_BUDDY_MEMORY_PUBLIC_URL => https://inherited.example",
+    "\t}",
+    "\tenvironment = {",
+    ...Object.entries(env).map(([k, v]) => `\t\t${k} => ${v}`),
+    "\t}",
+    ...(pid === null ? [] : [`\tpid = ${pid}`]),
+    "}",
+  ].join("\n");
+}
+
+const SERVICE_ENV = { AL_BUDDY_MEMORY_PORT: "9999", AL_BUDDY_MEMORY_PUBLIC_URL: "https://box.example.ts.net/" };
+
+type HealthAnswer = { status: number; body?: unknown } | Error;
+
+/**
+ * A stubbed runner and fetch for the connector step: `prints` are what successive
+ * `launchctl print` calls answer (the last repeats; an Error throws, as for no job),
+ * `health` maps a URL to its answers in turn (the last repeats), `fail` throws for a command prefix.
+ */
+function connectorStubs(opts: { prints: (string | Error)[]; health?: Record<string, HealthAnswer[]>; fail?: Record<string, Error> }) {
+  const calls: string[] = [];
+  const fetched: string[] = [];
+  let printIndex = 0;
+  const healthIndex: Record<string, number> = {};
+  const run = (cmd: string, args: string[]): string => {
+    const key = [cmd, ...args].join(" ");
+    calls.push(key);
+    for (const [prefix, err] of Object.entries(opts.fail ?? {})) if (key.startsWith(prefix)) throw err;
+    if (key.startsWith("launchctl print")) {
+      const answer = opts.prints[Math.min(printIndex++, opts.prints.length - 1)];
+      if (answer instanceof Error) throw answer;
+      return answer;
+    }
+    return "";
+  };
+  const fetch = async (url: string) => {
+    fetched.push(url);
+    const answers = opts.health?.[url] ?? [new Error("ECONNREFUSED")];
+    const i = healthIndex[url] ?? 0;
+    healthIndex[url] = i + 1;
+    const answer = answers[Math.min(i, answers.length - 1)];
+    if (answer instanceof Error) throw answer;
+    return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, json: async () => answer.body };
+  };
+  const base = { run, fetch, sleep: async () => {}, env: {}, platform: "darwin", uid: 501, root: "/repo", attempts: 8 };
+  return { calls, fetched, base };
+}
+
+const LABEL_TARGET = "gui/501/com.al-buddy.memory-connector";
+const LOCAL = "http://127.0.0.1:9999/health";
+const PUBLIC = "https://box.example.ts.net/health";
+const OK = { status: 200, body: { ok: true } };
+
+describe("the remote connector after the pin", () => {
+  it("reads only the job's own environment block, not the inherited one", () => {
+    expect(launchdEnvironment(printed(1, SERVICE_ENV))).toEqual(SERVICE_ENV);
+    expect(launchdEnvironment(printed(1))).toEqual({});
+  });
+
+  it("skips quietly when the job is absent, or this is not a Mac", async () => {
+    const absent = connectorStubs({ prints: [new Error("Could not find service")] });
+    expect(await refreshConnector(absent.base)).toEqual({ skipped: true, ok: true, lines: [] });
+    expect(absent.calls).toEqual([`launchctl print ${LABEL_TARGET}`]);
+    const linux = connectorStubs({ prints: [printed(1, SERVICE_ENV)] });
+    expect(await refreshConnector({ ...linux.base, platform: "linux" })).toEqual({ skipped: true, ok: true, lines: [] });
+    expect(linux.calls).toEqual([]);
+  });
+
+  it("takes the label from AL_BUDDY_MEMORY_CONNECTOR_LABEL", async () => {
+    const s = connectorStubs({ prints: [new Error("Could not find service")] });
+    await refreshConnector({ ...s.base, env: { AL_BUDDY_MEMORY_CONNECTOR_LABEL: "org.example.connector" } });
+    expect(s.calls).toEqual(["launchctl print gui/501/org.example.connector"]);
+  });
+
+  it("rebuilds, restarts, waits for the new process, then checks local and public /health", async () => {
+    const s = connectorStubs({
+      prints: [printed(100, SERVICE_ENV), printed(100, SERVICE_ENV), printed(null, SERVICE_ENV), printed(200, SERVICE_ENV)],
+      health: { [LOCAL]: [new Error("ECONNREFUSED"), OK], [PUBLIC]: [OK] },
+    });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(true);
+    expect(s.calls.slice(0, 3)).toEqual([`launchctl print ${LABEL_TARGET}`, "npm run build", `launchctl kickstart -k ${LABEL_TARGET}`]);
+    // No /health asked while the old pid (or none) was up: that answer could be the old process's.
+    expect(s.fetched).toEqual([LOCAL, LOCAL, PUBLIC]);
+    const text = result.lines.join("\n");
+    expect(text).toMatch(/pid 100 → 200/);
+    expect(text).toContain(`local  ${LOCAL}: ok`);
+    expect(text).toContain(`public ${PUBLIC}: ok`);
+  });
+
+  it("does not restart on a failed build, and says how to retry", async () => {
+    const buildError = Object.assign(new Error("Command failed: npm run build"), { stdout: "src/x.ts(1,1): error TS2322: nope\n" });
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV)], fail: { "npm run build": buildError } });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(false);
+    expect(s.calls).not.toContain(`launchctl kickstart -k ${LABEL_TARGET}`);
+    expect(result.lines.join("\n")).toMatch(/build FAILED.*error TS2322/);
+    expect(result.lines.join("\n")).toContain(`retry: npm run build && launchctl kickstart -k ${LABEL_TARGET}`);
+  });
+
+  it("fails when kickstart fails", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV)], fail: { "launchctl kickstart": new Error("Operation not permitted") } });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(false);
+    expect(s.fetched).toEqual([]);
+    expect(result.lines.join("\n")).toMatch(/restart FAILED.*Operation not permitted/);
+  });
+
+  it("fails when the local /health never answers ok, and leaves the public one unasked", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV), printed(200, SERVICE_ENV)], health: { [LOCAL]: [{ status: 503 }] } });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(false);
+    expect(s.fetched.length).toBeGreaterThan(0);
+    expect(s.fetched.every((u) => u === LOCAL)).toBe(true);
+    expect(result.lines.join("\n")).toContain(`local  ${LOCAL}: FAILED (HTTP 503)`);
+  });
+
+  it("fails when no new process comes up after the restart", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV)] });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(false);
+    expect(s.fetched).toEqual([]);
+    expect(result.lines.join("\n")).toMatch(/no new pid was seen/);
+  });
+
+  it("fails when the public URL does not answer, naming the tunnel", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV), printed(200, SERVICE_ENV)], health: { [LOCAL]: [OK], [PUBLIC]: [{ status: 502 }] } });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(false);
+    expect(result.lines.join("\n")).toMatch(/public https:\/\/box\.example\.ts\.net\/health: FAILED \(HTTP 502\).*tunnel/);
+  });
+
+  it("treats a 200 that is not { ok: true } as a failure", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV), printed(200, SERVICE_ENV)], health: { [LOCAL]: [{ status: 200, body: "<html>" }] } });
+    expect((await refreshConnector(s.base)).ok).toBe(false);
+  });
+
+  it("falls back to this shell's env and port 8787, and says when there is no public URL", async () => {
+    const s = connectorStubs({ prints: [printed(100), printed(200)], health: { "http://127.0.0.1:8787/health": [OK] } });
+    const result = await refreshConnector(s.base);
+    expect(result.ok).toBe(true);
+    expect(result.lines.join("\n")).toMatch(/public not checked: no AL_BUDDY_MEMORY_PUBLIC_URL/);
+    const shell = connectorStubs({ prints: [printed(100), printed(200)], health: { "http://127.0.0.1:7000/health": [OK], "https://shell.example/health": [OK] } });
+    const fromShell = await refreshConnector({ ...shell.base, env: { AL_BUDDY_MEMORY_PORT: "7000", AL_BUDDY_MEMORY_PUBLIC_URL: "https://shell.example" } });
+    expect(fromShell.ok).toBe(true);
+    expect(shell.fetched).toEqual(["http://127.0.0.1:7000/health", "https://shell.example/health"]);
+  });
+
+  it("changes nothing on a dry run", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV)] });
+    const result = await refreshConnector({ ...s.base, dryRun: true });
+    expect(result.ok).toBe(true);
+    expect(s.calls).toEqual([`launchctl print ${LABEL_TARGET}`]);
+    expect(s.fetched).toEqual([]);
+    expect(result.lines.join("\n")).toMatch(/\[dry run\] would rebuild/);
+  });
+
+  it("notes when the job serves another checkout's bin/", async () => {
+    const s = connectorStubs({ prints: [printed(100, SERVICE_ENV, "/elsewhere/bin/al-buddy-memory-http.js")] });
+    const result = await refreshConnector({ ...s.base, dryRun: true });
+    expect(result.lines.join("\n")).toMatch(/the job runs \/elsewhere\/bin\/al-buddy-memory-http\.js, not this checkout's bin\//);
   });
 });
