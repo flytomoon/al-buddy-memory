@@ -1,5 +1,6 @@
 import { dependentsOf, isInvalidation, retractionsFor, sourceRetraction } from "./derived.js";
 import { randomUUID } from "node:crypto";
+import { newNodeId } from "./node-id.js";
 
 import { compareRecency, effectiveConfidence, learnedAt } from "./decay.js";
 import { chmodSync, mkdirSync } from "node:fs";
@@ -718,7 +719,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
 
   async addNode(input: NewMemoryNode): Promise<MemoryNode> {
     const node = canonicalNew(input);
-    const nodeId = randomUUID();
+    const nodeId = newNodeId();
     const now = new Date().toISOString();
     const temporalAnchors: TemporalAnchor[] = [{ timestamp: now, event: "created" }];
     // Valid-time defaults: true from creation, open-ended.

@@ -1,4 +1,5 @@
 import { dependentsOf, isInvalidation, retractionsFor, sourceRetraction } from "./derived.js";
+import { newNodeId } from "./node-id.js";
 import { compareRecency, effectiveConfidence } from "./decay.js";
 import { assertPatchMutable, assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
 import { assertAnchorEvent, assertEdge, canonicalEdge, canonicalInstant, canonicalNew, canonicalNode, canonicalPatch, stampAfter } from "./instant.js";
@@ -64,7 +65,7 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     const now = new Date().toISOString();
     const full: MemoryNode = {
       ...node,
-      nodeId: globalThis.crypto.randomUUID(),
+      nodeId: newNodeId(),
       temporalAnchors: [{ timestamp: now, event: "created" }],
       // Valid-time defaults: fact is true from creation, open-ended.
       validFrom: node.validFrom ?? now,
