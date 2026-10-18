@@ -39,7 +39,9 @@
     { "name": "pinned", "description": "List the pinned rules" },
     { "name": "mental_model", "description": "Read a standing question's current answer" },
     { "name": "define_mental_model", "description": "Define a standing question" },
-    { "name": "export", "description": "Export memory in the documented portable format" }
+    { "name": "export", "description": "Export memory in the documented portable format" },
+    { "name": "promote", "description": "Team memory: share a fact with a team or the organisation (refused on one person's memory)" },
+    { "name": "withdraw", "description": "Team memory: take back a shared fact; it is kept in history" }
   ],
   "keywords": ["memory", "long-term memory", "local-first", "privacy", "sqlite"],
   "license": "Apache-2.0",

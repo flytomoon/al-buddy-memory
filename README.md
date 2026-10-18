@@ -478,7 +478,7 @@ The **first** `recall` of a connection also returns the pinned tier — the pers
 rules — as a second content block, so the tier that claims to be in every prompt gets there
 without spending any of the 512-character handshake.
 
-Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model`, `export`. `mental_model` reads a standing question's pre-written answer with its freshness and evidence (the host refreshes answers on its own schedule). `explain` answers why a
+Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model`, `export`, and for team memory `promote` and `withdraw` (the personal server's policy refuses them; see [docs/policies/scopes.md](docs/policies/scopes.md#promotion)). `mental_model` reads a standing question's pre-written answer with its freshness and evidence (the host refreshes answers on its own schedule). `explain` answers why a
 fact is believed: who asserted it, when it was true, what ended it, and for a conclusion the exact
 words it rests on, each checked now. `remember` takes at
 most 4,000 characters and `pin` 500; a `recall` query 1,000, an `invalidate` reason 500, and

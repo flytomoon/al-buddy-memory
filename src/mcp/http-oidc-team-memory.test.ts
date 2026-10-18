@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { govern } from "../governance/governed-store.js";
 import { storeAudit, type AuditEvent } from "../governance/audit.js";
+import { verifyPromotion } from "../governance/promotion.js";
 import { teamMemory, teamMemoryAttributes } from "../governance/samples.js";
 import { makeNode } from "../memory-store-conformance.spec.js";
 import { PostgresMemoryStore } from "../postgres-memory-store.js";
@@ -133,6 +134,21 @@ describe("team memory, signed in by the company's identity provider", () => {
     const out = await call(t, "recall", { query: "budget" });
     expect(out).toMatch(/whole company/);
     expect(out).not.toMatch(/Alice keeps|Rob keeps|blue team|red team/);
+  });
+
+  it("promote shares a person's fact with their team over the connector, and withdraw takes it back", async () => {
+    const shared = JSON.parse(await call(await alice(), "promote", { id: "alice-own", to: "team:blue" })) as { copyId: string; fact: { text: string } };
+    expect(shared.fact.text).toBe("Budget idea Alice keeps to herself");
+    const teammate = await token({ oid: "bo", tid: "acme", groups: ["blue"] });
+    expect(await call(teammate, "recall", { query: "budget idea" })).toMatch(/Alice keeps/);
+    expect(await call(await rob(), "recall", { query: "budget idea" })).not.toMatch(/Alice keeps/);
+    expect((await acme.getNode("alice-own"))?.contextualMetadata).toEqual({ scope: "user:alice", author: "alice" });
+    expect(await verifyPromotion(shared.copyId, acme)).toMatchObject({ ok: true, promotion: { from: "alice-own", actor: "alice", to: "team:blue" } });
+
+    await call(await alice(), "withdraw", { id: shared.copyId, reason: "not ready to share" });
+    expect(await call(teammate, "recall", { query: "budget idea" })).not.toMatch(/Alice keeps/);
+    expect((await acme.getNode(shared.copyId))?.contextualMetadata["retraction"]).toMatchObject({ by: "withdrawal", reason: "not ready to share" });
+    expect(await verifyPromotion(shared.copyId, acme)).toMatchObject({ ok: true, withdrawn: { actor: "alice" } });
   });
 
   it("a person with no groups claim sees their own and the company's", async () => {

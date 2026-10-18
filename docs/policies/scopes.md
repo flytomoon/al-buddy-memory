@@ -50,11 +50,89 @@ readBoundary: {
   scope and author included: a backup of team and company memory has to come back as it was.
   Anyone else's import is judged as a write.
 
-Sharing a fact with a team or the company is a **promotion**: a new fact at the target scope,
-holding the text its author approved, with the consent in the audit trail, the original
-untouched. Promotion is not in this release. Until it is, a fact reaches a `team:` or `org`
-scope only through an import by one of `importers` (or through the raw store, which no policy
-governs).
+Sharing a fact with a team or the company is a **promotion** (next section): a new fact at the
+target scope, holding the text its author approved, with the consent in the audit trail, the
+original untouched. Otherwise a fact reaches a `team:` or `org` scope only through an import by
+one of `importers` (or through the raw store, which no policy governs).
+
+## Promotion
+
+Every governed handle has two more methods:
+
+```ts
+const { copyId, event } = await store.promote(sourceId, {
+  to: "team:blue",            // or "org"
+  text: "Deploys go out on Tuesdays",  // optional: the text the person approved; default the fact's own words
+  fields: { category: "release" },     // optional: structured fields from a form, never inferred
+  basis: "self",              // "self" | "admin-approved" | "policy"
+  approvedBy: undefined,      // the approver's actor id, with basis "admin-approved"
+});
+await store.withdraw(copyId, "replaced by the handbook");
+await verifyPromotion(copyId, trail);  // the trail verifies and holds the promote event
+```
+
+**What `promote` writes.** A new fact: the approved text as its content, the source's
+provenance, confidence and `validFrom`, classification `Private` (`Public` stays `Public`),
+`scope` = the target, `author` = the source's author, and
+`promotion: { from, by, approvedBy, at, basis, edited, fields? }`. No other label is copied:
+the person approved the text, and a tag can say more than the text does. The source is not
+touched: no edit, no link. One audit event, purpose `promote`, names `[sourceId, copyId]`, and
+its reason is `{ to, basis, approvedBy, edited, fields }` with the field *names* only. That
+event is the consent record, chained like every other; the copy's `promotion` label is a
+convenience. `verifyPromotion(copyId, trail)` (a store, or a path `verify-audit` takes) checks
+the trail and finds it, and reports a later withdrawal.
+
+**What no policy can switch on.** The store refuses, before any policy is asked:
+
+- a fact the promoter cannot see ("not found", as everywhere);
+- a fact the promoter sees **redacted** — sharing what you cannot fully see would publish, or
+  confirm, the part hidden from you;
+- `Sensitive` and `Sealed` facts, which never leave a person's own scope;
+- a fact in Recently deleted (`PendingDeletion`) or no longer current (`validTo` set);
+- a target the fact is already at, and a second live copy of the same fact at the same scope
+  (a retry, or two clicks at once, makes one copy; withdraw it to promote again).
+
+Then the `beforePromote` hooks decide, as erasure does: one must allow and none refuse. A store
+whose policies have no `beforePromote` (the shipped personal server's, for one) promotes nothing.
+
+**What `teamMemory` allows.**
+
+| | Who | Needs |
+|---|---|---|
+| to `team:<id>` | the fact's author, on that team | nothing more (basis `self` or `policy`) |
+| to `org` | the fact's author | `basis: "admin-approved"` with an approval on record, or `teamMemory({ orgSelfServe: true })` |
+
+- **Only the author completes a promotion.** An admin who can read someone's team fact still
+  cannot promote it: the call that completes it is the author's, with the admin in `approvedBy`.
+  Either one alone is refused.
+- **An approval is checked, not taken on trust.** The author makes the call, so `approvedBy`
+  is only a name until something you trust confirms it: pass
+  `teamMemory({ approval: ({ approvedBy, sourceId, author, to }, ctx) => … })` to read your
+  approval workflow's record, and return `true` only when `approvedBy` is an admin who approved
+  exactly this promotion. Without it, the one approval accepted is an admin's own, on their own
+  fact (`approvedBy` = the actor, whose `roles` include `admin`).
+- **Text that reads like a secret is refused**, edited or not (the `looksSecret` net the personal
+  defaults classify with).
+- **Withdrawal** closes the copy's `validTo` with
+  `retraction: { at, by: "withdrawal", reason }`, purpose `withdraw`; the copy, its text and its
+  history stay. Its author, whoever promoted it, or an admin may withdraw it, and only they may
+  close it any other way (an `updateNode` setting `validTo`). Withdrawing a copy that is already
+  closed changes nothing and records nothing.
+- **The `promotion` record never changes**, and a write or a non-importer's import carrying
+  one is refused, so a fact cannot pass for a copy.
+
+**Erasure.** A copy is the organisation's: erasing its source leaves it, and the erasure
+receipt says so in `outside`. The person keeps a one-call exit (`withdraw`), and a subject
+erasure, `eraseWhere({ label: "author", equals: "<actor>" })`, reaches every copy the eraser can
+read, each judged by the erase policies, so a legal hold can still refuse one.
+
+**Over MCP.** The governance server has `promote` (`id`, `to`, optional `text`, `basis`,
+`approvedBy`, `fields`) and `withdraw` (`id`, `reason`). They call the store's own methods, so
+a team server governed by `teamMemory` judges them exactly as above; with `approvedBy` and no
+`basis`, the basis is `admin-approved`. On the personal server, whose policy has no
+`beforePromote`, both are refused.
+
+**The portable format is unchanged.** A copy is a fact with labels and travels as one.
 
 ## Wiring it up
 
@@ -90,11 +168,12 @@ through, as [SIGN-IN.md](../SIGN-IN.md#team-memory) shows.
 - **A `self` among the attributes is replaced**, so a claim mapped to `self` cannot name
   someone else.
 - **Classification is a separate rule.** `teamMemory` does not look at `privacyClassification`;
-  compose it with a policy that does. Promotion will refuse `Sensitive` and `Sealed` facts.
+  compose it with a policy that does. Promotion refuses `Sensitive` and `Sealed` facts.
 - **Erasure is not switched on by it.** Erasure needs one policy to allow it and none to refuse
   it; `teamMemory` abstains. One person's facts, in every scope the eraser can read, are
   `eraseWhere({ label: "author", equals: "<actor>" })`, judged by whichever erase policies you
   install.
 - **Who may work on a team's facts.** Anyone who can read a fact can update or invalidate it,
   as with any policy without a `beforeUpdate` rule of its own; `teamMemory` only holds its scope
-  and author still. Add a rule when a team needs more.
+  and author still, and keeps closing a promoted copy to the people who may withdraw it. Add a
+  rule when a team needs more.

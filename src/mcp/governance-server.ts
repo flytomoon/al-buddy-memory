@@ -4,7 +4,8 @@
  * it, with every recall. 217 memory MCP servers hand agents facts; this one
  * hands them facts they can weigh.
  *
- * Tools: remember, recall, history, explain, invalidate, pin, unpin, pinned, export. Every answer
+ * Tools: remember, recall, history, explain, invalidate, pin, unpin, pinned, export, and for team
+ * memory promote and withdraw. Every answer
  * carries provenance, validFrom, validTo, confidence, and — for a superseded
  * fact — the id of what replaced it. There is no erase tool; invalidation keeps
  * the record. The shipped server serves `serverStore(...)`, a governed handle.
@@ -21,6 +22,8 @@ import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { AuditSink } from "../governance/audit.js";
 import { exportView, govern } from "../governance/governed-store.js";
+import type { ProcessFields, PromotionBasis } from "../governance/policy.js";
+import { isPromotionCapable } from "../governance/promotion.js";
 import { looksSecret, personalDefaults } from "../governance/samples.js";
 import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.js";
 
@@ -343,6 +346,13 @@ export const PATH_MAX_CHARS = 1_024;
 export const PIN_REFUSED =
   "pin: this server does not pin — a pinned rule goes into every assistant's prompt, so it is only added on the user's own machine. Pin it from an assistant connected to the local server (al-buddy-memory mcp), or with PinnedBlocks in code. Rules already pinned still arrive with the first recall.";
 
+/** What `promote` and `withdraw` answer over a store that is not a governed handle. */
+export const PROMOTE_REFUSED = "promote: this server's store does not promote facts; promotion runs on a governed handle (govern(...)) whose policies allow it, such as teamMemory";
+
+/** The most structured fields a promotion carries, and the longest field name and text value. */
+export const FIELDS_MAX = 20;
+export const FIELD_MAX_CHARS = 200;
+
 /** What `export` returns when it wrote a file. */
 export interface ExportWritten {
   path: string;
@@ -515,6 +525,30 @@ export function governanceTools(deps: GovernanceDeps) {
       });
       return toGovernedFact(updated);
     },
+    /**
+     * Share one of the caller's facts with a team or the whole organisation
+     * (team memory, docs/policies/scopes.md): a new fact at that scope holding
+     * the approved text, the consent in the audit trail, the original
+     * untouched. The store's policies decide; the personal server's refuse.
+     */
+    async promote(input: { id: string; to: string; text?: string | undefined; basis?: PromotionBasis | undefined; approvedBy?: string | undefined; fields?: ProcessFields | undefined }) {
+      if (!isPromotionCapable(deps.store)) throw new Error(PROMOTE_REFUSED);
+      const basis = input.basis ?? (input.approvedBy !== undefined ? "admin-approved" : "self");
+      const { copyId, event } = await deps.store.promote(input.id, {
+        to: input.to,
+        basis,
+        ...(input.text !== undefined && { text: input.text }),
+        ...(input.fields !== undefined && { fields: input.fields }),
+        ...(input.approvedBy !== undefined && { approvedBy: input.approvedBy }),
+      });
+      const copy = await deps.store.getNode(copyId);
+      return { copyId, from: input.id, to: input.to, basis, promotedAt: event.at, fact: copy ? toGovernedFact(copy) : null };
+    },
+    /** Take a promoted copy back: its validity closes with the reason; it is kept. */
+    async withdraw(input: { id: string; reason: string }): Promise<GovernedFact> {
+      if (!isPromotionCapable(deps.store)) throw new Error(PROMOTE_REFUSED);
+      return toGovernedFact(await deps.store.withdraw(input.id, input.reason));
+    },
     async pin(input: { text: string; label?: string | undefined }) {
       if (!deps.pinning) throw new Error(PIN_REFUSED);
       // Refused before anything is written. The shipped store classifies text
@@ -600,6 +634,9 @@ export const TOOL_ANNOTATIONS = {
   pinned: { title: "List pinned rules", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   // Not read-only: with a path it writes a new file (never an existing one).
   export: { title: "Export memory", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  // A second promotion of the same fact to the same scope is refused, not repeated.
+  promote: { title: "Share a fact with a team or the organisation", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  withdraw: { title: "Withdraw a shared fact", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
 } as const;
 
 /** Wire the tools onto an MCP server instance (stdio transport is the bin's job). */
@@ -669,6 +706,20 @@ export async function createGovernanceMcpServer(deps: GovernanceDeps, opts: { to
   server.tool("export", `Export the user's memory in the portable format, with provenance and validity. Only when the user asks for an export or backup. Without a path it is returned inline if under ${EXPORT_INLINE_MAX_BYTES} bytes; otherwise give an absolute path ending in .json that does not exist yet (never overwrites).`, {
     path: z.string().max(PATH_MAX_CHARS).optional(),
   }, TOOL_ANNOTATIONS.export, async (a) => json(await tools.export(a)));
+  server.tool("promote", "Team memory: share one of the user's own facts with a team (to \"team:<id>\") or the whole organisation (to \"org\"), only when the user asks to. Writes a copy holding the text the user approved (default: the fact's own words), records the consent, and leaves the original untouched. Sharing with org needs an admin's approval (approvedBy) unless the organisation allows self-service.", {
+    id: z.string().max(ID_MAX_CHARS),
+    to: z.string().min(1).max(ID_MAX_CHARS),
+    text: z.string().min(1).max(REMEMBER_MAX_CHARS).optional(),
+    basis: z.enum(["self", "admin-approved", "policy"]).optional(),
+    approvedBy: z.string().min(1).max(ID_MAX_CHARS).optional(),
+    fields: z
+      .record(z.string().min(1).max(FIELD_MAX_CHARS), z.union([z.string().max(FIELD_MAX_CHARS), z.number(), z.boolean()]))
+      .refine((f) => Object.keys(f).length <= FIELDS_MAX, { message: `at most ${FIELDS_MAX} fields` })
+      .optional(),
+  }, TOOL_ANNOTATIONS.promote, async (a) => json(await tools.promote(a)));
+  server.tool("withdraw", "Take back a fact shared with promote: the shared copy's validity closes with the reason (never deleted); the user's own original is untouched.", {
+    id: z.string().max(ID_MAX_CHARS), reason: z.string().min(1).max(REASON_MAX_CHARS),
+  }, TOOL_ANNOTATIONS.withdraw, async (a) => json(await tools.withdraw(a)));
   return { server };
 }
 
