@@ -98,6 +98,12 @@ The receipt says this itself, in `outside`, so it cannot be read as more than it
   `compact()` (VACUUM) and a checkpoint; Postgres keeps dead rows until VACUUM.
 - **The audit trail** keeps the events that name the erased facts' ids (never their content):
   pruning it would break the chain that makes the receipt checkable.
+- **Promoted copies.** A fact shared with a team or the organisation (`promote`) is a new fact
+  there, and erasing its source leaves it: company knowledge does not vanish when a person tidies
+  their notes. Its author withdraws it in one call (`withdraw`), or a subject erasure by author
+  (`eraseWhere({ label: "author", equals: "<actor>" })`) reaches it, judged by the erase
+  policies like any other fact, so a legal hold can still refuse it.
+  ([policies/scopes.md](policies/scopes.md#promotion))
 - **The raw store.** Whoever holds the inner store, or the database itself, is outside every
   policy, here as everywhere.
 

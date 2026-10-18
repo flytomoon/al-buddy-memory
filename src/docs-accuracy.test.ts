@@ -88,6 +88,22 @@ describe("docs — the claims a reader will check", () => {
   });
 
   /**
+   * The README's tool list is every tool the server registers, and it says the
+   * personal server refuses promote and withdraw: its policy has no
+   * beforePromote, and without one the store promotes nothing.
+   */
+  it("the README lists exactly the server's tools, and the personal server refuses promotion", async () => {
+    const line = read("README.md").match(/^Tools: (.+)$/m)?.[1] ?? "";
+    const named = [...line.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]!);
+    const { TOOL_ANNOTATIONS } = await import("./mcp/governance-server.js");
+    expect([...new Set(named)].sort()).toEqual(Object.keys(TOOL_ANNOTATIONS).sort());
+    expect(line).toMatch(/the personal server's policy refuses them/);
+    const { personalDefaults } = await import("./governance/samples.js");
+    expect(personalDefaults({ owner: "o" }).beforePromote).toBeUndefined();
+    expect(read("src/governance/promotion.ts")).toMatch(/if \(!allowed\) deny\("promotion is not enabled: no policy allows it"\)/);
+  });
+
+  /**
    * The README listed "read audit" as enterprise-only while the public Postgres
    * store ships `accessAudit: { sink, reads: true }` (Fable review, 2026-10-13).
    * Each public seam is named by what EXTENSION-POINTS.md documents, so it

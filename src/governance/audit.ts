@@ -355,6 +355,24 @@ export async function verifyAuditLogs(path: string, opts: { key?: string; head?:
   return { ok: logs.every((l) => l.result.ok), logs };
 }
 
+/**
+ * Verify a trail and show `visit` every event in it: a path `verify-audit`
+ * takes (a database file, a JSONL log or a directory of them; `key` is its HMAC
+ * key), or an open store that checks its own chain with its own key. What an
+ * erasure receipt and a promotion are both checked against.
+ */
+export async function visitTrail(trail: string | AuditVerifiable, visit: AuditVisitor, opts: { key?: string; head?: string } = {}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (typeof trail === "string") {
+    const checked = await verifyAuditLogs(trail, { ...opts, visit });
+    if (checked.ok) return { ok: true };
+    const broken = checked.logs.find((l) => !l.result.ok);
+    return { ok: false, reason: checked.reason ?? (broken && !broken.result.ok ? `${broken.file}: ${broken.result.reason}` : "the trail does not verify") };
+  }
+  // An open store checks with the key it was opened with; `key` is for a trail read from a file.
+  const result = await trail.verifyAudit(opts.head === undefined ? { visit } : { head: opts.head, visit });
+  return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+}
+
 /** Check a ChainedAudit file line by line. `head`: the last hash you anchored elsewhere. */
 export async function verifyAuditChain(path: string, opts: { key?: string; head?: string; visit?: AuditVisitor } = {}): Promise<AuditChainResult> {
   const { readFile } = await import("node:fs/promises");
