@@ -1,13 +1,35 @@
 /**
  * Governance hooks. The store ships the vocabulary (privacy classification,
  * retention tier, provenance); a policy is what ENFORCES it: who may write
- * what, who may see what, what may leave, what may be erased. Policies are plain
- * objects with up to five hooks, composed in order, and every decision is auditable.
+ * what, who may see what, what may leave, what may be erased or shared. Policies
+ * are plain objects with up to six hooks, composed in order, and every decision
+ * is auditable.
  */
 import type { Origin } from "../provenance.js";
 import type { MemoryNode, MemoryStore, NewMemoryNode } from "../types/memory.js";
 
-export type Purpose = "write" | "recall" | "export" | "invalidate" | "import" | "erase";
+export type Purpose = "write" | "recall" | "export" | "invalidate" | "import" | "erase" | "promote" | "withdraw";
+
+/** Why a promotion is allowed: its author's own act, an admin's approval of it, or a rule of the tenant. */
+export type PromotionBasis = "self" | "admin-approved" | "policy";
+
+/**
+ * Structured fields captured when a fact is promoted — a form the person fills
+ * in (category, outcome, a duration bucket), never inferred from the text.
+ */
+export type ProcessFields = Readonly<Record<string, string | number | boolean>>;
+
+/** What `promote(sourceId, request)` asks for. */
+export interface PromotionRequest {
+  /** The scope the copy is written at: `team:<id>` or `org` in the teamMemory convention. */
+  readonly to: string;
+  /** The text the person approved. Default: the source's raw text, verbatim. */
+  readonly text?: string | undefined;
+  readonly fields?: ProcessFields | undefined;
+  readonly basis: PromotionBasis;
+  /** The approver's actor id; goes with `basis: "admin-approved"`. */
+  readonly approvedBy?: string | undefined;
+}
 
 /** What an erasure would remove: a whole fact, or one link between facts. */
 export type ErasureSubject = { node: MemoryNode } | { edgeId: string };
@@ -92,6 +114,16 @@ export interface GovernancePolicy {
    * merely protects some facts (guardian mode) never switches erasure on.
    */
   beforeErase?(subject: ErasureSubject, ctx: PolicyContext): boolean | void | Promise<boolean | void>;
+  /**
+   * Sharing a fact at another scope (`promote`): a new fact holding the text the
+   * person approved. Same rule as erasure: return `true` to allow, throw
+   * {@link PolicyDenied} to refuse, return nothing to abstain; a promotion
+   * happens only when one policy allowed it and none refused. The write
+   * policies do not run on the copy — this hook is its write rule. `source` is
+   * the stored fact, which the actor can see whole (the store refuses a fact
+   * they see redacted before any policy is asked).
+   */
+  beforePromote?(source: MemoryNode, request: PromotionRequest, ctx: PolicyContext): boolean | void | Promise<boolean | void>;
 }
 
 export class PolicyDenied extends Error {

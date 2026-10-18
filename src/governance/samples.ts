@@ -2,8 +2,10 @@
  * Policies to copy. Each is a few lines on purpose: governance should read
  * like a rule a person can check, not a framework.
  */
+import { canonicalJson } from "../history.js";
 import type { MemoryNode, NewMemoryNode } from "../types/memory.js";
-import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext } from "./policy.js";
+import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type PromotionRequest } from "./policy.js";
+import { PROMOTION, promotionOf } from "./promotion.js";
 
 /**
  * Shapes that look like secrets. A HEURISTIC, and only the shapes listed here:
@@ -195,6 +197,39 @@ export function teamMemoryAttributes(actor: string, attributes: Readonly<Record<
   return { ...attributes, self: `user:${actor}`, teams: [...new Set(teams)].map((t) => `team:${t}`) };
 }
 
+/** What {@link TeamMemoryOptions.approval} is asked about: one promotion, and who is said to have approved it. */
+export interface PromotionApproval {
+  readonly approvedBy: string;
+  readonly sourceId: string;
+  readonly author: string;
+  readonly to: string;
+}
+
+export interface TeamMemoryOptions {
+  /** Actors whose imports restore facts verbatim, scope, author and promotion record included. */
+  readonly importers?: readonly string[] | undefined;
+  /** Let an author promote their own fact to `org` without an admin's approval. Off by default. */
+  readonly orgSelfServe?: boolean | undefined;
+  /**
+   * Whether `approvedBy` is an admin who really approved exactly this
+   * promotion: your approval workflow's record, read from where you keep it.
+   * The promoting call is made by the author, so a name in `approvedBy` is
+   * only a claim until something you trust confirms it. Without this, the one
+   * approval accepted is an admin's of their own fact (`approvedBy` = the actor,
+   * who has the `admin` role).
+   */
+  readonly approval?: ((approval: PromotionApproval, ctx: PolicyContext) => boolean | Promise<boolean>) | undefined;
+}
+
+/** One attribute's values as a list. */
+const valuesOf = (ctx: PolicyContext, name: string): readonly string[] => {
+  const raw = ctx.attributes?.[name];
+  return raw === undefined ? [] : typeof raw === "string" ? [raw] : raw;
+};
+
+/** The acting actor has the `admin` role (attribute `roles`, from the identity provider's claims). */
+const isAdmin = (ctx: PolicyContext): boolean => valuesOf(ctx, "roles").includes("admin");
+
 /**
  * Team memory: one company's store, in layers. A fact's `scope` label says who
  * reads it — `user:<actor>` (its writer), `team:<id>` (a team), `org` (everyone
@@ -207,18 +242,27 @@ export function teamMemoryAttributes(actor: string, attributes: Readonly<Record<
  *   {@link teamMemoryAttributes} hides facts rather than showing them.
  * - Writes: an unlabelled fact is stamped `scope: user:<actor>` and
  *   `author: <actor>`, so nothing is shared by accident. A write naming another
- *   scope or another author is refused: sharing is a promotion, not a label.
- *   An import restores facts verbatim only for `importers`; anyone else's is
- *   judged as a write.
- * - Changes: `scope` and `author` never change. Promotion is the only way
- *   across scopes, and it writes a new fact.
+ *   scope or another author, or carrying a promotion record, is refused:
+ *   sharing is a promotion, not a label. An import restores facts verbatim only
+ *   for `importers`; anyone else's is judged as a write.
+ * - Changes: `scope`, `author` and a copy's promotion record never change.
+ * - Promotion (`promote`) is the only way across scopes, and it writes a new
+ *   fact. Only the fact's author promotes it: to a team they are on, on their
+ *   own; to `org` with an admin's approval ({@link TeamMemoryOptions.approval})
+ *   or `orgSelfServe`. An admin cannot complete someone else's promotion
+ *   without them, and approved text that reads like a secret is refused.
+ * - Withdrawal (`withdraw`): the copy's author, whoever promoted it, or an admin.
  *
  * See docs/policies/scopes.md.
  */
-export function teamMemory(opts: { importers?: readonly string[] } = {}): GovernancePolicy {
+export function teamMemory(opts: TeamMemoryOptions = {}): GovernancePolicy {
   const importers = new Set(opts.importers ?? []);
   const deny = (why: string): never => {
     throw new PolicyDenied("team-memory", why);
+  };
+  const approved = async (approval: PromotionApproval, ctx: PolicyContext): Promise<boolean> => {
+    if (opts.approval !== undefined) return (await opts.approval(approval, ctx)) === true;
+    return approval.approvedBy === ctx.actor && isAdmin(ctx);
   };
   return {
     name: "team-memory",
@@ -245,15 +289,46 @@ export function teamMemory(opts: { importers?: readonly string[] } = {}): Govern
       if (scopes === undefined) deny("scope must be a string or a list of strings");
       if (scopes!.some((s) => s !== `user:${ctx.actor}`)) deny(`${ctx.actor} writes to their own scope only (user:${ctx.actor}); promotion is the only way to share a fact`);
       if (labels["author"] !== undefined && labels["author"] !== ctx.actor) deny(`${ctx.actor} cannot write a fact authored by someone else`);
+      // A forged record would let a fact pass for a promoted copy (withdraw, verifyPromotion's reader).
+      if (labels[PROMOTION] !== undefined) deny("a promotion record is written by promote, not by a write");
       if (scopes!.length > 0 && labels["author"] !== undefined) return node;
       return { ...node, contextualMetadata: { ...labels, scope: scopes!.length > 0 ? labels["scope"] : `user:${ctx.actor}`, author: ctx.actor } };
     },
     // A patch's contextualMetadata replaces the old one whole, so leaving a
     // label out is a change too.
-    beforeUpdate(existing: MemoryNode, patch: NodePatch, _ctx: PolicyContext): void {
+    beforeUpdate(existing: MemoryNode, patch: NodePatch, ctx: PolicyContext): void {
+      const copy = promotionOf(existing);
+      // Closing a promoted copy, by withdraw or any other route, is for the
+      // person it came from, whoever shared it, or an admin — not for every reader.
+      if (copy !== null && patch.validTo !== undefined && patch.validTo !== existing.validTo) {
+        if (ctx.actor !== existing.contextualMetadata["author"] && ctx.actor !== copy.by && !isAdmin(ctx)) {
+          deny(`${ctx.actor} cannot withdraw a promoted fact: its author, whoever promoted it, or an admin can`);
+        }
+      }
       if (patch.contextualMetadata === undefined) return;
       if (!sameScope(existing.contextualMetadata["scope"], patch.contextualMetadata["scope"])) deny("a fact's scope never changes; promote it to share it");
       if (existing.contextualMetadata["author"] !== patch.contextualMetadata["author"]) deny("a fact's author never changes");
+      if (canonicalJson(existing.contextualMetadata[PROMOTION] ?? null) !== canonicalJson(patch.contextualMetadata[PROMOTION] ?? null)) deny("a promoted fact's promotion record never changes");
+    },
+    // govern() has already refused a fact this actor sees redacted, a Sensitive
+    // or Sealed one, one in Recently deleted and one no longer current.
+    async beforePromote(source: MemoryNode, request: PromotionRequest, ctx: PolicyContext): Promise<true> {
+      const author = source.contextualMetadata["author"];
+      // The "not spying" rule: whoever else asks, the author's own call completes it.
+      if (typeof author !== "string" || author !== ctx.actor) deny(`only a fact's author promotes it; ${ctx.actor} is not its author (an admin approves through approvedBy on the author's promotion)`);
+      if (request.to !== "org" && !(request.to.startsWith("team:") && request.to.length > "team:".length)) deny("a fact is promoted to team:<id> or org");
+      if (request.to !== "org" && !valuesOf(ctx, "teams").includes(request.to)) deny(`${ctx.actor} is not on ${request.to}`);
+      if (request.basis === "admin-approved") {
+        const approval: PromotionApproval = { approvedBy: request.approvedBy ?? "", sourceId: source.nodeId, author: author as string, to: request.to };
+        if (!(await approved(approval, ctx))) deny(`no admin approval by ${approval.approvedBy} is on record for this promotion`);
+      } else if (request.to === "org" && opts.orgSelfServe !== true) {
+        deny("promotion to org needs an admin's approval (basis admin-approved, with approvedBy) unless the tenant allows orgSelfServe");
+      }
+      // The same net the personal defaults classify by, on the words that would
+      // be shared — the source's own when not edited, since a store without
+      // that policy never classified them.
+      if (looksSecret(request.text ?? source.content.text)) deny("the approved text reads like a secret, and secrets never leave a person's own scope");
+      return true;
     },
   };
 }

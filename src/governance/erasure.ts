@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 
 import type { LabelFilter } from "../types/memory.js";
-import { verifyAuditLogs, type AuditEvent, type AuditVerifiable, type AuditVisitor } from "./audit.js";
+import { visitTrail, type AuditEvent, type AuditVerifiable, type AuditVisitor } from "./audit.js";
 import { canonical } from "./chain.js";
 
 /**
@@ -44,6 +44,7 @@ export const RECEIPT_OUTSIDE: readonly string[] = [
   "Facts the erasing actor cannot see, or that carry the selector's labels only where a policy hides them from that actor, were not selected (a conclusion drawn from a selected fact went with it, as with any erasure, and is counted), and facts about the subject that do not carry the selector's labels were not matched.",
   "Storage the database has not reclaimed yet: SQLite free pages and WAL until compact() (VACUUM) and a checkpoint; Postgres dead rows until VACUUM.",
   "The audit trail keeps the events that name these facts' ids; it never held their content.",
+  "Promoted copies of these facts (a new fact at a team or org scope, contextualMetadata.promotion.from naming its source) are the organisation's and were not erased with their source; withdraw them, or erase them by their author label.",
 ];
 
 /** A receipt for one `eraseWhere`. Every id is hashed ({@link erasedIdHash}); lists are sorted. */
@@ -174,16 +175,7 @@ export async function verifyErasureReceipt(receipt: unknown, trail: string | Aud
   const visit: AuditVisitor = (event, position, file) => {
     if (event.receipt === digest) found.push(file === undefined ? { position, event } : { position, file, event });
   };
-  let verified: { ok: boolean; reason?: string };
-  if (typeof trail === "string") {
-    const checked = await verifyAuditLogs(trail, { ...opts, visit });
-    const broken = checked.logs.find((l) => !l.result.ok);
-    verified = checked.ok ? { ok: true } : { ok: false, reason: checked.reason ?? (broken && !broken.result.ok ? `${broken.file}: ${broken.result.reason}` : "the trail does not verify") };
-  } else {
-    // An open store checks with the key it was opened with; `key` is for a trail read from a file.
-    const result = await trail.verifyAudit(opts.head === undefined ? { visit } : { head: opts.head, visit });
-    verified = result.ok ? { ok: true } : { ok: false, reason: result.reason };
-  }
+  const verified = await visitTrail(trail, visit, opts);
   if (!verified.ok) return { ok: false, reason: `the audit trail does not verify: ${verified.reason}` };
   if (found.length === 0) return { ok: false, reason: "no event in this trail carries this receipt's digest" };
   if (found.length > 1) return { ok: false, reason: `${found.length} events carry this receipt's digest; a receipt is recorded once` };
