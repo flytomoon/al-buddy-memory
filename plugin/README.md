@@ -30,7 +30,9 @@ Getting started, troubleshooting and the Codex / ChatGPT desktop setup: https://
 ## What you get
 
 - **An MCP server** (`memory`) with the tools `remember`, `recall`, `history`, `explain`,
-  `invalidate`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model` and `export`.
+  `invalidate`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model` and `export`
+  (plus `promote` and `withdraw`, which share a fact with a team on a team memory server and are
+  refused on one person's memory).
   Every recalled fact carries its provenance, validity and confidence.
 - **Two skills**, which are also the `/al-buddy:recall` and `/al-buddy:remember` commands. `recall`
   has Claude search memory before answering about past work or decisions. `remember` has Claude

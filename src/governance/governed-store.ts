@@ -25,6 +25,7 @@ import { DAY_MS, DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type
 export { DELETION_REQUEST, isRecentlyDeletedCapable, type DeletedFact, type RecentlyDeletedCapable } from "./recently-deleted.js";
 import { RECEIPT_FORMAT, RECEIPT_ID_HASH, RECEIPT_OUTSIDE, assertErasureSelector, erasedIdHash, receiptEvent, sealReceipt, selectorFilter, type ErasureReceipt, type ErasureSelector, type SubjectErasureCapable } from "./erasure.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
+import { promotionMethods, type PromotionCapable } from "./promotion.js";
 
 export interface GovernOptions {
   policies: GovernancePolicy[];
@@ -403,8 +404,8 @@ const snapshot = <T>(value: T): T => (value === undefined ? value : (JSON.parse(
 const snapshotOptions = <T extends object>(options: T): T =>
   Object.fromEntries(Object.entries(options).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v])) as T;
 
-export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable & SubjectErasureCapable : MemoryStore & SubjectErasureCapable;
-export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore & SubjectErasureCapable {
+export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable & SubjectErasureCapable & PromotionCapable : MemoryStore & SubjectErasureCapable & PromotionCapable;
+export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore & SubjectErasureCapable & PromotionCapable {
   for (const p of options.policies) if (p.readBoundary !== undefined) assertReadBoundary(p.readBoundary, p.name);
   // Resolved once, here, because it is the only place `inner` and the sink are
   // both in scope; everything below reads it off `opts`.
@@ -509,7 +510,22 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
   // `governed.db` (SQLite) and `governed.nodes` (in-memory) handed a stranger
   // the raw data (Fable re-review, 2026-09-15). Whoever should close or tune the
   // store holds the inner one.
-  const governed: MemoryStore & SubjectErasureCapable & Partial<HistoryCapable> = {
+  const governed: MemoryStore & SubjectErasureCapable & PromotionCapable & Partial<HistoryCapable> = {
+    // promote / withdraw (promotion.ts), through this handle's queue, policies and audit.
+    ...promotionMethods({
+      inner,
+      policies: opts.policies,
+      authorise: (purpose) => authorise(opts, purpose),
+      serialise: exclusive,
+      assertAuditUsable: () => assertAuditUsable(opts),
+      visibleOrNotFound,
+      guarded: (ctx, ids, step) => guarded(opts, ctx, ids, step),
+      commit: (ctx, mutate, describe) => commitAudited(opts, inner, ctx, mutate, describe),
+      allowedEvent: (ctx, ids, reason) => auditEvent(ctx, "allowed", ids, { reason }),
+      view: (node, ctx) => view(opts, node, ctx),
+      updatePolicies,
+    }),
+
     async addNode(input: NewMemoryNode): Promise<MemoryNode> {
       const node = snapshot(input);
       const authorised = authorise(opts, "write");
@@ -1028,6 +1044,8 @@ export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore
     updateNode: refuse,
     deleteNode: refuse,
     eraseWhere: refuse,
+    promote: refuse,
+    withdraw: refuse,
     restoreNode: refuse,
     restoreEdge: refuse,
     addEdge: refuse,

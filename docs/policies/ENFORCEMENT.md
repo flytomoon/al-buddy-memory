@@ -55,7 +55,7 @@ The starter in [docs/STARTER.md](../STARTER.md) pins these as facts at the top o
 
 - Anything consequential an assistant might do with the memory: spending money, deleting an account, posting publicly, connecting a new service, handling credentials, signing anything. The library holds facts; the application must gate the actions.
 - Encryption at rest. `encryptionKeyRef` names the key you manage; the store does not encrypt the file. Put it on an encrypted volume.
-- Consent ledgers, deletion workflows for a whole account, multi-tenant isolation, guardian-to-user handoff at maturity: described in the policies, not shipped here.
+- Consent ledgers beyond promotion (whose consent is the `promote` event in the audit trail, docs/policies/scopes.md), deletion workflows for a whole account, multi-tenant isolation, guardian-to-user handoff at maturity: described in the policies, not shipped here.
 - Changing any policy or boundary. A system that can quietly widen its own authority has none.
 
 ## Decided autonomously

@@ -22,6 +22,35 @@ earlier were GitHub releases only.
   makes the attributes it reads (`self`, and each team as `team:<id>`), so the HTTP server signed
   in by an identity provider feeds it the groups claim it already maps (`docs/SIGN-IN.md`). New
   exports only: nothing changes for a caller that does not install it.
+- **`promote` and `withdraw`, governed** (`docs/policies/scopes.md#promotion`). On every
+  `govern()` handle, `promote(sourceId, { to, text?, fields?, basis, approvedBy? })` writes a new
+  fact at the target scope holding the approved raw text, with the source's provenance and
+  author, classification at most Private, and `contextualMetadata.promotion = { from, by,
+  approvedBy, at, basis, edited }`; the source is untouched. It is audited as one event, purpose
+  `promote`, naming `[source, copy]`: the consent record. `withdraw(copyId, reason)` closes the
+  copy's `validTo` with `retraction.by = "withdrawal"` (purpose `withdraw`); nothing is deleted.
+  `verifyPromotion(copyId, trail)` finds the event in a trail that verifies. A new policy hook,
+  `beforePromote`, decides like `beforeErase` (one allow, no refusal). The store itself refuses a
+  fact the promoter sees redacted, a Sensitive or Sealed one, one in Recently deleted or no
+  longer current, and a second live copy at the same scope. `teamMemory` gains the rules: the
+  author promotes to a team they are on; `org` needs an admin's approval on record
+  (`approval`) or `orgSelfServe`; an admin cannot complete someone else's promotion; secret-like
+  text is refused; a copy is withdrawn or closed only by its author, its promoter or an admin.
+  MCP tools `promote` and `withdraw`. Tested on SQLite, Postgres and in-memory. The portable
+  format is unchanged (no schema bump).
+
+### Behaviour change
+
+- **Two new audit purposes, `promote` and `withdraw`.** A policy or a trail reader that switches
+  on `Purpose` exhaustively sees values it did not before; `context(purpose)` is called with them.
+- **The MCP server lists two more tools, `promote` and `withdraw`**, on stdio and HTTP alike. The
+  shipped personal server's policy has no `beforePromote`, so both are refused there.
+- **An erasure receipt's `outside` gains a line**: promoted copies of the erased facts are the
+  organisation's and were not erased with their source. Receipts sealed before keep their own
+  text and still verify.
+- **`teamMemory` refuses a write carrying a `promotion` label** (importers excepted), refuses
+  changes to a copy's `promotion` record, and lets only a copy's author, promoter or an admin
+  close it. Facts that are not promoted copies are judged as before.
 
 ## 0.12.0 — 2026-10-16
 

@@ -2,7 +2,9 @@ export { govern, exportView, isRecentlyDeletedCapable, DELETION_REQUEST, inProce
 export type { RecentlyDeletedCapable, DeletedFact } from "./governed-store.js";
 export type { GovernOptions, LockProvider } from "./governed-store.js";
 export { PolicyDenied } from "./policy.js";
-export type { GovernancePolicy, PolicyContext, Purpose, NodePatch, ErasureSubject, ReadBoundary, ActorAttribute } from "./policy.js";
+export type { GovernancePolicy, PolicyContext, Purpose, NodePatch, ErasureSubject, ReadBoundary, ActorAttribute, PromotionRequest, PromotionBasis, ProcessFields } from "./policy.js";
+export { verifyPromotion, isPromotionCapable, promotionOf, PROMOTION } from "./promotion.js";
+export type { PromotionCapable, PromotionRecord, PromotionCheck } from "./promotion.js";
 export { MemoryAudit, JsonlAudit, ChainedAudit, StoreAudit, storeAudit, isAuditCapable, verifyAuditChain, verifyAuditLogs, auditLogPath, AUDIT_ID_SAMPLE } from "./audit.js";
 export type { AuditEvent, AuditSink, AuditCapable, AuditVerifiable, AuditVisitor, AuditChainResult, AuditLogsResult } from "./audit.js";
 export { verifyErasureReceipt, isSubjectErasureCapable, erasedIdHash, RECEIPT_OUTSIDE } from "./erasure.js";
@@ -10,3 +12,4 @@ export type { ErasureSelector, ErasureReceipt, ReceiptCheck, SubjectErasureCapab
 export { verifyAuditTable } from "./audit-table.js";
 export type { AuditTableResult } from "./audit-table.js";
 export { personalDefaults, guardianMode, memoryLock, enterpriseAudit, teamMemory, teamMemoryAttributes, looksSecret, SECRET_PATTERNS } from "./samples.js";
+export type { TeamMemoryOptions, PromotionApproval } from "./samples.js";
