@@ -120,6 +120,13 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     return node === undefined ? undefined : copy(node);
   }
 
+  async getNodes(nodeIds: readonly string[]): Promise<(MemoryNode | undefined)[]> {
+    return nodeIds.map((id) => {
+      const node = this.nodes.get(id);
+      return node === undefined ? undefined : copy(node);
+    });
+  }
+
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
     let results = [...this.nodes.values()];
 

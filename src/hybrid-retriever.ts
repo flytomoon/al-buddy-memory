@@ -61,6 +61,17 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * More gives a reranker more to choose from, at the cost of reading more.
    */
   candidates?: number;
+  /**
+   * Search the query's own keyword list by its content words (`keywordsOf`:
+   * its question words, pronouns and counting words left out), or by the
+   * query as written when nothing is left. Off by default. A long natural
+   * question searched word by word matches nearly every memory through "I",
+   * "did" and "the", and those matches crowd the keyword list; without them
+   * the list is the memories that say what the question is about, and the
+   * search reads far fewer rows. With `expand`, the query's content-word
+   * search is then this one, not a second list.
+   */
+  contentWords?: boolean;
 }
 
 export interface HybridRetrieverOptions {
@@ -85,6 +96,8 @@ const DUPLICATE_THRESHOLD = 0.9;
 /** Confidence bump when a duplicate observation reinforces a node. */
 const REINFORCE_STEP = 0.05;
 const RERANK_DEPTH = 50;
+/** The fewest vector candidates looked up in one `getNodes` call, so a narrow scope that skips most of them still reads in few statements. */
+const MIN_LOOKUP_BATCH = 32;
 /** A reranked order stands for the keyword and vector lists it replaces, so it counts as two lists. */
 const RERANKED_WEIGHT = 2;
 /** `expand`: the in-period list counts as one list; the earliest/latest list as half of one. */
@@ -140,11 +153,13 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, ...scope } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, contentWords: _contentWords, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
     const basePool = options.candidates ?? CANDIDATE_POOL;
     if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
     const cues = options.expand ? analyzeQuery(query, { now: (typeof options.expand === "object" ? options.expand.now : undefined) ?? validAt }) : null;
+    // What the query's own keyword search reads.
+    const ownKeywords = options.contentWords ? keywordsOf(query) || query : query;
 
     // Reciprocal-rank fusion across every list.
     let scores = new Map<string, { score: number; node: MemoryNode }>();
@@ -164,7 +179,7 @@ export class HybridRetriever {
 
     if (!cues) {
       // Keyword list — BM25-ordered by the store.
-      addList(await this.store.searchNodes({ ...filter, query, limit: basePool }));
+      addList(await this.store.searchNodes({ ...filter, query: ownKeywords, limit: basePool }));
       // Vector list — full scan of the embedder's model space (local scale).
       addList((await this.vectorCandidates(query, filter, basePool)).map((v) => v.node));
     } else {
@@ -181,14 +196,15 @@ export class HybridRetriever {
         // The query itself is searched exactly as recall without `expand` searches
         // it, so expanding can only add to what plain recall finds; what it reads
         // out of the query is searched by content words alone.
-        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? q : keywordsOf(q), limit: pool }));
+        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? ownKeywords : keywordsOf(q), limit: pool }));
         const vector = vectors[i];
         if (vector) addRelevance((await this.vectorCandidatesFor(vector, filter, pool)).map((v) => v.node));
       }
       // A question longer than the keyword search reads is searched once more by
-      // its content words, so the things it names last are searched at all.
+      // its content words, so the things it names last are searched at all —
+      // unless its own search above already was that one.
       const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
-      if (long && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
+      if (long && !options.contentWords && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
       relevanceWeight = Math.max(1, lists);
     }
 
@@ -308,15 +324,43 @@ export class HybridRetriever {
     // of them makes the pool — and which one findDuplicate reinforces — has to be
     // decided by the fact, not by where the cut fell (review 2026-09-14; the 0.3.5
     // comment here claimed recency settled it, and nothing did).
+    //
+    // A store with `getNodes` is read in batches (one statement each, not one
+    // per candidate): as many as could still make the pool, then the rest of
+    // the boundary's tie group. The walk over them is the same.
     const out: { node: MemoryNode; similarity: number }[] = [];
-    for (const { nodeId, similarity } of scored) {
-      if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break;
-      const node = await this.store.getNode(nodeId);
-      if (!node) continue;
-      // Same boundary as searchNodes: in scope, currently valid, never Sealed,
-      // never Archived / PendingDeletion unless the scope names them.
-      if (!matchesFilter(node, filter)) continue;
-      out.push({ node, similarity });
+    const store = this.store;
+    let next = 0;
+    walk: while (next < scored.length) {
+      let end: number;
+      if (out.length < pool) end = next + (store.getNodes ? Math.max(pool - out.length, MIN_LOOKUP_BATCH) : 1);
+      else {
+        // The pool is full: only the boundary's tie group can still come in.
+        const boundary = out[out.length - 1]!.similarity;
+        for (end = next; end < scored.length && scored[end]!.similarity >= boundary; end += 1);
+        if (end === next) break;
+      }
+      const batch = scored.slice(next, end);
+      next += batch.length;
+      const ids = batch.map((c) => c.nodeId);
+      // Not push(...batch): a batch is as big as the pool or the tie group, and
+      // spreading 100k+ arguments overflows the stack.
+      let nodes: readonly (MemoryNode | undefined)[];
+      if (store.getNodes) nodes = await store.getNodes(ids);
+      else {
+        const one: (MemoryNode | undefined)[] = [];
+        for (const id of ids) one.push(await store.getNode(id));
+        nodes = one;
+      }
+      for (const [i, { similarity }] of batch.entries()) {
+        if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break walk;
+        const node = nodes[i];
+        if (!node) continue;
+        // Same boundary as searchNodes: in scope, currently valid, never Sealed,
+        // never Archived / PendingDeletion unless the scope names them.
+        if (!matchesFilter(node, filter)) continue;
+        out.push({ node, similarity });
+      }
     }
     const now = Date.now();
     return out

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as lib from "../../src/index.js";
 import { UsageLimitError } from "./answerers.mjs";
 import { evaluateInstance, runInstances, summarize } from "./harness.mjs";
-import { cachingEmbedder, ingestHistory, recallRounds } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
 /** A word-presence embedder: deterministic, and enough to give the vector side something to rank. */
@@ -261,6 +261,18 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(rows).toHaveLength(4);
     expect(inside.most).toBe(1);
     expect(reading.most).toBeGreaterThan(1);
+  });
+
+  it("--content-words reaches recall as its option", async () => {
+    expect(fastPathOptions({ contentWords: true })).toEqual({ options: { contentWords: true }, text: ", contentWords: true" });
+    expect(fastPathOptions()).toEqual({ options: {}, text: "" });
+    // Keyword-only, so the keyword search is all there is: "I", "to" and "for" match
+    // messages that "move" and "work" do not, and those drop out.
+    const x = instance({ question: "Where did I move to for work?" });
+    const plain = await evaluateInstance(lib, x);
+    const content = await evaluateInstance(lib, x, { recallOptions: { contentWords: true } });
+    expect(content.memoriesRecalled).toBeGreaterThan(0);
+    expect(content.memoriesRecalled).toBeLessThan(plain.memoriesRecalled);
   });
 
   it("--rerank-depth: the reranker reads only the best candidates", async () => {

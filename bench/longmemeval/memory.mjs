@@ -83,8 +83,11 @@ function roundOf(session, turn) {
  * `cpuMs` the CPU this process spent meanwhile, across all its threads (the
  * embedder and cross-encoder run on their own). Grouping into rounds is not
  * in it; it is the benchmark's bookkeeping, not the library's work.
+ *
+ * `recallOptions` go to `recall` as they are (`contentWords`, say): the A/B
+ * arms that are recall options.
  */
-export async function recallRounds(memory, instance, { freshness = 0, expand = false, recallPool = RECALL_POOL } = {}) {
+export async function recallRounds(memory, instance, { freshness = 0, expand = false, recallPool = RECALL_POOL, recallOptions = {} } = {}) {
   const cpu = process.cpuUsage();
   const t0 = performance.now();
   const hits = await memory.retriever.recall(instance.question, {
@@ -93,6 +96,7 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
     ...(recallPool !== RECALL_POOL ? { candidates: Math.max(1, Math.ceil(recallPool / 2)) } : {}),
     ...(freshness > 0 ? { freshness } : {}),
     ...(expand ? { expand: { now: parseSessionDate(instance.question_date) } } : {}),
+    ...recallOptions,
   });
   const ms = performance.now() - t0;
   const { user, system } = process.cpuUsage(cpu);
@@ -117,6 +121,14 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
     });
   }
   return { rounds, memoriesRecalled: hits.length, recall };
+}
+
+/**
+ * The recall options a run's `--content-words` flag stands for, and how a
+ * result file's settings spell them.
+ */
+export function fastPathOptions({ contentWords = false } = {}) {
+  return contentWords ? { options: { contentWords: true }, text: ", contentWords: true" } : { options: {}, text: "" };
 }
 
 /**
