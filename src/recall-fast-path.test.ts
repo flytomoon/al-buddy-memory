@@ -1,6 +1,7 @@
 /**
- * The recall fast path (#1003): vector candidates looked up in batches,
- * which changes no answer, only how many reads it takes.
+ * The recall fast path (#1003): the query's keyword search by its content
+ * words, a recall option off by default, and vector candidates looked up in
+ * batches, which changes no answer, only how many reads it takes.
  */
 import { describe, expect, it } from "vitest";
 import type { Embedder } from "./embedder.js";
@@ -8,6 +9,7 @@ import { FakeEmbedder } from "./embedder.js";
 import { HybridRetriever, indexMissingEmbeddings, type RecallOptions } from "./hybrid-retriever.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
+import { keywordsOf } from "./query-cues.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import type { MemoryStore } from "./types/memory.js";
 
@@ -31,6 +33,54 @@ function withoutGetNodes(store: MemoryStore): MemoryStore {
     },
   });
 }
+
+describe("recall — contentWords", () => {
+  async function noisy() {
+    const store = new InMemoryStore();
+    const chores = await store.addNode(makeNode({ content: { text: "I did the dishes and then I did the laundry" } }));
+    const bikes = await store.addNode(makeNode({ content: { text: "bikes need new tyres" } }));
+    return { store, chores, bikes, retriever: new HybridRetriever(store) };
+  }
+
+  it("searches the query's keyword list by what it is about, not by its question words", async () => {
+    const { chores, bikes, retriever } = await noisy();
+    const q = "What did I do with the bikes?";
+    expect((await retriever.recall(q, { limit: 5 })).map((n) => n.nodeId).sort()).toEqual([chores.nodeId, bikes.nodeId].sort());
+    expect((await retriever.recall(q, { limit: 5, contentWords: true })).map((n) => n.nodeId)).toEqual([bikes.nodeId]);
+  });
+
+  it("a query of nothing but question words is searched as written, so it still finds something", async () => {
+    const { chores, retriever } = await noisy();
+    expect(keywordsOf("What did I do?")).toBe("");
+    expect((await retriever.recall("What did I do?", { limit: 5, contentWords: true })).map((n) => n.nodeId)).toEqual([chores.nodeId]);
+  });
+
+  it("is off by default", async () => {
+    const { retriever } = await noisy();
+    const q = "What did I do with the bikes?";
+    expect(await retriever.recall(q, { limit: 5, contentWords: false })).toEqual(await retriever.recall(q, { limit: 5 }));
+  });
+
+  it("with expand, a long question's content-word search is its own search, not a second copy of it", async () => {
+    const { store } = await noisy();
+    const queries: string[] = [];
+    const counting = new Proxy(store, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop, target) as unknown;
+        if (prop === "searchNodes") return (o: { query?: string }) => (queries.push(o.query ?? ""), target.searchNodes(o));
+        return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    const retriever = new HybridRetriever(counting);
+    const long = "Can you remind me what it was that I said I wanted to do with the old bikes in the garage?";
+    expect(long.split(/\s+/).length).toBeGreaterThan(16);
+    await retriever.recall(long, { expand: { now: "2023-05-30T00:00:00.000Z" } });
+    expect(queries).toEqual([long, keywordsOf(long)]);
+    queries.length = 0;
+    await retriever.recall(long, { expand: { now: "2023-05-30T00:00:00.000Z" }, contentWords: true });
+    expect(queries).toEqual([keywordsOf(long)]);
+  });
+});
 
 const STORES: [string, () => MemoryStore][] = [
   ["InMemoryStore", () => new InMemoryStore()],

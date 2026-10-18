@@ -61,6 +61,17 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * More gives a reranker more to choose from, at the cost of reading more.
    */
   candidates?: number;
+  /**
+   * Search the query's own keyword list by its content words (`keywordsOf`:
+   * its question words, pronouns and counting words left out), or by the
+   * query as written when nothing is left. Off by default. A long natural
+   * question searched word by word matches nearly every memory through "I",
+   * "did" and "the", and those matches crowd the keyword list; without them
+   * the list is the memories that say what the question is about, and the
+   * search reads far fewer rows. With `expand`, the query's content-word
+   * search is then this one, not a second list.
+   */
+  contentWords?: boolean;
 }
 
 export interface HybridRetrieverOptions {
@@ -142,11 +153,13 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, ...scope } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, contentWords: _contentWords, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
     const basePool = options.candidates ?? CANDIDATE_POOL;
     if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
     const cues = options.expand ? analyzeQuery(query, { now: (typeof options.expand === "object" ? options.expand.now : undefined) ?? validAt }) : null;
+    // What the query's own keyword search reads.
+    const ownKeywords = options.contentWords ? keywordsOf(query) || query : query;
 
     // Reciprocal-rank fusion across every list.
     let scores = new Map<string, { score: number; node: MemoryNode }>();
@@ -166,7 +179,7 @@ export class HybridRetriever {
 
     if (!cues) {
       // Keyword list — BM25-ordered by the store.
-      addList(await this.store.searchNodes({ ...filter, query, limit: basePool }));
+      addList(await this.store.searchNodes({ ...filter, query: ownKeywords, limit: basePool }));
       // Vector list — full scan of the embedder's model space (local scale).
       addList((await this.vectorCandidates(query, filter, basePool)).map((v) => v.node));
     } else {
@@ -183,14 +196,15 @@ export class HybridRetriever {
         // The query itself is searched exactly as recall without `expand` searches
         // it, so expanding can only add to what plain recall finds; what it reads
         // out of the query is searched by content words alone.
-        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? q : keywordsOf(q), limit: pool }));
+        addRelevance(await this.store.searchNodes({ ...filter, query: i === 0 ? ownKeywords : keywordsOf(q), limit: pool }));
         const vector = vectors[i];
         if (vector) addRelevance((await this.vectorCandidatesFor(vector, filter, pool)).map((v) => v.node));
       }
       // A question longer than the keyword search reads is searched once more by
-      // its content words, so the things it names last are searched at all.
+      // its content words, so the things it names last are searched at all —
+      // unless its own search above already was that one.
       const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
-      if (long && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
+      if (long && !options.contentWords && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
       relevanceWeight = Math.max(1, lists);
     }
 

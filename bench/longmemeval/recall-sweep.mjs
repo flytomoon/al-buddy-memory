@@ -13,10 +13,11 @@
 // An arm is `none`, or parts joined by `+`:
 //   <model>:<dtype>:<depth>   a cross-encoder — model `minilm`, `bge` or a Hugging
 //                             Face cross-encoder id, depth a number of candidates or `all`
+//   content-words             recall option contentWords
 //   build:<dir>               another build of the library (e.g. the commit before,
 //                             compiled to <dir>), recalling over an exact copy of the
 //                             memory: same ids, anchors and vectors, so ties fall the same way
-// e.g. `--arm build:../base/dist --arm none --arm minilm:q8:30`.
+// e.g. `--arm none --arm build:../base/dist --arm content-words --arm content-words+minilm:q8:30`.
 //
 // Writes bench/results/<date>-lme-recall-sweep.json: per arm, the recall call's
 // wall-clock and CPU time, the share of recalls within --budget-ms, the
@@ -35,7 +36,7 @@ import { parseArgs } from "node:util";
 import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { corpusOf, isAbstention, loadInstances, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
-import { cachingEmbedder, ingestHistory, recallRounds } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
 import { retrievalMetrics, shownEvidence, summarizeRecallTime, summarizeRetrieval } from "./metrics.mjs";
 
 const RERANK_MODELS = { minilm: "Xenova/ms-marco-MiniLM-L-6-v2", bge: "Xenova/bge-reranker-base" };
@@ -104,15 +105,17 @@ const rerankers = new Map();
 const builds = new Map();
 const arms = [];
 for (const spec of args.arm) {
-  const arm = { name: "none", reranker: null, depth: null, build: null };
+  const arm = { name: "none", reranker: null, depth: null, recallOptions: {}, build: null };
   if (spec === "none") {
     arms.push(arm);
     continue;
   }
   const names = [];
+  let contentWords = false;
   for (const part of spec.split("+")) {
     const [kind, ...rest] = part.split(":");
-    if (kind === "build") {
+    if (part === "content-words") contentWords = true;
+    else if (kind === "build") {
       if (arm.build) fail(`--arm ${spec}: one build per arm`);
       const dir = resolve(rest.join(":"));
       if (!existsSync(join(dir, "index.js"))) fail(`--arm ${spec}: ${dir}/index.js is missing (compile that commit's src/ there first)`);
@@ -122,7 +125,7 @@ for (const spec of args.arm) {
       if (arm.reranker) fail(`--arm ${spec}: one cross-encoder per arm`);
       const [short, dtype = "fp32", depthSpec = "all"] = part.split(":");
       // A Hugging Face id is always owner/name, so anything else is a typo or an arm that is gone.
-      if (!RERANK_MODELS[short] && !short.includes("/")) fail(`--arm ${spec}: unknown part "${part}" (have: none, build:<dir>, ${Object.keys(RERANK_MODELS).join(", ")} or a Hugging Face cross-encoder id)`);
+      if (!RERANK_MODELS[short] && !short.includes("/")) fail(`--arm ${spec}: unknown part "${part}" (have: none, content-words, build:<dir>, ${Object.keys(RERANK_MODELS).join(", ")} or a Hugging Face cross-encoder id)`);
       const model = RERANK_MODELS[short] ?? short;
       const depth = depthSpec === "all" ? null : Number(depthSpec);
       if (depth !== null && (!Number.isInteger(depth) || depth < 1)) fail(`--arm ${spec}: depth must be an integer >= 1 or "all"`);
@@ -134,6 +137,9 @@ for (const spec of args.arm) {
     }
     names.push(part);
   }
+  arm.recallOptions = fastPathOptions({ contentWords }).options;
+  // An older build may not know the newer options; it would read them as a scope.
+  if (arm.build && Object.keys(arm.recallOptions).length > 0) fail(`--arm ${spec}: a build arm recalls as that build does; give it no recall options`);
   arm.name = names.join("+");
   arms.push(arm);
 }
@@ -161,6 +167,7 @@ const settings = {
   arms: arms.map((a) => ({
     name: a.name,
     reranker: a.reranker ? { model: a.reranker.model, dtype: a.reranker.dtype, depth: a.depth ?? `all recalled (${recallPool})` } : null,
+    recallOptions: a.recallOptions,
     build: a.build ? relative(REPO_ROOT, a.build) || "." : null,
   })),
   armOrder: repeat > 1 ? "rotates by one arm per question and per repetition" : "rotates by one arm per question",
@@ -227,7 +234,7 @@ for (const instance of todo) {
         const armLib = arm.build ? builds.get(arm.build) : lib;
         const armMemory = arm.build ? copies.get(arm.build) : memory;
         const retriever = new armLib.HybridRetriever(armMemory.store, queryEmbedder, arm.reranker ? { reranker: arm.reranker, ...(arm.depth ? { rerankDepth: arm.depth } : {}) } : {});
-        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: args.expand, recallPool });
+        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: args.expand, recallPool, recallOptions: arm.recallOptions });
         times.get(arm.name).push({ ...recall, load1: round2(loadavg()[0]) });
         if (rep > 0) continue;
         const shown = rounds.slice(0, k).map((r) => r.id);
