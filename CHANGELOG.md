@@ -47,6 +47,15 @@ earlier were GitHub releases only.
   library over an exact copy of the memory, `--repeat N` times each arm as the median of N
   recalls, each arm lists the questions it newly shows (or no longer shows) every evidence turn
   for against the first arm, and the last line is `RESULT: …`.
+- **`RecallOptions.contentWords`**, off by default, so recall without it is unchanged
+  (`src/recall-fast-path.test.ts`): the query's own keyword search reads its content words
+  (`keywordsOf`), not "how", "did" and "I", or the query as written when nothing is left. On
+  LongMemEval, retrieval only, against 0.12.0 (`bench/results/2026-10-18-lme50-{gain,break}-sweep.json`):
+  every evidence turn shown in 44 of 50 questions on the multi-session and temporal set against
+  42 (3 gained, 1 lost: `gpt4_7abb270c` sees 4 of its 6 evidence turns), none gained or lost on
+  the plain 50, and a median 10–14 ms less wall-clock and 29–31 ms less CPU per recall. It stays
+  off until the full 500 and an answered run agree. The benchmark takes it as `--content-words`;
+  `recall-sweep.mjs` as the arm part `content-words`.
 
 ### Changed
 
@@ -54,7 +63,10 @@ earlier were GitHub releases only.
   candidate pool (ten times the page, at least 200 rows) on the columns the order reads and then
   reads the page's rows whole, inside one read transaction; it used to turn every pooled row into
   a node first. The same page, by the same comparators: the conformance suite holds every limited
-  and paged read to the unlimited one, with decay on and off.
+  and paged read to the unlimited one, with decay on and off. On LongMemEval (the same two sweeps
+  as `contentWords` above, the batched candidate lookups included), recall shows the same rounds
+  as 0.12.0 in 50 of 50 questions on both sets, at a median 5–8 ms less wall-clock and 18 ms less
+  CPU per recall.
 
 ### Behaviour change
 

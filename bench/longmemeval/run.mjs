@@ -20,7 +20,7 @@ import { answererFromSpec, runProcess, subscriptionEnv } from "./answerers.mjs";
 import { loadInstances, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
 import { runInstances, summarize } from "./harness.mjs";
-import { cachingEmbedder } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions } from "./memory.mjs";
 import { ANSWER_TEMPLATES, LONGMEMEVAL_COMMIT, READER_SOURCE, SCORING_SOURCE } from "./prompts.mjs";
 
 /** `--rerank` shorthands for the two cross-encoders the library documents. */
@@ -40,6 +40,7 @@ const { values: args } = parseArgs({
     "rerank-dtype": { type: "string", default: "fp32" },
     "rerank-depth": { type: "string" },
     expand: { type: "boolean", default: false },
+    "content-words": { type: "boolean", default: false },
     "aggregate-top-k": { type: "string" },
     "chain-of-note": { type: "boolean", default: false },
     reading: { type: "string", default: "con" },
@@ -128,6 +129,7 @@ const aggregateTopK = args["aggregate-top-k"] !== undefined ? int("aggregate-top
 const recallPool = int("recall-pool", 1);
 const rerankDepth = args["rerank-depth"] !== undefined ? int("rerank-depth", 1) : null;
 if (rerankDepth !== null && !reranker) fail("--rerank-depth needs --rerank.");
+const fastPath = fastPathOptions({ contentWords: args["content-words"] });
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
@@ -147,9 +149,10 @@ const settings = {
   ingestion: "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
-  recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""} })${reranker ? `, reranked by the cross-encoder${rerankDepth !== null ? ` (its best ${rerankDepth} candidates)` : ""}` : ""}, hits grouped into rounds (a user turn and the turn after it)`,
+  recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""}${fastPath.text} })${reranker ? `, reranked by the cross-encoder${rerankDepth !== null ? ` (its best ${rerankDepth} candidates)` : ""}` : ""}, hits grouped into rounds (a user turn and the turn after it)`,
   reranker: reranker ? { model: reranker.model, dtype: reranker.dtype, depth: rerankDepth !== null ? `the best ${rerankDepth} of ${recallPool} recalled` : `all recalled (${recallPool})` } : null,
   expand: args.expand,
+  contentWords: args["content-words"],
   freshness,
   topK,
   aggregateTopK,
@@ -178,7 +181,7 @@ if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== ""
 }
 const todo = instances.filter((x) => !done.has(x.question_id));
 
-const options = [reranker && `rerank ${reranker.model} ${reranker.dtype}${rerankDepth !== null ? ` top ${rerankDepth}` : ""}`, args.expand && "expand", aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
+const options = [reranker && `rerank ${reranker.model} ${reranker.dtype}${rerankDepth !== null ? ` top ${rerankDepth}` : ""}`, args.expand && "expand", args["content-words"] && "content words", aggregateTopK && `top ${aggregateTopK} rounds when counting`, args["chain-of-note"] && "chain-of-note when counting"].filter(Boolean);
 console.log(
   `LongMemEval_${args.variant}: ${instances.length} questions (${done.size} already done), retrieval ${args.retrieval}, top ${topK} rounds, reading ${args.reading}${options.length ? ` (${options.join(", ")})` : ""}, ` +
     `answerer ${answererInfo ? `${answererInfo.kind} ${answererInfo.requestedModel ?? answererInfo.command}` : "none"}, judge ${judgeInfo ? `${judgeInfo.kind} ${judgeInfo.requestedModel ?? judgeInfo.command}` : "none"}` +
@@ -202,7 +205,7 @@ try {
   await runInstances(
     lib,
     todo,
-    { embedder, queryEmbedder, reranker, rerankDepth, topK, aggregateTopK, freshness, expand: args.expand, recallPool, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
+    { embedder, queryEmbedder, reranker, rerankDepth, topK, aggregateTopK, freshness, expand: args.expand, recallPool, recallOptions: fastPath.options, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
     { concurrency, onRow },
   );
 } catch (e) {

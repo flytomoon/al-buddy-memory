@@ -25,7 +25,8 @@ import { UsageLimitError } from "./answerers.mjs";
  * question "counts across memories" is the library's `analyzeQuery`, recorded
  * in every row as `cues`. `rerankDepth` bounds how many candidates the
  * reranker reads (default all of them). `queryEmbedder` embeds the question
- * (default `embedder`; see `ingestHistory`).
+ * (default `embedder`; see `ingestHistory`). `recallOptions` go to `recall`
+ * as they are (`contentWords`, say).
  *
  * Every row records `recall`: how long `HybridRetriever.recall` alone took
  * (`ms`, `cpuMs`) and the machine's 1-minute load average just after
@@ -37,13 +38,13 @@ import { UsageLimitError } from "./answerers.mjs";
 export async function evaluateInstance(
   lib,
   instance,
-  { embedder, queryEmbedder = embedder, reranker = null, rerankDepth = null, topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, reading = "con", chainOfNote = false, answerer = null, judge = null, exclusive = (fn) => fn() } = {},
+  { embedder, queryEmbedder = embedder, reranker = null, rerankDepth = null, topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, recallOptions = {}, reading = "con", chainOfNote = false, answerer = null, judge = null, exclusive = (fn) => fn() } = {},
 ) {
   const started = Date.now();
   const { memories, rounds, memoriesRecalled, recall } = await exclusive(async () => {
     const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder, reranker, rerankDepth });
     try {
-      const recalled = await recallRounds(memory, instance, { freshness, expand, ...(recallPool ? { recallPool } : {}) });
+      const recalled = await recallRounds(memory, instance, { freshness, expand, recallOptions, ...(recallPool ? { recallPool } : {}) });
       return { memories: memory.memories, ...recalled, recall: { ...recalled.recall, load1: Math.round(loadavg()[0] * 100) / 100 } };
     } finally {
       memory.store.close();
