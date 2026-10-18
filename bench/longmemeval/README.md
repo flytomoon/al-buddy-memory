@@ -64,6 +64,7 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | `--rerank-dtype fp32\|q8\|…` | `fp32` | The cross-encoder's weights. `q8` is a quarter of the download and faster, at some cost in accuracy. |
 | `--rerank-depth N` | all recalled | The cross-encoder reads only the best N fused candidates (`HybridRetriever`'s `rerankDepth`); the rest keep their order after them. See [Recall time](#recall-time) for why N at or below the rounds shown changes almost nothing the reader sees. |
 | `--expand` | off | Recall with `expand`: the library reads the question's time and counting cues (`analyzeQuery`), resolving "last week" against the question's date. |
+| `--content-words` | off | Recall with `contentWords`: the question's own keyword search reads its content words (`keywordsOf`), not "how", "did", "I". |
 | `--aggregate-top-k N` | off | How many rounds the reader sees for a question `analyzeQuery` marks as counting across memories ("how many", "total", "A and B", "which … first"). Other questions still see `--top-k`. |
 | `--chain-of-note` | off | Questions marked as counting get the chain-of-note reader: a dated note for every relevant session, then the answer, in the same single call. **Not an official template**; the result file and each row say which reader a question got. |
 | `--reading con\|direct` | `con` | The official reader templates; `con` (reason step by step) is the one the LongMemEval README recommends. |
@@ -226,7 +227,14 @@ node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
 ```
 
 An arm is `none` or `<model>:<dtype>:<depth>` (`minilm`, `bge` or a Hugging Face id; `fp32`, `q8`,
-…; a number of candidates or `all`).
+…; a number of candidates or `all`), or parts joined with `+`. A `content-words` part recalls with
+the `contentWords` option (`content-words+minilm:q8:30`). A `build:<dir>` part recalls with
+another build of the library compiled to `<dir>` (the commit before a change, say), over an exact
+copy of the memory — the same ids, anchors and vectors — so a change meant to be rank-identical
+can be held to "the same rounds in every question" in one run. Per arm it also lists the questions
+that newly see, or no longer see, every evidence turn against the first arm, and its last line is
+`RESULT: …`. On a busy machine, `--repeat N` (odd) recalls N times per arm and question, rotating
+the order each time, and keeps the median time.
 
 ### Reranking only the top 20 changes almost nothing the reader sees
 

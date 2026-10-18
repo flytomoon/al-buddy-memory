@@ -375,6 +375,13 @@ export interface MemoryStore {
   // Node operations
   addNode(node: NewMemoryNode): Promise<MemoryNode>;
   getNode(nodeId: string): Promise<MemoryNode | undefined>;
+  /**
+   * Optional: several nodes in one read — for each id, in the order given,
+   * what `getNode` would return (undefined where it would). Hybrid recall
+   * looks its vector candidates up with it when the store offers it, and
+   * with `getNode` one at a time when not; results are identical either way.
+   */
+  getNodes?(nodeIds: readonly string[]): Promise<(MemoryNode | undefined)[]>;
   searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]>;
   /**
    * EVERY node the store holds — any validity, privacy classification or
