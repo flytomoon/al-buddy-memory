@@ -2,7 +2,8 @@
  * The same facts, policies and questions give the same visible answers on every
  * store — SQLite (the default), Postgres (PGlite here) and in-memory — and
  * facts an actor cannot see change neither which facts they get, nor the
- * order, nor how many. The policy is the shipped example, docs/policies/boundaries.ts.
+ * order, nor how many. The policies are the shipped example, docs/policies/boundaries.ts,
+ * and the teamMemory sample (docs/policies/scopes.md).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
@@ -13,7 +14,8 @@ import { PostgresMemoryStore } from "../postgres-memory-store.js";
 import { makeNode } from "../memory-store-conformance.spec.js";
 import type { LabelFilter, MemoryNode, MemoryQueryOptions, MemoryStore } from "../types/memory.js";
 import { govern } from "./governed-store.js";
-import type { PolicyContext } from "./policy.js";
+import type { GovernancePolicy, PolicyContext } from "./policy.js";
+import { teamMemory, teamMemoryAttributes } from "./samples.js";
 import { boundaries } from "../../docs/policies/boundaries.js";
 
 let pg: PGlite;
@@ -112,17 +114,17 @@ async function seeded(name: string, seeds: Seed[]): Promise<MemoryStore> {
   return store;
 }
 
-async function addNoise(store: MemoryStore): Promise<void> {
+async function addNoise(store: MemoryStore, noise: Seed[] = NOISE): Promise<void> {
   // Newer than every visible fact, so recency would put them first too.
-  for (const [i, seed] of NOISE.entries()) await store.restoreNode(fact(seed, 100 + i));
+  for (const [i, seed] of noise.entries()) await store.restoreNode(fact(seed, 100 + i));
 }
 
 /** Everything one actor gets back for every question, in order. */
-async function answers(inner: MemoryStore, actor: string): Promise<unknown> {
-  const store = govern(inner, { policies: [boundaries], context: () => ({ actor, attributes: ACTORS[actor] }) });
+async function answers(inner: MemoryStore, actor: string, policy: GovernancePolicy = boundaries, actors = ACTORS, seeds = SEEDS): Promise<unknown> {
+  const store = govern(inner, { policies: [policy], context: () => ({ actor, attributes: actors[actor] }) });
   const out: Record<string, unknown> = {};
   for (const q of QUERIES) out[JSON.stringify(q)] = await store.searchNodes(q);
-  for (const [id] of SEEDS) out[`get ${id}`] = (await store.getNode(id)) ?? null;
+  for (const [id] of seeds) out[`get ${id}`] = (await store.getNode(id)) ?? null;
   out["list"] = (await store.listNodes()).sort((a, b) => a.nodeId.localeCompare(b.nodeId));
   return out;
 }
@@ -181,5 +183,74 @@ describe("data boundaries give the same answers on SQLite and Postgres", () => {
     await addNoise(store);
     expect((await store.listNodes()).length).toBe(SEEDS.length + NOISE.length);
     for (const actor of Object.keys(ACTORS)) expect(await answers(store, actor)).toEqual(before[actor]);
+  });
+});
+
+const TEAM_SEEDS: Seed[] = [
+  ["t01", "Ana's budget notes for Acme", { scope: "user:ana", author: "ana", client: "acme", tags: ["q3"] }],
+  ["t02", "Ben's roadmap thoughts", { scope: "user:ben", author: "ben" }],
+  ["t03", "Blue team budget runbook", { scope: "team:blue", author: "ana", client: "acme" }],
+  ["t04", "Red team budget runbook", { scope: "team:red", author: "ben", tags: ["q3"] }],
+  ["t05", "Company budget freeze and roadmap", { scope: "org", author: "ben" }],
+  ["t06", "Blue and red shared roadmap for Acme", { scope: ["team:blue", "team:red"], author: "cy", client: "acme" }],
+  ["t07", "Old org budget archive", { scope: "org", author: "ben" }, { retentionTier: "Archived" }],
+  ["t08", "Sealed blue budget", { scope: "team:blue", author: "ana" }, { privacyClassification: "Sealed" }],
+  ["t09", "Untagged budget note", {}],
+  ["t10", "Blue budget, low confidence", { scope: "team:blue", author: "ana" }, { confidenceWeight: 0.4 }],
+];
+
+/** Scopes no actor below holds, including ones that look like theirs. */
+const TEAM_NOISE: Seed[] = Array.from({ length: 30 }, (_, i): Seed => [
+  `tn${String(i).padStart(2, "0")}`,
+  ["budget", "Acme budget roadmap", "budget budget acme review", "roadmap q3 budget"][i % 4]!,
+  [
+    { scope: "user:zed", author: "zed", client: "acme", tags: ["q3"] },
+    { scope: "team:green", author: "zed" },
+    { scope: "team:team:blue", author: "zed" },
+    { scope: "ORG", author: "zed" },
+    { scope: "blue", author: "zed", client: "acme" },
+    { scope: ["user:ana-not", "team:purple"] },
+  ][i % 6]!,
+]);
+
+const TEAM_ACTORS: Record<string, PolicyContext["attributes"]> = {
+  ana: teamMemoryAttributes("ana", { teams: ["blue"] }),
+  ben: teamMemoryAttributes("ben", { teams: "red" }),
+  cy: teamMemoryAttributes("cy", { teams: ["blue", "red"] }),
+  newhire: teamMemoryAttributes("newhire"),
+};
+
+describe("teamMemory scopes give the same answers on SQLite, Postgres and in-memory", () => {
+  const policy = teamMemory();
+  const teamAnswers = (store: MemoryStore, actor: string) => answers(store, actor, policy, TEAM_ACTORS, TEAM_SEEDS);
+
+  it("(a) identical visible results for every actor and question", async () => {
+    const results: Record<string, Record<string, unknown>> = {};
+    for (const name of Object.keys(makers)) {
+      const store = await seeded(name, TEAM_SEEDS);
+      results[name] = {};
+      for (const actor of Object.keys(TEAM_ACTORS)) results[name]![actor] = await teamAnswers(store, actor);
+    }
+    expect(results["postgres"]).toEqual(results["sqlite"]);
+    expect(results["in-memory"]).toEqual(results["sqlite"]);
+
+    // Not vacuous: each actor sees their own, their teams' and org, and nothing else.
+    const listed = (actor: string) => ids((results["sqlite"]![actor] as Record<string, unknown>)["list"]);
+    expect(listed("ana")).toEqual(["t01", "t03", "t05", "t06", "t07", "t08", "t10"]);
+    expect(listed("ben")).toEqual(["t02", "t04", "t05", "t06", "t07"]);
+    expect(listed("cy")).toEqual(["t03", "t04", "t05", "t06", "t07", "t08", "t10"]);
+    expect(listed("newhire")).toEqual(["t05", "t07"]);
+    const ana = results["sqlite"]!["ana"] as Record<string, MemoryNode[]>;
+    expect(ids(ana['{"query":"budget"}']).length).toBeGreaterThan(2);
+    expect(ana["get t02"]).toBeNull();
+  });
+
+  it.each(Object.keys(makers))("(b) hidden scopes change neither which facts come back, nor their order, nor how many (%s)", async (name) => {
+    const store = await seeded(name, TEAM_SEEDS);
+    const before: Record<string, unknown> = {};
+    for (const actor of Object.keys(TEAM_ACTORS)) before[actor] = await teamAnswers(store, actor);
+    await addNoise(store, TEAM_NOISE);
+    expect((await store.listNodes()).length).toBe(TEAM_SEEDS.length + TEAM_NOISE.length);
+    for (const actor of Object.keys(TEAM_ACTORS)) expect(await teamAnswers(store, actor)).toEqual(before[actor]);
   });
 });

@@ -224,7 +224,7 @@ find them: importing over a hidden fact is refused with `PolicyDenied` (so an ac
 import and holds a candidate id learns that it exists), and `deleteEdge` is judged by the
 erase policies alone, because an edge id carries no endpoints to check.
 
-## The four samples
+## The five samples
 
 - **personalDefaults({ owner })** — the owner sees everything; anything that looks like a
   secret (API tokens, card numbers, "password: …", private keys) is written as Sensitive;
@@ -243,6 +243,11 @@ erase policies alone, because an edge id carries no endpoints to check.
 - **enterpriseAudit({ reviewers, exporters, minInferredConfidence })** — AI-inferred facts
   below the confidence floor are hidden from everyone but reviewers; nothing leaves in an
   export unless the actor is an exporter. The audit trail does the rest.
+- **teamMemory({ importers? })** — personal, team and company memory in one tenant, by a
+  fact's `scope` label (`user:<actor>`, `team:<id>`, `org`): each actor reads their own, their
+  teams' and the company's; an unlabelled write is stamped as the writer's own, with `author`;
+  a write naming another scope or author is refused; `scope` and `author` never change. Give it
+  attributes from `teamMemoryAttributes(actor, { teams })`. [policies/scopes.md](policies/scopes.md).
 
 Copy one, rename it, change the rule. Governance should read like a rule a person can
 check, not a framework.
