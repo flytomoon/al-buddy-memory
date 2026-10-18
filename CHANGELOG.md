@@ -9,6 +9,20 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## Unreleased
+
+### Added
+
+- **Scopes, and the `teamMemory` sample policy** (`docs/policies/scopes.md`). Personal, team and
+  company memory in one tenant, by a fact's `contextualMetadata.scope` (`user:<actor>`,
+  `team:<id>`, `org`, or a list of these) and `author`. `teamMemory()` reads each actor their
+  own facts, their teams' and the company's, inside the query on SQLite, Postgres and in-memory
+  alike; stamps an unlabelled write as the writer's own; refuses a write naming another scope or
+  author; and refuses any change of `scope` or `author`. `teamMemoryAttributes(actor, attributes)`
+  makes the attributes it reads (`self`, and each team as `team:<id>`), so the HTTP server signed
+  in by an identity provider feeds it the groups claim it already maps (`docs/SIGN-IN.md`). New
+  exports only: nothing changes for a caller that does not install it.
+
 ## 0.12.0 — 2026-10-16
 
 ### Fixed

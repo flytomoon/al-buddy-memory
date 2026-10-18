@@ -9,4 +9,4 @@ export { verifyErasureReceipt, isSubjectErasureCapable, erasedIdHash, RECEIPT_OU
 export type { ErasureSelector, ErasureReceipt, ReceiptCheck, SubjectErasureCapable } from "./erasure.js";
 export { verifyAuditTable } from "./audit-table.js";
 export type { AuditTableResult } from "./audit-table.js";
-export { personalDefaults, guardianMode, memoryLock, enterpriseAudit, looksSecret, SECRET_PATTERNS } from "./samples.js";
+export { personalDefaults, guardianMode, memoryLock, enterpriseAudit, teamMemory, teamMemoryAttributes, looksSecret, SECRET_PATTERNS } from "./samples.js";

@@ -122,6 +122,33 @@ oidc: {
 }
 ```
 
+## Team memory
+
+For personal, team and company memory in one tenant, use the `teamMemory` policy
+([policies/scopes.md](policies/scopes.md)) with the groups claim mapped to `teams`, as in the
+provider examples above, and hand the identity through `teamMemoryAttributes`. It adds `self`
+(`user:<actor>`, from the actor claim) and writes each group as `team:<group>`, so a recall
+returns the person's own facts, their groups' and the company's, and a group's name cannot
+reach anything else.
+
+```ts
+import { govern, storeAudit, teamMemory, teamMemoryAttributes } from "al-buddy-memory";
+
+deps: async (who) => {
+  const inner = await storeFor(who.tenant!);
+  return {
+    store: govern(inner, {
+      policies: [teamMemory()],
+      context: () => ({ actor: who.actor, attributes: teamMemoryAttributes(who.actor, who.attributes), origin: actingOrigin() }),
+      audit: storeAudit(inner),
+    }),
+  };
+},
+```
+
+What a person writes through the server is stamped as theirs (`scope: "user:<actor>"`,
+`author: "<actor>"`); nobody else reads it, their own team included.
+
 ## What to know
 
 - **One issuer per server.** A multi-tenant Entra application sees a different issuer per

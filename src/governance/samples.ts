@@ -1,6 +1,6 @@
 /**
- * Three policies to copy. Each is a few lines on purpose: governance should
- * read like a rule a person can check, not a framework.
+ * Policies to copy. Each is a few lines on purpose: governance should read
+ * like a rule a person can check, not a framework.
  */
 import type { MemoryNode, NewMemoryNode } from "../types/memory.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext } from "./policy.js";
@@ -163,6 +163,97 @@ export function enterpriseAudit(opts: { reviewers: string[]; exporters: string[]
     // from them, history included (review 2026-09-22).
     beforeExport(node: MemoryNode, ctx: PolicyContext): boolean {
       return exporters.has(ctx.actor) && !hidden(node, ctx);
+    },
+  };
+}
+
+/** A fact's `scope` label as a list; `undefined` when it is not a string or a list of strings. */
+function scopesOf(node: Pick<MemoryNode, "contextualMetadata">): readonly string[] | undefined {
+  const scope = node.contextualMetadata["scope"];
+  if (scope === undefined) return [];
+  if (typeof scope === "string") return [scope];
+  return Array.isArray(scope) && scope.every((s) => typeof s === "string") ? scope : undefined;
+}
+
+/** One scope label or several, in one comparable form: order and repeats do not change a scope. */
+const sameScope = (a: unknown, b: unknown): boolean => {
+  const norm = (v: unknown) => (typeof v === "string" ? [v] : Array.isArray(v) ? [...new Set(v)].sort() : v);
+  return JSON.stringify(norm(a) ?? null) === JSON.stringify(norm(b) ?? null);
+};
+
+/**
+ * The attributes {@link teamMemory}'s boundary reads, from who the actor is and
+ * what the application knows about them (an OIDC token's mapped claims, say):
+ * `self` is `user:<actor>`, and each of `teams` becomes `team:<id>`. Every
+ * team is prefixed, already-prefixed ones too, so a directory group named
+ * `org` or `user:someone` is a team like any other and cannot widen a read.
+ * A `self` among the attributes is replaced. The rest pass through unchanged.
+ */
+export function teamMemoryAttributes(actor: string, attributes: Readonly<Record<string, string | readonly string[]>> = {}): Record<string, string | readonly string[]> {
+  const raw = attributes["teams"];
+  const teams = (raw === undefined ? [] : typeof raw === "string" ? [raw] : raw).filter((t) => typeof t === "string" && t !== "");
+  return { ...attributes, self: `user:${actor}`, teams: [...new Set(teams)].map((t) => `team:${t}`) };
+}
+
+/**
+ * Team memory: one company's store, in layers. A fact's `scope` label says who
+ * reads it — `user:<actor>` (its writer), `team:<id>` (a team), `org` (everyone
+ * in the tenant), or a list of these — and `author` says who asserted it. The
+ * tenant stays the wall between companies; scope is a label inside it.
+ *
+ * - Reads: a fact is visible when its scope is the actor's own, one of the
+ *   actor's teams, or `org`. The store applies this inside its query; each fact
+ *   is then checked again against the actor itself, so a context that forgot
+ *   {@link teamMemoryAttributes} hides facts rather than showing them.
+ * - Writes: an unlabelled fact is stamped `scope: user:<actor>` and
+ *   `author: <actor>`, so nothing is shared by accident. A write naming another
+ *   scope or another author is refused: sharing is a promotion, not a label.
+ *   An import restores facts verbatim only for `importers`; anyone else's is
+ *   judged as a write.
+ * - Changes: `scope` and `author` never change. Promotion is the only way
+ *   across scopes, and it writes a new fact.
+ *
+ * See docs/policies/scopes.md.
+ */
+export function teamMemory(opts: { importers?: readonly string[] } = {}): GovernancePolicy {
+  const importers = new Set(opts.importers ?? []);
+  const deny = (why: string): never => {
+    throw new PolicyDenied("team-memory", why);
+  };
+  return {
+    name: "team-memory",
+    readBoundary: {
+      any: [
+        { label: "scope", equals: { actor: "self" } },
+        { label: "scope", in: { actor: "teams" } },
+        { label: "scope", equals: "org" },
+      ],
+    },
+    // The same rule, from the actor itself rather than the `self` attribute.
+    // With teamMemoryAttributes in the context it hides nothing the boundary
+    // let through, so pages are unchanged; without it, it fails closed.
+    beforeRead(node: MemoryNode, ctx: PolicyContext): MemoryNode | null {
+      const raw = ctx.attributes?.["teams"];
+      const teams = raw === undefined ? [] : typeof raw === "string" ? [raw] : raw;
+      const visible = (scopesOf(node) ?? []).some((s) => s === `user:${ctx.actor}` || s === "org" || (s.startsWith("team:") && teams.includes(s)));
+      return visible ? node : null;
+    },
+    beforeWrite(node: NewMemoryNode, ctx: PolicyContext): NewMemoryNode {
+      if (ctx.purpose === "import" && importers.has(ctx.actor)) return node;
+      const labels = node.contextualMetadata;
+      const scopes = scopesOf(node);
+      if (scopes === undefined) deny("scope must be a string or a list of strings");
+      if (scopes!.some((s) => s !== `user:${ctx.actor}`)) deny(`${ctx.actor} writes to their own scope only (user:${ctx.actor}); promotion is the only way to share a fact`);
+      if (labels["author"] !== undefined && labels["author"] !== ctx.actor) deny(`${ctx.actor} cannot write a fact authored by someone else`);
+      if (scopes!.length > 0 && labels["author"] !== undefined) return node;
+      return { ...node, contextualMetadata: { ...labels, scope: scopes!.length > 0 ? labels["scope"] : `user:${ctx.actor}`, author: ctx.actor } };
+    },
+    // A patch's contextualMetadata replaces the old one whole, so leaving a
+    // label out is a change too.
+    beforeUpdate(existing: MemoryNode, patch: NodePatch, _ctx: PolicyContext): void {
+      if (patch.contextualMetadata === undefined) return;
+      if (!sameScope(existing.contextualMetadata["scope"], patch.contextualMetadata["scope"])) deny("a fact's scope never changes; promote it to share it");
+      if (existing.contextualMetadata["author"] !== patch.contextualMetadata["author"]) deny("a fact's author never changes");
     },
   };
 }
