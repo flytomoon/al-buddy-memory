@@ -38,6 +38,23 @@ earlier were GitHub releases only.
   text is refused; a copy is withdrawn or closed only by its author, its promoter or an admin.
   MCP tools `promote` and `withdraw`. Tested on SQLite, Postgres and in-memory. The portable
   format is unchanged (no schema bump).
+- **`MemoryStore.getNodes(ids)`**, optional: several nodes in one read, each as `getNode` returns
+  it. `SqliteMemoryStore` and `InMemoryStore` have it; recall looks its vector candidates up with
+  it (one statement per batch, not one per candidate) and falls back to `getNode` on a store
+  without it, with the same results (`src/recall-fast-path.test.ts`). A governed store does not
+  offer it, so recall through one still reads each candidate through its policy.
+- **`recall-sweep.mjs` compares builds**: an arm `build:<dir>` recalls with another build of the
+  library over an exact copy of the memory, `--repeat N` times each arm as the median of N
+  recalls, each arm lists the questions it newly shows (or no longer shows) every evidence turn
+  for against the first arm, and the last line is `RESULT: …`.
+
+### Changed
+
+- **A limited `SqliteMemoryStore.searchNodes` turns only its page into nodes.** It ranks the
+  candidate pool (ten times the page, at least 200 rows) on the columns the order reads and then
+  reads the page's rows whole, inside one read transaction; it used to turn every pooled row into
+  a node first. The same page, by the same comparators: the conformance suite holds every limited
+  and paged read to the unlimited one, with decay on and off.
 
 ### Behaviour change
 

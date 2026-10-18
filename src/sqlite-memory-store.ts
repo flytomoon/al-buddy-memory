@@ -504,6 +504,22 @@ const FTS_POOL_MULTIPLIER = 10;
 const FTS_POOL_MIN = 200;
 const FTS_POOL_UNLIMITED = -1; // SQLite: a negative LIMIT means no limit
 
+/** The columns a search ranks on: everything effectiveConfidence and compareRecency read, and the widening's keys. */
+const RANK_COLUMNS = "n.node_id, n.confidence_weight, n.decay_rate, n.temporal_anchors, n.valid_from, n.created_at";
+type RankRow = Pick<NodeRow, "node_id" | "confidence_weight" | "decay_rate" | "temporal_anchors" | "valid_from" | "created_at">;
+type RankKey = Pick<MemoryNode, "nodeId" | "confidenceWeight" | "decayRate" | "temporalAnchors" | "validFrom">;
+
+/** The fields of a node the search order reads, from its rank columns, exactly as rowToNode reads them. */
+function rankKeyOf(row: RankRow): RankKey {
+  return {
+    nodeId: row.node_id,
+    confidenceWeight: row.confidence_weight,
+    decayRate: row.decay_rate,
+    temporalAnchors: JSON.parse(row.temporal_anchors) as TemporalAnchor[],
+    validFrom: row.valid_from,
+  };
+}
+
 /**
  * Durable SQLite-backed MemoryStore.
  *
@@ -790,6 +806,23 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     return row !== undefined ? rowToNode(row) : undefined;
   }
 
+  async getNodes(nodeIds: readonly string[]): Promise<(MemoryNode | undefined)[]> {
+    const byId = this.rowsById(nodeIds);
+    return nodeIds.map((id) => {
+      const row = byId.get(id);
+      return row !== undefined ? rowToNode(row) : undefined;
+    });
+  }
+
+  /** Every row with one of these ids, in one statement: one bound value, however many ids. */
+  private rowsById(nodeIds: readonly string[]): Map<string, NodeRow> {
+    if (nodeIds.length === 0) return new Map();
+    const rows = this.db
+      .prepare(`SELECT * FROM memory_nodes WHERE node_id IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify(nodeIds)) as NodeRow[];
+    return new Map(rows.map((row) => [row.node_id, row]));
+  }
+
   /** Verbatim insert for round-trip import — identity and anchors preserved. */
   async restoreNode(input: MemoryNode): Promise<void> {
     const node = canonicalNode(input);
@@ -965,6 +998,12 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
   }
 
   async searchNodes(options: MemoryQueryOptions): Promise<MemoryNode[]> {
+    // One read transaction: a limited search reads its page's rows from the
+    // same state it ranked, even while another connection writes.
+    return this.db.transaction(() => this.searchNow(options))();
+  }
+
+  private searchNow(options: MemoryQueryOptions): MemoryNode[] {
     // --- Full-text search via FTS5 (keep the BM25 rank — it IS the relevance) ---
     // The match is a JOIN, not an IN-list of rowids: a common term over a
     // large store matched more rows than SQLite allows bound variables
@@ -1062,9 +1101,17 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     // limit) that JS re-ranks with decay; without one, the whole valid set is
     // read — at a store of hundreds to low thousands that is cheap, and the
     // measured cost at 100k facts is in README "Limits".
-    type Row = NodeRow & { fts_rank?: number };
+    type Row = RankRow & Partial<NodeRow> & { fts_rank?: number };
     const limited = limitN !== undefined && !paged;
     const pool = limited ? Math.max(limitN! * FTS_POOL_MULTIPLIER, FTS_POOL_MIN) : FTS_POOL_UNLIMITED;
+    // A bounded page is ranked on the columns the order reads, and only the
+    // page's rows become nodes: the pool is ten times the page (at LongMemEval
+    // size, the whole store), and turning every pooled row into a node was
+    // most of a keyword search (measured on LongMemEval, 2026-10-13). Same keys, same
+    // comparators, so the same page. Without a limit every row is returned,
+    // so it is read whole once.
+    const narrow = limitN !== undefined;
+    const columns = narrow ? RANK_COLUMNS : "n.*";
     const also = (condition: string) => (where ? `${where} AND ${condition}` : `WHERE ${condition}`);
     // The pool's ORDER BY ends the same way the JS re-rank does, or a limited
     // read is a page of a DIFFERENT list.
@@ -1072,14 +1119,14 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       match !== null
         ? (this.db
             .prepare(
-              `SELECT n.*, f.rank AS fts_rank FROM memory_nodes n
+              `SELECT ${columns}, f.rank AS fts_rank FROM memory_nodes n
                  JOIN (SELECT rowid AS fts_id, rank FROM memory_fts WHERE content_text MATCH @match) f ON n.fts_rowid = f.fts_id
                  ${extra ? also(extra) : where} ORDER BY f.rank ASC, n.confidence_weight DESC, n.created_at DESC, n.node_id DESC
                  LIMIT ${limit}`,
             )
             .all(params) as Row[])
         : (this.db
-            .prepare(`SELECT * FROM memory_nodes ${extra ? also(extra) : where} ${NO_QUERY_ORDER} LIMIT ${limit}`)
+            .prepare(`SELECT ${columns} FROM memory_nodes n ${extra ? also(extra) : where} ${NO_QUERY_ORDER} LIMIT ${limit}`)
             .all(params) as Row[]);
 
     // Ranking happens in JS so decay can apply (decay.ts). With a query: BM25
@@ -1088,7 +1135,7 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     // other read.
     const now = Date.now();
     const rank = (rows: Row[]) => {
-      const out = rows.map((row) => ({ row, node: rowToNode(row), eff: 0 }));
+      const out = rows.map((row) => ({ row, node: narrow ? rankKeyOf(row) : rowToNode(row as NodeRow), eff: 0 }));
       for (const n of out) n.eff = effectiveConfidence(n.node, now);
       out.sort((a, b) =>
         match !== null
@@ -1151,7 +1198,12 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
       nodes = at < 0 ? [] : nodes.slice(at + 1);
     }
     if (limitN !== undefined) nodes.length = Math.min(nodes.length, limitN);
-    return nodes.map((n) => n.node);
+    if (!narrow) return nodes.map((n) => n.node as MemoryNode);
+    const byId = this.rowsById(nodes.map((n) => n.row.node_id));
+    return nodes.flatMap((n) => {
+      const row = byId.get(n.row.node_id);
+      return row !== undefined ? [rowToNode(row)] : [];
+    });
   }
 
   /** When a change to this fact happens: never before anything already on its record. */

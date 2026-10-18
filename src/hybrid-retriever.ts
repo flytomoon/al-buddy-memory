@@ -85,6 +85,8 @@ const DUPLICATE_THRESHOLD = 0.9;
 /** Confidence bump when a duplicate observation reinforces a node. */
 const REINFORCE_STEP = 0.05;
 const RERANK_DEPTH = 50;
+/** The fewest vector candidates looked up in one `getNodes` call, so a narrow scope that skips most of them still reads in few statements. */
+const MIN_LOOKUP_BATCH = 32;
 /** A reranked order stands for the keyword and vector lists it replaces, so it counts as two lists. */
 const RERANKED_WEIGHT = 2;
 /** `expand`: the in-period list counts as one list; the earliest/latest list as half of one. */
@@ -308,15 +310,43 @@ export class HybridRetriever {
     // of them makes the pool — and which one findDuplicate reinforces — has to be
     // decided by the fact, not by where the cut fell (review 2026-09-14; the 0.3.5
     // comment here claimed recency settled it, and nothing did).
+    //
+    // A store with `getNodes` is read in batches (one statement each, not one
+    // per candidate): as many as could still make the pool, then the rest of
+    // the boundary's tie group. The walk over them is the same.
     const out: { node: MemoryNode; similarity: number }[] = [];
-    for (const { nodeId, similarity } of scored) {
-      if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break;
-      const node = await this.store.getNode(nodeId);
-      if (!node) continue;
-      // Same boundary as searchNodes: in scope, currently valid, never Sealed,
-      // never Archived / PendingDeletion unless the scope names them.
-      if (!matchesFilter(node, filter)) continue;
-      out.push({ node, similarity });
+    const store = this.store;
+    let next = 0;
+    walk: while (next < scored.length) {
+      let end: number;
+      if (out.length < pool) end = next + (store.getNodes ? Math.max(pool - out.length, MIN_LOOKUP_BATCH) : 1);
+      else {
+        // The pool is full: only the boundary's tie group can still come in.
+        const boundary = out[out.length - 1]!.similarity;
+        for (end = next; end < scored.length && scored[end]!.similarity >= boundary; end += 1);
+        if (end === next) break;
+      }
+      const batch = scored.slice(next, end);
+      next += batch.length;
+      const ids = batch.map((c) => c.nodeId);
+      // Not push(...batch): a batch is as big as the pool or the tie group, and
+      // spreading 100k+ arguments overflows the stack.
+      let nodes: readonly (MemoryNode | undefined)[];
+      if (store.getNodes) nodes = await store.getNodes(ids);
+      else {
+        const one: (MemoryNode | undefined)[] = [];
+        for (const id of ids) one.push(await store.getNode(id));
+        nodes = one;
+      }
+      for (const [i, { similarity }] of batch.entries()) {
+        if (out.length >= pool && similarity < out[out.length - 1]!.similarity) break walk;
+        const node = nodes[i];
+        if (!node) continue;
+        // Same boundary as searchNodes: in scope, currently valid, never Sealed,
+        // never Archived / PendingDeletion unless the scope names them.
+        if (!matchesFilter(node, filter)) continue;
+        out.push({ node, similarity });
+      }
     }
     const now = Date.now();
     return out

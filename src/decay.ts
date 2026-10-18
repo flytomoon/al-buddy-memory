@@ -59,7 +59,7 @@ export function effectiveConfidence(
  * put a fact imported today about last year below one recorded yesterday,
  * which is not what "most recent" means when you ask for ten of them.
  */
-export function learnedAt(node: MemoryNode): string {
+export function learnedAt(node: Pick<MemoryNode, "temporalAnchors" | "validFrom">): string {
   return node.temporalAnchors.find((a) => a.event === "created")?.timestamp ?? node.validFrom;
 }
 
@@ -74,7 +74,7 @@ export function compareBinary(a: string, b: string): number {
  * "…-01:00" and "…+01:00", which sort by the sign character, not by time (Astra
  * final review, 2026-09-15). The id tie-break is byte order, matching SQL.
  */
-export function compareRecency(a: MemoryNode, b: MemoryNode): number {
+export function compareRecency(a: Pick<MemoryNode, "nodeId" | "temporalAnchors" | "validFrom">, b: Pick<MemoryNode, "nodeId" | "temporalAnchors" | "validFrom">): number {
   const x = instantMs(learnedAt(a)), y = instantMs(learnedAt(b));
   const hasX = Number.isFinite(x), hasY = Number.isFinite(y);
   // A fact with no real instant (only a legacy store can hold one) sorts as the

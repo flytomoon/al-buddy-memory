@@ -226,7 +226,13 @@ node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
 ```
 
 An arm is `none` or `<model>:<dtype>:<depth>` (`minilm`, `bge` or a Hugging Face id; `fp32`, `q8`,
-…; a number of candidates or `all`).
+…; a number of candidates or `all`), or parts joined with `+`. A `build:<dir>` part recalls with
+another build of the library compiled to `<dir>` (the commit before a change, say), over an exact
+copy of the memory — the same ids, anchors and vectors — so a change meant to be rank-identical
+can be held to "the same rounds in every question" in one run. Per arm it also lists the questions
+that newly see, or no longer see, every evidence turn against the first arm, and its last line is
+`RESULT: …`. On a busy machine, `--repeat N` (odd) recalls N times per arm and question, rotating
+the order each time, and keeps the median time.
 
 ### Reranking only the top 20 changes almost nothing the reader sees
 
