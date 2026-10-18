@@ -169,4 +169,23 @@ describe("docs — the claims a reader will check", () => {
     expect(connector).toMatch(/onSignIn: \(clientId\) => \{ deliveries\.forget\(clientId\); \}/);
     expect(connector).toMatch(/connection: auth\?\.clientId/);
   });
+
+  /**
+   * SIGN-IN.md's team-memory section promises three things about the helper
+   * it wires in: `self` is `user:<actor>`, each group is written `team:<group>`
+   * so a group's name cannot reach anything else, and a server write is the
+   * writer's own. Over real HTTP it is `mcp/http-oidc-team-memory.test.ts`.
+   */
+  it("SIGN-IN.md's team memory: self from the actor, every group a team, and a write is the writer's own", async () => {
+    const signIn = read("docs/SIGN-IN.md");
+    expect(signIn).toMatch(/teamMemoryAttributes\(who\.actor, who\.attributes\)/);
+    expect(signIn).toMatch(/adds `self`\s+\(`user:<actor>`, from the actor claim\) and writes each group as `team:<group>`/);
+    expect(signIn).toMatch(/stamped as theirs \(`scope: "user:<actor>"`,\s+`author: "<actor>"`\)/);
+
+    const { teamMemory, teamMemoryAttributes } = await import("./governance/samples.js");
+    const attributes = teamMemoryAttributes("alice", { teams: ["blue", "org", "user:bob"], self: "user:bob" });
+    expect(attributes).toEqual({ teams: ["team:blue", "team:org", "team:user:bob"], self: "user:alice" });
+    const written = await teamMemory().beforeWrite!({ contextualMetadata: {} } as never, { actor: "alice", purpose: "write", attributes, now: new Date() });
+    expect(written.contextualMetadata).toEqual({ scope: "user:alice", author: "alice" });
+  });
 });

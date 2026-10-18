@@ -6,6 +6,7 @@ so anyone building on the memory inherits a spine rather than a blank.
 
 - [ENFORCEMENT.md](ENFORCEMENT.md) — start here: what the code enforces, what a prompt carries, what a person still decides.
 - [boundaries.md](boundaries.md) — data boundaries: an organisation's own "who sees what" written as a filter the store applies inside the query, with an example policy ([boundaries.ts](boundaries.ts)).
+- [scopes.md](scopes.md) — personal, team and company memory in one store: the `scope` and `author` labels, and the `teamMemory` sample policy that enforces them.
 - [ethical-behaviour.md](ethical-behaviour.md) — authority boundaries, anti-manipulation guardrails, intellectual humility, transparency.
 - [user-sovereignty-and-privacy.md](user-sovereignty-and-privacy.md) — the user owns the data; consent; default privacy; guardian stewardship; rights.
 - [lifecycle-and-age-appropriate.md](lifecycle-and-age-appropriate.md) — how tone, content and authority change across a life, and how guardianship hands over.
