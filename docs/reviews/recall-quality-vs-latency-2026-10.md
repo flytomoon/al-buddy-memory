@@ -241,8 +241,8 @@ so none was re-checked today. The 10-13 review's survey has the dated sources.
 | Query decomposition for counting/multi-hop, by rules | multi-query / decomposition RAG | `expand` parts, 2× pool |
 | Chain-of-note reading; history as JSON | Yu et al. 2023; LongMemEval paper | bench reader, counting questions |
 | Rule-gated adaptive retrieval (spend more on harder questions) | Adaptive-RAG (Jeong et al. 2024) | the counting cue already escalates pool, rounds and reader |
-| Bi-temporal validity, invalidate never delete | Zep / Graphiti | `validFrom`, `validAt` |
-| ADD-only memory | Mem0 (April 2026 algorithm) | the library's premise |
+| Bi-temporal validity, invalidate never delete | bitemporal data (SQL:2011); temporal knowledge-graph memory (Rasmussen et al. 2025) | `validFrom`, `validAt` |
+| ADD-only memory | event sourcing; append-only agent-memory designs (2026) | the library's premise |
 | Decay of confidence; reinforcement of duplicates | MemoryBank (Ebbinghaus curve) | `decay.ts`, `findDuplicate` / `reinforce` |
 | Cross-encoder reranking | MS MARCO cross-encoders | built, **off** (±0 always on) |
 | Recency as a fused list | — | `freshness`, built, off by default |
@@ -258,7 +258,7 @@ so none was re-checked today. The 10-13 review's survey has the dated sources.
 | Same-size, stronger embedder (arctic-embed-xs, bge-small) | MTEB | the only other lever for those 5 | 0 to +5 ms; a one-time re-embed |
 | int8 vectors with float re-score | HF / mixedbread 2024 | memory and cold read at 50k+ facts | 0 at our size |
 
-**Not now.** LLM extraction or consolidation at write (Mem0, Hindsight, A-Mem): the field's top
+**Not now.** LLM extraction or consolidation at write (A-Mem, Xu et al. 2025, and its kin): the field's top
 scores use it, but it adds a model call per write and puts derived text where raw text should be.
 LLM query rewriting or HyDE: +0.3–2 s per recall. Graph retrieval (HippoRAG's personalized
 PageRank over an entity graph): it needs entity extraction at write, and its gain on
