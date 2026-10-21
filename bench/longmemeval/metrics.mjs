@@ -135,6 +135,65 @@ export function percentile(xs, p) {
 
 const round1 = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
 
+/** Whether two arms show the reader the same rounds (the prompt lists them by date, so order does not count). */
+export function sameRounds(a, b) {
+  return [...a].sort().join("\n") === [...b].sort().join("\n");
+}
+
+/**
+ * Not an official metric: whether a reranker gated on the time window (review
+ * 2026-10, change 5) passes its bar against the same recall without it, over
+ * a recall sweep's rows (`{ question_id, cues, arms: { [name]: { retrieval,
+ * shownRounds, recall } } }`). `arm` is the gated arm, `base` the one without
+ * its reranker. It passes when all four hold:
+ *
+ * - `windowP95`: the recalls of questions that name a period (`cues.windows`)
+ *   take at most `budgetMs` at p95 (and there is at least one);
+ * - `windowEvidence`: more of those questions newly show every evidence turn
+ *   than no longer do;
+ * - `otherSameRounds`: every other question shows the same rounds as `base`;
+ * - `otherTime`: and its recall is no slower than `toleranceMs` by the median
+ *   of the per-question differences. The gate skips the reranker there, so
+ *   only noise moves it, either way; faster is noise too, and no harm.
+ */
+export function windowGateCheck(rows, { arm, base, budgetMs = 300, toleranceMs = 1 }) {
+  const named = (r) => (r.cues?.windows?.length ?? 0) > 0;
+  const window = rows.filter(named);
+  const other = rows.filter((r) => !named(r));
+  const allShown = (r, name) => r.arms[name].retrieval.shown?.all;
+  const scored = window.filter((r) => allShown(r, arm) !== undefined && allShown(r, base) !== undefined);
+  const gained = scored.filter((r) => allShown(r, arm) === 1 && allShown(r, base) === 0).map((r) => r.question_id);
+  const lost = scored.filter((r) => allShown(r, arm) === 0 && allShown(r, base) === 1).map((r) => r.question_id);
+  const ms = (xs, name) => xs.map((r) => r.arms[name].recall.ms);
+  const stats = (xs) => (xs.length === 0 ? null : { p50: round1(percentile(xs, 0.5)), p95: round1(percentile(xs, 0.95)), max: round1(Math.max(...xs)) });
+  const windowMs = stats(ms(window, arm));
+  const otherSame = other.filter((r) => sameRounds(r.arms[arm].shownRounds, r.arms[base].shownRounds)).length;
+  const pairedMs = other.length === 0 ? null : round1(percentile(other.map((r) => r.arms[arm].recall.ms - r.arms[base].recall.ms), 0.5));
+  const checks = {
+    windowP95: windowMs !== null && windowMs.p95 <= budgetMs,
+    windowEvidence: gained.length > lost.length,
+    otherSameRounds: other.length > 0 && otherSame === other.length,
+    otherTime: pairedMs !== null && pairedMs <= toleranceMs,
+  };
+  return {
+    arm,
+    base,
+    budgetMs,
+    toleranceMs,
+    window: {
+      n: window.length,
+      recallMs: windowMs,
+      baseRecallMs: stats(ms(window, base)),
+      allEvidence: { arm: scored.filter((r) => allShown(r, arm) === 1).length, base: scored.filter((r) => allShown(r, base) === 1).length, of: scored.length },
+      gained,
+      lost,
+    },
+    other: { n: other.length, sameRounds: otherSame, recallMs: stats(ms(other, arm)), baseRecallMs: stats(ms(other, base)), pairedMs },
+    checks,
+    pass: Object.values(checks).every(Boolean),
+  };
+}
+
 /**
  * Not an official metric: how long recall took, per question, as every row
  * records it (`recall.ms` by the wall clock, `recall.cpuMs` in CPU time, and

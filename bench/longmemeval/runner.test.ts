@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as lib from "../../src/index.js";
 import { UsageLimitError } from "./answerers.mjs";
 import { evaluateInstance, runInstances, summarize } from "./harness.mjs";
-import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
 /** A word-presence embedder: deterministic, and enough to give the vector side something to rank. */
@@ -188,6 +188,54 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(calls).toBe(2);
   });
 
+  it("stops after three consecutive failures, preserving each error and the attempted count", async () => {
+    const seen: string[] = [];
+    const failing = {
+      ...reader("x"),
+      complete: async (prompt: string) => {
+        const id = /Question: (\w+)/.exec(prompt)?.[1];
+        seen.push(id ?? "missing");
+        if (id !== "ok") throw new Error(`reader failed for ${id}`);
+        return { text: "Berlin", modelIds: ["fake-reader"], usage: null, notionalCostUsd: null };
+      },
+    };
+    const questions = ["bad1", "ok", "bad2", "bad3", "bad4", "unstarted"].map((id) => instance({ question_id: id, question: id }));
+    await expect(runInstances(lib, questions, { answerer: failing }, { concurrency: 1 })).rejects.toMatchObject({
+      attempted: 5,
+      succeeded: 1,
+      rows: [
+        { question_id: "bad1", error: "reader failed for bad1" },
+        { question_id: "ok" },
+        { question_id: "bad2", error: "reader failed for bad2" },
+        { question_id: "bad3", error: "reader failed for bad3" },
+        { question_id: "bad4", error: "reader failed for bad4" },
+      ],
+    });
+    expect(seen).toEqual(["bad1", "ok", "bad2", "bad3", "bad4"]);
+  });
+
+  it("stops a run with no successes after its third failure", async () => {
+    const failing = { ...reader("x"), complete: async () => { throw new Error("reader unavailable"); } };
+    await expect(runInstances(lib, ["a", "b", "c", "d"].map((id) => instance({ question_id: id })), { answerer: failing }, { concurrency: 1 })).rejects.toMatchObject({
+      attempted: 3,
+      succeeded: 0,
+      rows: [
+        { question_id: "a", error: "reader unavailable" },
+        { question_id: "b", error: "reader unavailable" },
+        { question_id: "c", error: "reader unavailable" },
+      ],
+    });
+  });
+
+  it("stops when a result cannot be recorded and reports that question's error", async () => {
+    await expect(runInstances(lib, [instance({ question_id: "a" }), instance({ question_id: "b" })], {}, {
+      concurrency: 1,
+      onRow: (row: { question_id: string }) => {
+        if (row.question_id === "a") throw new Error("disk full");
+      },
+    })).rejects.toMatchObject({ message: "Could not record a: disk full", attempted: 1, succeeded: 0, rows: [] });
+  });
+
   it("--recall-pool bounds how many memories recall returns", async () => {
     expect((await evaluateInstance(lib, instance())).memoriesRecalled).toBeGreaterThan(2);
     // Half from each list: keyword-only, that is one.
@@ -282,6 +330,49 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(read[0]).toBe(all.memoriesRecalled);
     await evaluateInstance(lib, instance(), { reranker: recording, rerankDepth: 1 });
     expect(read[1]).toBe(1);
+  });
+
+  it("--rerank-when window: the reranker reads only questions that name a period", async () => {
+    const period = instance({ question: "What city did I move to last week?" });
+    const plain = instance();
+    expect(rerankGate(lib, period, "window")).toEqual({ rerank: true });
+    expect(rerankGate(lib, plain, "window")).toEqual({ rerank: false });
+    expect(rerankGate(lib, plain, "always")).toEqual({});
+    expect(rerankGate(lib, plain)).toEqual({});
+    expect(() => rerankGate(lib, plain, "sometimes")).toThrow(/always or window/);
+
+    const queries: string[] = [];
+    const tokyoFirst = { model: "rec", score: async (q: string, ps: string[]) => (queries.push(q), ps.map((p) => (p.includes("Tokyo") ? 1 : 0))) };
+    // A question that names no period recalls exactly as it would with no reranker, which is never called:
+    // the same memory, recalled by a retriever with and one without it, in the same order.
+    const embedder = wordEmbedder();
+    const memory = await ingestHistory(lib, plain, { embedder });
+    try {
+      const without = await recallRounds(memory, plain);
+      const withReranker = { ...memory, retriever: new lib.HybridRetriever(memory.store, embedder, { reranker: tokyoFirst }) };
+      expect((await recallRounds(withReranker, plain, { recallOptions: rerankGate(lib, plain, "window") })).rounds).toEqual(without.rounds);
+      expect(queries).toEqual([]);
+      expect((await recallRounds(withReranker, plain)).rounds[0]!.id).toBe("answer_x1_1_1");
+      expect(queries).toEqual([plain.question]);
+    } finally {
+      memory.store.close();
+    }
+    queries.length = 0;
+    // Through the harness: each row says whether it was reranked. Each run builds its own
+    // store, where fused ties may fall another way, so rounds compare as the set the reader sees.
+    const sorted = (xs: string[]) => [...xs].sort();
+    const gatedPlain = await evaluateInstance(lib, plain, { embedder: wordEmbedder(), reranker: tokyoFirst, rerankWhen: "window" });
+    expect(queries).toEqual([]);
+    expect(gatedPlain.reranked).toBe(false);
+    expect(await evaluateInstance(lib, plain, { embedder: wordEmbedder() })).not.toHaveProperty("reranked");
+    // One that does is reranked, as it is with the reranker always on.
+    const always = await evaluateInstance(lib, period, { embedder: wordEmbedder(), reranker: tokyoFirst });
+    const gatedPeriod = await evaluateInstance(lib, period, { embedder: wordEmbedder(), reranker: tokyoFirst, rerankWhen: "window" });
+    expect(queries).toEqual([period.question, period.question]);
+    expect(gatedPeriod.reranked).toBe(true);
+    expect(always.reranked).toBe(true);
+    expect(sorted(gatedPeriod.shownRounds)).toEqual(sorted(always.shownRounds));
+    expect(gatedPeriod.shownRounds[0]).toBe("answer_x1_1_1");
   });
 
   it("sums the CLI's usage and notional cost, and counts every model id that answered", () => {
