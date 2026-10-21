@@ -188,6 +188,54 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(calls).toBe(2);
   });
 
+  it("stops after three consecutive failures, preserving each error and the attempted count", async () => {
+    const seen: string[] = [];
+    const failing = {
+      ...reader("x"),
+      complete: async (prompt: string) => {
+        const id = /Question: (\w+)/.exec(prompt)?.[1];
+        seen.push(id ?? "missing");
+        if (id !== "ok") throw new Error(`reader failed for ${id}`);
+        return { text: "Berlin", modelIds: ["fake-reader"], usage: null, notionalCostUsd: null };
+      },
+    };
+    const questions = ["bad1", "ok", "bad2", "bad3", "bad4", "unstarted"].map((id) => instance({ question_id: id, question: id }));
+    await expect(runInstances(lib, questions, { answerer: failing }, { concurrency: 1 })).rejects.toMatchObject({
+      attempted: 5,
+      succeeded: 1,
+      rows: [
+        { question_id: "bad1", error: "reader failed for bad1" },
+        { question_id: "ok" },
+        { question_id: "bad2", error: "reader failed for bad2" },
+        { question_id: "bad3", error: "reader failed for bad3" },
+        { question_id: "bad4", error: "reader failed for bad4" },
+      ],
+    });
+    expect(seen).toEqual(["bad1", "ok", "bad2", "bad3", "bad4"]);
+  });
+
+  it("stops a run with no successes after its third failure", async () => {
+    const failing = { ...reader("x"), complete: async () => { throw new Error("reader unavailable"); } };
+    await expect(runInstances(lib, ["a", "b", "c", "d"].map((id) => instance({ question_id: id })), { answerer: failing }, { concurrency: 1 })).rejects.toMatchObject({
+      attempted: 3,
+      succeeded: 0,
+      rows: [
+        { question_id: "a", error: "reader unavailable" },
+        { question_id: "b", error: "reader unavailable" },
+        { question_id: "c", error: "reader unavailable" },
+      ],
+    });
+  });
+
+  it("stops when a result cannot be recorded and reports that question's error", async () => {
+    await expect(runInstances(lib, [instance({ question_id: "a" }), instance({ question_id: "b" })], {}, {
+      concurrency: 1,
+      onRow: (row: { question_id: string }) => {
+        if (row.question_id === "a") throw new Error("disk full");
+      },
+    })).rejects.toMatchObject({ message: "Could not record a: disk full", attempted: 1, succeeded: 0, rows: [] });
+  });
+
   it("--recall-pool bounds how many memories recall returns", async () => {
     expect((await evaluateInstance(lib, instance())).memoriesRecalled).toBeGreaterThan(2);
     // Half from each list: keyword-only, that is one.

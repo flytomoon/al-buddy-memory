@@ -112,6 +112,7 @@ export async function runInstances(lib, instances, options, { concurrency = 4, o
   const rows = [];
   let next = 0;
   let stop = null;
+  let consecutiveFailures = 0;
   const exclusive = oneAtATime();
   const worker = async () => {
     while (stop === null && next < instances.length) {
@@ -126,12 +127,19 @@ export async function runInstances(lib, instances, options, { concurrency = 4, o
         }
         row = { question_id: instance.question_id, question_type: instance.question_type, abstention: isAbstention(instance.question_id), error: String(e?.message ?? e) };
       }
+      try {
+        await onRow(row);
+      } catch (e) {
+        stop ??= new Error(`Could not record ${instance.question_id}: ${e?.message ?? e}`);
+        return;
+      }
       rows.push(row);
-      await onRow(row);
+      consecutiveFailures = row.error ? consecutiveFailures + 1 : 0;
+      if (consecutiveFailures >= 3) stop ??= new Error("Stopped after 3 consecutive question failures");
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, instances.length)) }, worker));
-  if (stop) throw Object.assign(stop, { rows });
+  if (stop) throw Object.assign(stop, { rows, attempted: next, succeeded: rows.filter((r) => !r.error).length });
   return rows;
 }
 

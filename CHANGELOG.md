@@ -56,17 +56,7 @@ earlier were GitHub releases only.
   the plain 50, and a median 10–14 ms less wall-clock and 29–31 ms less CPU per recall. It stays
   off until the full 500 and an answered run agree. The benchmark takes it as `--content-words`;
   `recall-sweep.mjs` as the arm part `content-words`.
-- **`RecallOptions.contentWords`**, off by default, so recall without it is unchanged
-  (`src/recall-fast-path.test.ts`): the query's own keyword search reads its content words
-  (`keywordsOf`), not "how", "did" and "I", or the query as written when nothing is left. On
-  LongMemEval, retrieval only (`docs/reviews/recall-quality-vs-latency-2026-10.md` § 8): every
-  evidence turn shown in 44 of 50 questions on the gain set against 42, none lost on the break
-  set, and about 7–10 ms less CPU per recall. Session diversity and keyword lists at half weight
-  were measured beside it and failed; they are not in the library. The benchmark takes it as
-  `--content-words`. `recall-sweep.mjs` takes it as an arm, joined to others with `+`; it also
-  takes `build:<dir>` to recall with another build over an exact copy of the memory, and
-  `--repeat N` to time each arm as the median of N recalls.
-- **Benchmark: the reranker behind the time-window gate** (review § 5, change 5). `run.mjs
+- **Benchmark: the reranker behind the time-window gate** ([review § 5](docs/reviews/recall-quality-vs-latency-2026-10.md), change 5). `run.mjs
   --rerank-when window` lets the cross-encoder read only questions that name a period ("last
   Saturday", "in April"); every other question recalls with `rerank: false`, exactly as with no
   reranker. `recall-sweep.mjs` takes it as a `:window` suffix on a cross-encoder arm
@@ -76,10 +66,6 @@ earlier were GitHub releases only.
   same architecture (review § 9): a window recall at depth 30 took 1.5 s at p50 and 2.9–4.0 s at
   p95, against a 300 ms budget, while every other question kept its rounds and its time. The
   library does not change and no reranker is switched on.
-- **`MemoryStore.getNodes(ids)`**, optional: several nodes in one read, each as `getNode` returns
-  it. `SqliteMemoryStore` and `InMemoryStore` have it; recall looks its vector candidates up with
-  it (one statement per batch, not one per candidate) and falls back to `getNode` on a store
-  without it, with the same results.
 
 ### Changed
 
@@ -117,7 +103,6 @@ earlier were GitHub releases only.
   values. **Behaviour change:** new node ids are v7 instead of v4 (same format, still unique).
 
 ### Added
-  and paged read to the unlimited one, with decay on and off.
 
 - **Extension points**, each optional and off by default, so nothing changes for a caller that
   leaves them out (`src/extension-points.test.ts` holds the defaults to the same statements,
