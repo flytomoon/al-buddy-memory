@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as lib from "../../src/index.js";
 import { UsageLimitError } from "./answerers.mjs";
 import { evaluateInstance, runInstances, summarize } from "./harness.mjs";
-import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds } from "./memory.mjs";
+import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
 /** A word-presence embedder: deterministic, and enough to give the vector side something to rank. */
@@ -282,6 +282,49 @@ describe("LongMemEval harness — one question end to end, and a run", () => {
     expect(read[0]).toBe(all.memoriesRecalled);
     await evaluateInstance(lib, instance(), { reranker: recording, rerankDepth: 1 });
     expect(read[1]).toBe(1);
+  });
+
+  it("--rerank-when window: the reranker reads only questions that name a period", async () => {
+    const period = instance({ question: "What city did I move to last week?" });
+    const plain = instance();
+    expect(rerankGate(lib, period, "window")).toEqual({ rerank: true });
+    expect(rerankGate(lib, plain, "window")).toEqual({ rerank: false });
+    expect(rerankGate(lib, plain, "always")).toEqual({});
+    expect(rerankGate(lib, plain)).toEqual({});
+    expect(() => rerankGate(lib, plain, "sometimes")).toThrow(/always or window/);
+
+    const queries: string[] = [];
+    const tokyoFirst = { model: "rec", score: async (q: string, ps: string[]) => (queries.push(q), ps.map((p) => (p.includes("Tokyo") ? 1 : 0))) };
+    // A question that names no period recalls exactly as it would with no reranker, which is never called:
+    // the same memory, recalled by a retriever with and one without it, in the same order.
+    const embedder = wordEmbedder();
+    const memory = await ingestHistory(lib, plain, { embedder });
+    try {
+      const without = await recallRounds(memory, plain);
+      const withReranker = { ...memory, retriever: new lib.HybridRetriever(memory.store, embedder, { reranker: tokyoFirst }) };
+      expect((await recallRounds(withReranker, plain, { recallOptions: rerankGate(lib, plain, "window") })).rounds).toEqual(without.rounds);
+      expect(queries).toEqual([]);
+      expect((await recallRounds(withReranker, plain)).rounds[0]!.id).toBe("answer_x1_1_1");
+      expect(queries).toEqual([plain.question]);
+    } finally {
+      memory.store.close();
+    }
+    queries.length = 0;
+    // Through the harness: each row says whether it was reranked. Each run builds its own
+    // store, where fused ties may fall another way, so rounds compare as the set the reader sees.
+    const sorted = (xs: string[]) => [...xs].sort();
+    const gatedPlain = await evaluateInstance(lib, plain, { embedder: wordEmbedder(), reranker: tokyoFirst, rerankWhen: "window" });
+    expect(queries).toEqual([]);
+    expect(gatedPlain.reranked).toBe(false);
+    expect(await evaluateInstance(lib, plain, { embedder: wordEmbedder() })).not.toHaveProperty("reranked");
+    // One that does is reranked, as it is with the reranker always on.
+    const always = await evaluateInstance(lib, period, { embedder: wordEmbedder(), reranker: tokyoFirst });
+    const gatedPeriod = await evaluateInstance(lib, period, { embedder: wordEmbedder(), reranker: tokyoFirst, rerankWhen: "window" });
+    expect(queries).toEqual([period.question, period.question]);
+    expect(gatedPeriod.reranked).toBe(true);
+    expect(always.reranked).toBe(true);
+    expect(sorted(gatedPeriod.shownRounds)).toEqual(sorted(always.shownRounds));
+    expect(gatedPeriod.shownRounds[0]).toBe("answer_x1_1_1");
   });
 
   it("sums the CLI's usage and notional cost, and counts every model id that answered", () => {
