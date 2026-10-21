@@ -56,6 +56,16 @@ earlier were GitHub releases only.
   the plain 50, and a median 10–14 ms less wall-clock and 29–31 ms less CPU per recall. It stays
   off until the full 500 and an answered run agree. The benchmark takes it as `--content-words`;
   `recall-sweep.mjs` as the arm part `content-words`.
+- **Benchmark: the reranker behind the time-window gate** ([review § 5](docs/reviews/recall-quality-vs-latency-2026-10.md), change 5). `run.mjs
+  --rerank-when window` lets the cross-encoder read only questions that name a period ("last
+  Saturday", "in April"); every other question recalls with `rerank: false`, exactly as with no
+  reranker. `recall-sweep.mjs` takes it as a `:window` suffix on a cross-encoder arm
+  (`minilm:q8:30:window`) and holds such an arm to its bar against the same arm without the
+  cross-encoder (window recalls p95 within `--budget-ms`, evidence gained on them, the other
+  questions' rounds and time unchanged), as its `RESULT:` line. Measured with a stand-in of the
+  same architecture (review § 9): a window recall at depth 30 took 1.5 s at p50 and 2.9–4.0 s at
+  p95, against a 300 ms budget, while every other question kept its rounds and its time. The
+  library does not change and no reranker is switched on.
 
 ### Changed
 

@@ -6,7 +6,7 @@
 import { loadavg } from "node:os";
 
 import { corpusOf, isAbstention, parseSessionDate, retrievalSkipReason } from "./dataset.mjs";
-import { ingestHistory, recallRounds } from "./memory.mjs";
+import { ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
 import { retrievalMetrics, shownEvidence, summarizeQa, summarizeRecallTime, summarizeRetrieval } from "./metrics.mjs";
 import { answerPrompt, judgePrompt, judgeLabel } from "./prompts.mjs";
 import { UsageLimitError } from "./answerers.mjs";
@@ -24,7 +24,9 @@ import { UsageLimitError } from "./answerers.mjs";
  * `chainOfNote` (such a question gets the chain-of-note reader). Whether a
  * question "counts across memories" is the library's `analyzeQuery`, recorded
  * in every row as `cues`. `rerankDepth` bounds how many candidates the
- * reranker reads (default all of them). `queryEmbedder` embeds the question
+ * reranker reads (default all of them); `rerankWhen` is `always` (the
+ * default) or `window`, which lets it read only a question that names a
+ * period (`rerankGate`; the row's `reranked` says which it did). `queryEmbedder` embeds the question
  * (default `embedder`; see `ingestHistory`). `recallOptions` go to `recall`
  * as they are (`contentWords`, say).
  *
@@ -38,13 +40,14 @@ import { UsageLimitError } from "./answerers.mjs";
 export async function evaluateInstance(
   lib,
   instance,
-  { embedder, queryEmbedder = embedder, reranker = null, rerankDepth = null, topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, recallOptions = {}, reading = "con", chainOfNote = false, answerer = null, judge = null, exclusive = (fn) => fn() } = {},
+  { embedder, queryEmbedder = embedder, reranker = null, rerankDepth = null, rerankWhen = "always", topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, recallOptions = {}, reading = "con", chainOfNote = false, answerer = null, judge = null, exclusive = (fn) => fn() } = {},
 ) {
   const started = Date.now();
+  const gate = reranker ? rerankGate(lib, instance, rerankWhen) : {};
   const { memories, rounds, memoriesRecalled, recall } = await exclusive(async () => {
     const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder, reranker, rerankDepth });
     try {
-      const recalled = await recallRounds(memory, instance, { freshness, expand, recallOptions, ...(recallPool ? { recallPool } : {}) });
+      const recalled = await recallRounds(memory, instance, { freshness, expand, recallOptions: { ...recallOptions, ...gate }, ...(recallPool ? { recallPool } : {}) });
       return { memories: memory.memories, ...recalled, recall: { ...recalled.recall, load1: Math.round(loadavg()[0] * 100) / 100 } };
     } finally {
       memory.store.close();
@@ -62,6 +65,7 @@ export async function evaluateInstance(
     memories,
     memoriesRecalled,
     recall,
+    ...(reranker ? { reranked: gate.rerank !== false } : {}),
     cues: { aggregation: cues.aggregation, order: cues.order, windows: cues.windows.map((w) => w.phrase), parts: cues.parts.length },
     retrieval: skipped
       ? { skipped }
@@ -108,6 +112,7 @@ export async function runInstances(lib, instances, options, { concurrency = 4, o
   const rows = [];
   let next = 0;
   let stop = null;
+  let consecutiveFailures = 0;
   const exclusive = oneAtATime();
   const worker = async () => {
     while (stop === null && next < instances.length) {
@@ -122,12 +127,19 @@ export async function runInstances(lib, instances, options, { concurrency = 4, o
         }
         row = { question_id: instance.question_id, question_type: instance.question_type, abstention: isAbstention(instance.question_id), error: String(e?.message ?? e) };
       }
+      try {
+        await onRow(row);
+      } catch (e) {
+        stop ??= new Error(`Could not record ${instance.question_id}: ${e?.message ?? e}`);
+        return;
+      }
       rows.push(row);
-      await onRow(row);
+      consecutiveFailures = row.error ? consecutiveFailures + 1 : 0;
+      if (consecutiveFailures >= 3) stop ??= new Error("Stopped after 3 consecutive question failures");
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, instances.length)) }, worker));
-  if (stop) throw Object.assign(stop, { rows });
+  if (stop) throw Object.assign(stop, { rows, attempted: next, succeeded: rows.filter((r) => !r.error).length });
   return rows;
 }
 
