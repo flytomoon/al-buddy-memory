@@ -216,7 +216,7 @@ try {
   stopped = e;
 }
 if (stopped) {
-  console.error(`\nStopped: ${stopped.message}\nProgress is kept in ${progressPath}; run the same command with --resume to continue.`);
+  console.error(`\nStopped: ${stopped.message}\nAttempted ${stopped.attempted} question(s), succeeded ${stopped.succeeded}; progress is kept in ${progressPath}. Run the same command with --resume to continue.`);
   process.exit(2);
 }
 
@@ -224,6 +224,7 @@ if (stopped) {
 const byId = new Map(readFileSync(progressPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).map((r) => [r.question_id, r]));
 const rows = instances.map((x) => byId.get(x.question_id)).filter(Boolean);
 const summary = summarize(rows);
+if (summary.questions === summary.errors) fail(`Attempted ${summary.questions} question(s), succeeded 0; errors are recorded in ${progressPath}.`);
 const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), "longmemeval");
 writeJson(out, {
   benchmark: "LongMemEval",
@@ -266,6 +267,7 @@ if (summary.errors === 0) rmSync(progressPath, { force: true });
 
 const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed(1)}%`);
 console.log(`\nWrote ${out}`);
+console.log(`Attempted ${summary.questions} question(s), succeeded ${summary.questions - summary.errors}.`);
 if (summary.qa.questions) {
   console.log(`QA accuracy ${pct(summary.qa.overallAccuracy)} overall, ${pct(summary.qa.taskAveragedAccuracy)} task-averaged, abstention ${pct(summary.qa.abstention.accuracy)} (n=${summary.qa.abstention.n})`);
   for (const [t, v] of Object.entries(summary.qa.byType)) console.log(`  ${t.padEnd(26)} ${pct(v.accuracy).padStart(6)}  (n=${v.n})`);

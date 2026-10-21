@@ -287,8 +287,8 @@ describe("The window gate's bar (review 2026-10, change 5) — not an official m
     expect(windowGateCheck(faster, { arm: "gated", base: "none" }).pass).toBe(true);
     // No question that names a period: nothing was measured, so nothing passes.
     expect(fails(passing.filter((r) => r.cues.windows.length === 0))).toEqual(["windowP95", "windowEvidence"]);
-    // And no other question: those two checks have nothing to hold.
-    expect(windowGateCheck(passing.filter((r) => r.cues.windows.length > 0), { arm: "gated", base: "none" }).checks).toMatchObject({ otherSameRounds: true, otherTime: true });
+    // No non-window question means the unchanged-path claim is unmeasured.
+    expect(fails(passing.filter((r) => r.cues.windows.length > 0))).toEqual(["otherSameRounds", "otherTime"]);
   });
 });
 

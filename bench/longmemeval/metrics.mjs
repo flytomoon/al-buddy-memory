@@ -172,8 +172,8 @@ export function windowGateCheck(rows, { arm, base, budgetMs = 300, toleranceMs =
   const checks = {
     windowP95: windowMs !== null && windowMs.p95 <= budgetMs,
     windowEvidence: gained.length > lost.length,
-    otherSameRounds: otherSame === other.length,
-    otherTime: pairedMs === null || pairedMs <= toleranceMs,
+    otherSameRounds: other.length > 0 && otherSame === other.length,
+    otherTime: pairedMs !== null && pairedMs <= toleranceMs,
   };
   return {
     arm,

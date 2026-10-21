@@ -123,6 +123,7 @@ for (const spec of args.arm) {
     const [kind, ...rest] = part.split(":");
     if (part === "content-words") contentWords = true;
     else if (kind === "build") {
+      if (arm.build) fail(`--arm ${spec}: one build per arm`);
       const dir = resolve(rest.join(":"));
       if (!existsSync(join(dir, "index.js"))) fail(`--arm ${spec}: ${dir}/index.js is missing (compile that commit's src/ there first)`);
       if (!builds.has(dir)) builds.set(dir, await import(pathToFileURL(join(dir, "index.js")).href));
@@ -221,8 +222,11 @@ async function copyMemory(buildLib, memory) {
 const started = Date.now();
 const loadAtStart = loadavg().map(round2);
 let finished = done.size;
+let attempted = done.size;
 const position = new Map(instances.map((x, i) => [x.question_id, i]));
 for (const instance of todo) {
+  attempted += 1;
+  try {
   const t0 = Date.now();
   const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder });
   const row = { question_id: instance.question_id, question_type: instance.question_type, abstention: isAbstention(instance.question_id), memories: memory.memories, arms: {} };
@@ -266,6 +270,11 @@ for (const instance of todo) {
   appendFileSync(progressPath, `${JSON.stringify(row)}\n`);
   finished += 1;
   console.log(`[${finished}/${instances.length}] ${row.question_id} ${row.question_type} ${arms.map((a) => `${a.name} ${Math.round(row.arms[a.name].recall.ms)}ms`).join(", ")} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  } catch (e) {
+    console.error(`${instance.question_id}: ${e?.message ?? e}`);
+    console.log(`RESULT: attempted ${attempted} question(s), succeeded ${finished}; stopped after a failed question.`);
+    process.exit(1);
+  }
 }
 
 // --- the result ------------------------------------------------------------------
@@ -318,6 +327,7 @@ rmSync(progressPath, { force: true });
 
 const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed(1)}%`);
 console.log(`\nWrote ${out}`);
+console.log(`Attempted ${attempted} question(s), succeeded ${finished}.`);
 const w = Math.max(...arms.map((a) => a.name.length));
 console.log(`${"arm".padEnd(w)}  recall p50 / p95 / max (ms)   CPU p50 / p95 (ms)   <=${budgetMs} ms   every evidence turn shown   +/- vs ${arms[0].name}   same rounds as ${arms[0].name}`);
 for (const arm of arms) {

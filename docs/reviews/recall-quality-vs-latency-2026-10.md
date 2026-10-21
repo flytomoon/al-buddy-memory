@@ -5,9 +5,8 @@ perfect score that takes 5 minutes, but high scores with lightning-quick recall.
 committed LongMemEval runs and the recall path in `src/`, puts a price in milliseconds and in
 score points on every stage, and picks one plan.
 
-It builds on [the 2026-10-13 research](2026-10-13-recall-performance-research.md), which
-profiled recall stage by stage and swept candidate changes retrieval-only. That review is
-not repeated here. What is new here: every stage's points, taken from the committed runs, a
+Earlier research profiled recall stage by stage and swept candidate changes retrieval-only.
+What is new here: every stage's points, taken from the committed runs, a
 **gate for escalation** (a cheap test that decides when a slower stage runs) found in the same
 data, and a measurement protocol that `--limit 50` can actually resolve.
 
