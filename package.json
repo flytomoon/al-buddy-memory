@@ -93,6 +93,9 @@
     "typescript": "^5.9.0",
     "vitest": "^4.1.0"
   },
+  "overrides": {
+    "vite": "^8.3.5"
+  },
   "keywords": [
     "ai",
     "agents",
