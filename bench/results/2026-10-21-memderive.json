@@ -1,0 +1,8579 @@
+{
+  "benchmark": "memderive-derived-state",
+  "date": "2026-10-21T18:05:55.648Z",
+  "commit": null,
+  "branch": null,
+  "dirty": null,
+  "library": {
+    "name": "al-buddy-memory",
+    "version": "0.12.0"
+  },
+  "node": "v25.2.1",
+  "platform": "darwin-arm64",
+  "complete": true,
+  "aborted": null,
+  "counts": {
+    "attempted": 180,
+    "succeeded": 180,
+    "failed": 0
+  },
+  "dataset": {
+    "file": "bench/memderive/cases.json",
+    "version": 1,
+    "subjects": 33,
+    "events": 112,
+    "distractors": 37,
+    "questions": 36,
+    "now": "2026-09-01T00:00:00.000Z",
+    "filler": {
+      "file": "LongMemEval_S (cleaned), user turns from every haystack",
+      "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "matchesPin": true,
+      "seed": 1,
+      "from": "2025-09-05T00:00:00.000Z",
+      "to": "2026-09-01T00:00:00.000Z",
+      "count": 1500
+    }
+  },
+  "settings": {
+    "ks": [
+      5,
+      10,
+      20
+    ],
+    "headlineK": 10,
+    "embedder": {
+      "model": "xenova/all-MiniLM-L6-v2",
+      "modelVersion": "1",
+      "dimensions": 384
+    },
+    "store": "SqliteMemoryStore(':memory:'), every item a plain fact (validFrom = when it was said), told in date order",
+    "buildSeconds": 118,
+    "systems": {
+      "al-buddy": "HybridRetriever(store, LocalEmbedder).recall(q, { limit: 20, validAt: now, expand: true }), as the MCP recall tool runs it",
+      "al-buddy-keyword": "HybridRetriever(store).recall(q, { limit: 20, validAt: now, expand: true }): no embedder",
+      "fts": "store.searchNodes({ query: q, limit: 20, validAt: now }): FTS5 bm25 over the first 16 words, OR-ed",
+      "bm25": "Okapi BM25, k1 1.2, b 0.75, unicode61-style words, no stemming, no stopwords",
+      "bm25-stem": "the same, with Lucene English stopwords, possessives dropped and Porter stemming (Pyserini's default analyzer)"
+    },
+    "skipped": {},
+    "caveats": [
+      "Not the MemDerive dataset: the paper and its code could not be read where this was written. The questions are ours.",
+      "Retrieval only: a question counts as answerable when every event it needs is in the first k. No model read or answered anything.",
+      "The needed events are the whole history of what the question asks about, so a reader shown them can always derive the answer; some answers could be derived from fewer.",
+      "36 questions: one question is 2.8 points, so a difference of one or two questions is noise."
+    ]
+  },
+  "metrics": {
+    "full": "every event the question needs is among the first k",
+    "recall": "the share of the needed events among the first k (mean over questions)",
+    "currentFirst": "for questions with superseded values: every needed value that replaced older ones is among the first k and ranks above each of them that is"
+  },
+  "summary": {
+    "al-buddy": {
+      "all": {
+        "5": {
+          "full": 0.1667,
+          "recall": 0.4208,
+          "currentFirst": 0.2727,
+          "currentFirstN": 11
+        },
+        "10": {
+          "full": 0.3889,
+          "recall": 0.6014,
+          "currentFirst": 0.2727,
+          "currentFirstN": 11
+        },
+        "20": {
+          "full": 0.5556,
+          "recall": 0.7319,
+          "currentFirst": 0.4545,
+          "currentFirstN": 11
+        },
+        "n": 36
+      },
+      "latest": {
+        "5": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.25,
+          "currentFirstN": 8
+        },
+        "10": {
+          "full": 0.75,
+          "recall": 0.75,
+          "currentFirst": 0.25,
+          "currentFirstN": 8
+        },
+        "20": {
+          "full": 0.875,
+          "recall": 0.875,
+          "currentFirst": 0.375,
+          "currentFirstN": 8
+        },
+        "n": 8
+      },
+      "count": {
+        "5": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.1667,
+          "recall": 0.4,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.3333,
+          "recall": 0.5667,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "sum": {
+        "5": {
+          "full": 0.3333,
+          "recall": 0.75,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.6667,
+          "recall": 0.875,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.8333,
+          "recall": 0.9583,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "set": {
+        "5": {
+          "full": 0,
+          "recall": 0.1667,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.25,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.3667,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "history": {
+        "5": {
+          "full": 0,
+          "recall": 0.5,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.2857,
+          "recall": 0.6429,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.5714,
+          "recall": 0.7857,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 7
+      },
+      "composite": {
+        "5": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0.3333,
+          "currentFirstN": 3
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0.3333,
+          "currentFirstN": 3
+        },
+        "20": {
+          "full": 0.6667,
+          "recall": 0.8333,
+          "currentFirst": 0.6667,
+          "currentFirstN": 3
+        },
+        "n": 3
+      }
+    },
+    "al-buddy-keyword": {
+      "all": {
+        "5": {
+          "full": 0.1111,
+          "recall": 0.2681,
+          "currentFirst": 0.2727,
+          "currentFirstN": 11
+        },
+        "10": {
+          "full": 0.1389,
+          "recall": 0.3421,
+          "currentFirst": 0.2727,
+          "currentFirstN": 11
+        },
+        "20": {
+          "full": 0.2222,
+          "recall": 0.4023,
+          "currentFirst": 0.2727,
+          "currentFirstN": 11
+        },
+        "n": 36
+      },
+      "latest": {
+        "5": {
+          "full": 0.25,
+          "recall": 0.25,
+          "currentFirst": 0.25,
+          "currentFirstN": 8
+        },
+        "10": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.25,
+          "currentFirstN": 8
+        },
+        "20": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.25,
+          "currentFirstN": 8
+        },
+        "n": 8
+      },
+      "count": {
+        "5": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "sum": {
+        "5": {
+          "full": 0.1667,
+          "recall": 0.4583,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.1667,
+          "recall": 0.6944,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.6667,
+          "recall": 0.875,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "set": {
+        "5": {
+          "full": 0,
+          "recall": 0.0417,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.0833,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.2083,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "history": {
+        "5": {
+          "full": 0,
+          "recall": 0.2143,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.2143,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.2619,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 7
+      },
+      "composite": {
+        "5": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0.3333,
+          "currentFirstN": 3
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0.3333,
+          "currentFirstN": 3
+        },
+        "20": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0.3333,
+          "currentFirstN": 3
+        },
+        "n": 3
+      }
+    },
+    "fts": {
+      "all": {
+        "5": {
+          "full": 0.0833,
+          "recall": 0.2431,
+          "currentFirst": 0.0909,
+          "currentFirstN": 11
+        },
+        "10": {
+          "full": 0.1944,
+          "recall": 0.3676,
+          "currentFirst": 0.0909,
+          "currentFirstN": 11
+        },
+        "20": {
+          "full": 0.2222,
+          "recall": 0.4023,
+          "currentFirst": 0.0909,
+          "currentFirstN": 11
+        },
+        "n": 36
+      },
+      "latest": {
+        "5": {
+          "full": 0.25,
+          "recall": 0.25,
+          "currentFirst": 0.125,
+          "currentFirstN": 8
+        },
+        "10": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.125,
+          "currentFirstN": 8
+        },
+        "20": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.125,
+          "currentFirstN": 8
+        },
+        "n": 8
+      },
+      "count": {
+        "5": {
+          "full": 0,
+          "recall": 0.125,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "sum": {
+        "5": {
+          "full": 0.1667,
+          "recall": 0.5,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.5,
+          "recall": 0.7917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.6667,
+          "recall": 0.875,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "set": {
+        "5": {
+          "full": 0,
+          "recall": 0,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.0833,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.2083,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "history": {
+        "5": {
+          "full": 0,
+          "recall": 0.2143,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.2619,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.2619,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 7
+      },
+      "composite": {
+        "5": {
+          "full": 0,
+          "recall": 0.5,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "20": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "n": 3
+      }
+    },
+    "bm25": {
+      "all": {
+        "5": {
+          "full": 0.0833,
+          "recall": 0.2222,
+          "currentFirst": 0.0909,
+          "currentFirstN": 11
+        },
+        "10": {
+          "full": 0.1667,
+          "recall": 0.3287,
+          "currentFirst": 0.0909,
+          "currentFirstN": 11
+        },
+        "20": {
+          "full": 0.1944,
+          "recall": 0.3676,
+          "currentFirst": 0.0909,
+          "currentFirstN": 11
+        },
+        "n": 36
+      },
+      "latest": {
+        "5": {
+          "full": 0.25,
+          "recall": 0.25,
+          "currentFirst": 0.125,
+          "currentFirstN": 8
+        },
+        "10": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.125,
+          "currentFirstN": 8
+        },
+        "20": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0.125,
+          "currentFirstN": 8
+        },
+        "n": 8
+      },
+      "count": {
+        "5": {
+          "full": 0,
+          "recall": 0.0833,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.125,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.1917,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "sum": {
+        "5": {
+          "full": 0.1667,
+          "recall": 0.4583,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.5,
+          "recall": 0.75,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "set": {
+        "5": {
+          "full": 0,
+          "recall": 0.0417,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.0417,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.125,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "history": {
+        "5": {
+          "full": 0,
+          "recall": 0.2143,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.2619,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.2619,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 7
+      },
+      "composite": {
+        "5": {
+          "full": 0,
+          "recall": 0.3333,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "20": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "n": 3
+      }
+    },
+    "bm25-stem": {
+      "all": {
+        "5": {
+          "full": 0.1389,
+          "recall": 0.25,
+          "currentFirst": 0,
+          "currentFirstN": 11
+        },
+        "10": {
+          "full": 0.1944,
+          "recall": 0.3657,
+          "currentFirst": 0,
+          "currentFirstN": 11
+        },
+        "20": {
+          "full": 0.2778,
+          "recall": 0.4903,
+          "currentFirst": 0,
+          "currentFirstN": 11
+        },
+        "n": 36
+      },
+      "latest": {
+        "5": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0,
+          "currentFirstN": 8
+        },
+        "10": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0,
+          "currentFirstN": 8
+        },
+        "20": {
+          "full": 0.375,
+          "recall": 0.375,
+          "currentFirst": 0,
+          "currentFirstN": 8
+        },
+        "n": 8
+      },
+      "count": {
+        "5": {
+          "full": 0,
+          "recall": 0.1667,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.2083,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.1667,
+          "recall": 0.4417,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "sum": {
+        "5": {
+          "full": 0.1667,
+          "recall": 0.375,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.6667,
+          "recall": 0.875,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "set": {
+        "5": {
+          "full": 0,
+          "recall": 0.0417,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0,
+          "recall": 0.125,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0,
+          "recall": 0.2083,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 6
+      },
+      "history": {
+        "5": {
+          "full": 0,
+          "recall": 0.1429,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "10": {
+          "full": 0.1429,
+          "recall": 0.3095,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "20": {
+          "full": 0.1429,
+          "recall": 0.5,
+          "currentFirst": null,
+          "currentFirstN": 0
+        },
+        "n": 7
+      },
+      "composite": {
+        "5": {
+          "full": 0.3333,
+          "recall": 0.5,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "10": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "20": {
+          "full": 0.3333,
+          "recall": 0.6667,
+          "currentFirst": 0,
+          "currentFirstN": 3
+        },
+        "n": 3
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "a": "al-buddy",
+      "b": "bm25",
+      "k": 10,
+      "wins": [
+        "laptop-now",
+        "running-now",
+        "migraines-count",
+        "japan-sum",
+        "dan-sum",
+        "homes-before",
+        "therapy-history",
+        "therapy-now"
+      ],
+      "losses": []
+    },
+    {
+      "a": "al-buddy",
+      "b": "bm25-stem",
+      "k": 10,
+      "wins": [
+        "laptop-now",
+        "running-now",
+        "migraines-count",
+        "japan-sum",
+        "dan-sum",
+        "homes-before",
+        "therapy-now"
+      ],
+      "losses": []
+    }
+  ],
+  "rows": [
+    {
+      "system": "al-buddy",
+      "question": "gym-now",
+      "family": "latest",
+      "ranked": [
+        "gym-d1",
+        "filler-803",
+        "filler-777",
+        "filler-664",
+        "office-2",
+        "filler-125",
+        "coffee-3",
+        "filler-1454",
+        "filler-1173",
+        "filler-1391",
+        "filler-1202",
+        "gym-3",
+        "filler-1259",
+        "filler-1393",
+        "filler-879",
+        "filler-1459",
+        "filler-1231",
+        "gym-2",
+        "filler-1163",
+        "filler-541"
+      ],
+      "ms": 142.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "gym-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-3",
+        "filler-664",
+        "filler-879",
+        "filler-541",
+        "gym-d1",
+        "filler-803",
+        "filler-1019",
+        "filler-777",
+        "filler-1163",
+        "filler-1231",
+        "filler-830",
+        "office-2",
+        "filler-1147",
+        "filler-1299",
+        "filler-1126",
+        "filler-916",
+        "filler-1324",
+        "filler-455",
+        "filler-911",
+        "filler-1320"
+      ],
+      "ms": 65.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "gym-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-3",
+        "filler-664",
+        "filler-541",
+        "filler-879",
+        "gym-d1",
+        "filler-803",
+        "filler-777",
+        "filler-1019",
+        "filler-830",
+        "filler-1163",
+        "filler-1231",
+        "office-2",
+        "filler-1147",
+        "filler-455",
+        "filler-916",
+        "filler-1126",
+        "filler-1299",
+        "filler-911",
+        "filler-614",
+        "filler-1324"
+      ],
+      "ms": 78.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "gym-now",
+      "family": "latest",
+      "ranked": [
+        "filler-664",
+        "coffee-3",
+        "filler-541",
+        "filler-879",
+        "filler-803",
+        "gym-d1",
+        "filler-1019",
+        "filler-830",
+        "filler-1231",
+        "filler-1163",
+        "filler-1147",
+        "filler-455",
+        "filler-777",
+        "filler-911",
+        "filler-916",
+        "office-2",
+        "filler-1126",
+        "filler-614",
+        "filler-1282",
+        "filler-1320"
+      ],
+      "ms": 1.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "gym-now",
+      "family": "latest",
+      "ranked": [
+        "filler-664",
+        "filler-851",
+        "filler-614",
+        "gym-d1",
+        "filler-255",
+        "filler-1299",
+        "filler-1019",
+        "filler-1126",
+        "filler-95",
+        "filler-455",
+        "filler-803",
+        "filler-1415",
+        "filler-56",
+        "filler-856",
+        "filler-1300",
+        "filler-266",
+        "filler-470",
+        "filler-169",
+        "filler-1233",
+        "filler-904"
+      ],
+      "ms": 1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "practice-now",
+      "family": "latest",
+      "ranked": [
+        "practice-1",
+        "practice-2",
+        "coach-1",
+        "practice-d1",
+        "practice-3",
+        "coach-2",
+        "classes-d1",
+        "weight-d1",
+        "bread-d2",
+        "hair-d1",
+        "pets-3",
+        "filler-1449",
+        "laptop-d1",
+        "filler-222",
+        "filler-838",
+        "job-2",
+        "classes-1",
+        "filler-11",
+        "filler-37",
+        "filler-766"
+      ],
+      "ms": 122.6,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "practice-now",
+      "family": "latest",
+      "ranked": [
+        "practice-1",
+        "coach-1",
+        "practice-d1",
+        "practice-2",
+        "coach-2",
+        "practice-3",
+        "weight-d1",
+        "classes-d1",
+        "bread-d2",
+        "pets-3",
+        "laptop-d1",
+        "hair-d1",
+        "filler-838",
+        "filler-766",
+        "filler-751",
+        "filler-278",
+        "filler-1449",
+        "filler-1171",
+        "filler-885",
+        "filler-634"
+      ],
+      "ms": 3.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "practice-now",
+      "family": "latest",
+      "ranked": [
+        "practice-1",
+        "coach-1",
+        "practice-d1",
+        "practice-2",
+        "coach-2",
+        "practice-3",
+        "weight-d1",
+        "classes-d1",
+        "bread-d2",
+        "pets-3",
+        "laptop-d1",
+        "hair-d1",
+        "filler-838",
+        "filler-766",
+        "filler-751",
+        "filler-278",
+        "filler-1449",
+        "filler-1171",
+        "filler-885",
+        "filler-634"
+      ],
+      "ms": 2.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "practice-now",
+      "family": "latest",
+      "ranked": [
+        "practice-1",
+        "coach-1",
+        "practice-d1",
+        "practice-2",
+        "coach-2",
+        "practice-3",
+        "weight-d1",
+        "filler-751",
+        "classes-d1",
+        "filler-838",
+        "filler-278",
+        "filler-885",
+        "bread-d2",
+        "hair-d1",
+        "laptop-d1",
+        "pets-3",
+        "filler-766",
+        "filler-1449",
+        "filler-1171",
+        "filler-158"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "practice-now",
+      "family": "latest",
+      "ranked": [
+        "practice-1",
+        "coach-1",
+        "practice-d1",
+        "practice-2",
+        "practice-3",
+        "filler-1265",
+        "classes-d1",
+        "laptop-d1",
+        "pets-3",
+        "bread-d2",
+        "filler-766",
+        "hair-d1",
+        "coach-2",
+        "weight-d1",
+        "filler-398",
+        "filler-634",
+        "filler-838",
+        "filler-412",
+        "filler-751",
+        "filler-1392"
+      ],
+      "ms": 0.2,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "laptop-now",
+      "family": "latest",
+      "ranked": [
+        "laptop-1",
+        "filler-104",
+        "filler-221",
+        "filler-240",
+        "filler-370",
+        "filler-523",
+        "laptop-3",
+        "filler-442",
+        "laptop-2",
+        "filler-1164",
+        "laptop-d1",
+        "filler-102",
+        "filler-176",
+        "filler-1075",
+        "filler-1037",
+        "filler-223",
+        "filler-1227",
+        "filler-1174",
+        "filler-112",
+        "filler-47"
+      ],
+      "ms": 210.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "laptop-now",
+      "family": "latest",
+      "ranked": [
+        "laptop-1",
+        "filler-221",
+        "filler-1164",
+        "filler-102",
+        "filler-523",
+        "filler-1075",
+        "filler-1037",
+        "filler-104",
+        "filler-1227",
+        "filler-47",
+        "filler-1121",
+        "filler-1262",
+        "filler-442",
+        "filler-987",
+        "filler-240",
+        "filler-150",
+        "filler-673",
+        "filler-1265",
+        "filler-817",
+        "filler-1091"
+      ],
+      "ms": 4.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "laptop-now",
+      "family": "latest",
+      "ranked": [
+        "laptop-1",
+        "filler-221",
+        "filler-1164",
+        "filler-102",
+        "filler-523",
+        "filler-1075",
+        "filler-1037",
+        "filler-104",
+        "filler-1227",
+        "filler-47",
+        "filler-1121",
+        "filler-1262",
+        "filler-442",
+        "filler-987",
+        "filler-240",
+        "filler-150",
+        "filler-673",
+        "filler-1265",
+        "filler-817",
+        "filler-1091"
+      ],
+      "ms": 9.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "laptop-now",
+      "family": "latest",
+      "ranked": [
+        "laptop-1",
+        "filler-221",
+        "filler-1164",
+        "filler-102",
+        "filler-523",
+        "filler-1075",
+        "filler-104",
+        "filler-1121",
+        "filler-47",
+        "filler-1227",
+        "filler-673",
+        "filler-1037",
+        "filler-1262",
+        "filler-150",
+        "filler-1059",
+        "filler-1271",
+        "filler-240",
+        "filler-959",
+        "filler-130",
+        "filler-728"
+      ],
+      "ms": 2.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "laptop-now",
+      "family": "latest",
+      "ranked": [
+        "laptop-1",
+        "filler-370",
+        "filler-221",
+        "filler-523",
+        "filler-240",
+        "filler-824",
+        "filler-1262",
+        "filler-105",
+        "filler-1227",
+        "filler-933",
+        "filler-1174",
+        "filler-1281",
+        "filler-1121",
+        "filler-925",
+        "filler-399",
+        "filler-1164",
+        "filler-1210",
+        "filler-746",
+        "filler-104",
+        "filler-47"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "coffee-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-1",
+        "filler-616",
+        "filler-1293",
+        "filler-207",
+        "filler-1248",
+        "filler-1116",
+        "filler-452",
+        "filler-1202",
+        "filler-396",
+        "coffee-2",
+        "filler-1292",
+        "filler-25",
+        "filler-1453",
+        "filler-1010",
+        "filler-1423",
+        "filler-609",
+        "filler-360",
+        "filler-43",
+        "filler-936",
+        "filler-309"
+      ],
+      "ms": 10.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "coffee-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-1",
+        "coffee-2",
+        "filler-1453",
+        "filler-1010",
+        "filler-936",
+        "filler-207",
+        "filler-616",
+        "filler-309",
+        "filler-1293",
+        "filler-606",
+        "filler-1257",
+        "filler-1202",
+        "filler-1248",
+        "filler-1116",
+        "filler-896",
+        "filler-360",
+        "filler-400",
+        "filler-396",
+        "filler-43",
+        "filler-452"
+      ],
+      "ms": 3.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "coffee-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-1",
+        "coffee-2",
+        "filler-1453",
+        "filler-1010",
+        "filler-936",
+        "filler-207",
+        "filler-616",
+        "filler-309",
+        "filler-1293",
+        "filler-606",
+        "filler-1257",
+        "filler-1202",
+        "filler-1248",
+        "filler-1116",
+        "filler-896",
+        "filler-360",
+        "filler-400",
+        "filler-396",
+        "filler-43",
+        "filler-452"
+      ],
+      "ms": 2.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "coffee-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-1",
+        "filler-1010",
+        "coffee-2",
+        "filler-1453",
+        "filler-309",
+        "filler-616",
+        "filler-606",
+        "filler-207",
+        "filler-936",
+        "filler-1257",
+        "filler-1293",
+        "filler-1202",
+        "filler-360",
+        "filler-1248",
+        "filler-43",
+        "filler-1116",
+        "filler-396",
+        "filler-985",
+        "filler-896",
+        "filler-400"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "coffee-now",
+      "family": "latest",
+      "ranked": [
+        "coffee-1",
+        "filler-1010",
+        "coffee-2",
+        "filler-701",
+        "filler-1453",
+        "filler-207",
+        "filler-616",
+        "filler-309",
+        "filler-1429",
+        "filler-1459",
+        "filler-909",
+        "filler-936",
+        "filler-1479",
+        "filler-1116",
+        "filler-1293",
+        "filler-896",
+        "filler-606",
+        "filler-396",
+        "filler-1202",
+        "filler-977"
+      ],
+      "ms": 0.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "running-now",
+      "family": "latest",
+      "ranked": [
+        "run-1",
+        "run-2",
+        "filler-958",
+        "filler-1348",
+        "filler-48",
+        "filler-166",
+        "run-3",
+        "filler-1178",
+        "filler-787",
+        "gym-3",
+        "filler-760",
+        "filler-1201",
+        "filler-664",
+        "filler-1000",
+        "filler-312",
+        "filler-183",
+        "filler-886",
+        "filler-930",
+        "office-2",
+        "filler-62"
+      ],
+      "ms": 13.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "running-now",
+      "family": "latest",
+      "ranked": [
+        "run-1",
+        "filler-958",
+        "run-2",
+        "filler-1348",
+        "filler-897",
+        "filler-1462",
+        "filler-886",
+        "filler-1228",
+        "filler-166",
+        "run-d1",
+        "filler-787",
+        "filler-1154",
+        "filler-664",
+        "filler-1201",
+        "filler-183",
+        "filler-916",
+        "filler-48",
+        "filler-604",
+        "filler-1323",
+        "filler-1290"
+      ],
+      "ms": 8.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "running-now",
+      "family": "latest",
+      "ranked": [
+        "run-1",
+        "filler-958",
+        "run-2",
+        "filler-1348",
+        "filler-897",
+        "filler-1462",
+        "filler-886",
+        "filler-1228",
+        "filler-166",
+        "run-d1",
+        "filler-787",
+        "filler-1154",
+        "filler-664",
+        "filler-1201",
+        "filler-183",
+        "filler-916",
+        "filler-48",
+        "filler-604",
+        "filler-1323",
+        "filler-1290"
+      ],
+      "ms": 2.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "running-now",
+      "family": "latest",
+      "ranked": [
+        "filler-958",
+        "run-1",
+        "run-2",
+        "filler-1348",
+        "filler-886",
+        "filler-166",
+        "filler-897",
+        "filler-1462",
+        "filler-1228",
+        "filler-787",
+        "filler-664",
+        "filler-1201",
+        "filler-1154",
+        "filler-183",
+        "filler-604",
+        "filler-916",
+        "filler-48",
+        "filler-1290",
+        "filler-1002",
+        "run-d1"
+      ],
+      "ms": 2.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "running-now",
+      "family": "latest",
+      "ranked": [
+        "filler-958",
+        "run-1",
+        "run-2",
+        "filler-1348",
+        "filler-48",
+        "filler-760",
+        "filler-886",
+        "filler-1462",
+        "filler-897",
+        "filler-1154",
+        "filler-166",
+        "filler-787",
+        "filler-1073",
+        "filler-1228",
+        "filler-604",
+        "filler-664",
+        "filler-916",
+        "filler-1002",
+        "filler-1323",
+        "filler-1290"
+      ],
+      "ms": 0.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "carrier-now",
+      "family": "latest",
+      "ranked": [
+        "carrier-3",
+        "carrier-d1",
+        "carrier-1",
+        "interview-3",
+        "filler-342",
+        "office-2",
+        "filler-187",
+        "filler-868",
+        "filler-173",
+        "flights-d1",
+        "filler-1495",
+        "japan-d2",
+        "office-1",
+        "car-3",
+        "filler-1033",
+        "filler-1084",
+        "filler-1057",
+        "filler-1004",
+        "carrier-2",
+        "filler-1384"
+      ],
+      "ms": 36.6,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "carrier-now",
+      "family": "latest",
+      "ranked": [
+        "japan-d2",
+        "carrier-3",
+        "carrier-1",
+        "carrier-d1",
+        "filler-342",
+        "filler-1004",
+        "interview-3",
+        "filler-981",
+        "filler-325",
+        "filler-482",
+        "filler-894",
+        "filler-36",
+        "filler-740",
+        "office-2",
+        "filler-1236",
+        "filler-868",
+        "filler-51",
+        "filler-187",
+        "filler-668",
+        "practice-3"
+      ],
+      "ms": 41.7,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "carrier-now",
+      "family": "latest",
+      "ranked": [
+        "carrier-1",
+        "filler-342",
+        "japan-d2",
+        "carrier-d1",
+        "carrier-3",
+        "interview-3",
+        "filler-1004",
+        "filler-325",
+        "filler-981",
+        "filler-36",
+        "filler-482",
+        "filler-51",
+        "filler-740",
+        "filler-894",
+        "filler-868",
+        "filler-187",
+        "office-2",
+        "filler-668",
+        "filler-1236",
+        "filler-357"
+      ],
+      "ms": 42.1,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "carrier-now",
+      "family": "latest",
+      "ranked": [
+        "carrier-1",
+        "filler-342",
+        "carrier-d1",
+        "japan-d2",
+        "carrier-3",
+        "filler-325",
+        "filler-36",
+        "interview-3",
+        "filler-981",
+        "filler-1004",
+        "filler-51",
+        "filler-482",
+        "filler-668",
+        "filler-894",
+        "filler-868",
+        "filler-187",
+        "office-2",
+        "filler-1236",
+        "filler-1198",
+        "filler-740"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "carrier-now",
+      "family": "latest",
+      "ranked": [
+        "carrier-1",
+        "filler-342",
+        "carrier-d1",
+        "carrier-3",
+        "interview-3",
+        "filler-981",
+        "filler-325",
+        "filler-894",
+        "filler-187",
+        "filler-1004",
+        "filler-173",
+        "filler-755",
+        "japan-d2",
+        "filler-1056",
+        "run-2",
+        "filler-871",
+        "filler-1181",
+        "filler-668",
+        "flights-d1",
+        "practice-3"
+      ],
+      "ms": 0.2,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "books-count",
+      "family": "count",
+      "ranked": [
+        "books-4",
+        "filler-1460",
+        "filler-588",
+        "books-1",
+        "filler-778",
+        "filler-1418",
+        "filler-1157",
+        "filler-951",
+        "filler-1217",
+        "filler-1205",
+        "filler-1308",
+        "filler-1105",
+        "filler-254",
+        "filler-1444",
+        "books-d1",
+        "books-d2",
+        "filler-1229",
+        "filler-1480",
+        "filler-1102",
+        "filler-1414"
+      ],
+      "ms": 124.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.4
+        },
+        "10": {
+          "full": false,
+          "recall": 0.4
+        },
+        "20": {
+          "full": false,
+          "recall": 0.4
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "books-count",
+      "family": "count",
+      "ranked": [
+        "books-1",
+        "filler-1217",
+        "filler-1105",
+        "books-4",
+        "filler-588",
+        "filler-1460",
+        "filler-778",
+        "filler-1229",
+        "filler-1122",
+        "filler-1157",
+        "filler-1308",
+        "filler-1348",
+        "filler-1418",
+        "filler-1490",
+        "filler-552",
+        "filler-1205",
+        "filler-928",
+        "filler-254",
+        "filler-1444",
+        "books-d1"
+      ],
+      "ms": 6.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.4
+        },
+        "10": {
+          "full": false,
+          "recall": 0.4
+        },
+        "20": {
+          "full": false,
+          "recall": 0.4
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "books-count",
+      "family": "count",
+      "ranked": [
+        "filler-254",
+        "filler-1217",
+        "filler-1105",
+        "filler-390",
+        "filler-1414",
+        "books-1",
+        "filler-284",
+        "books-d1",
+        "filler-457",
+        "books-4",
+        "filler-1460",
+        "filler-588",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-392",
+        "filler-837",
+        "filler-1263",
+        "filler-1157",
+        "filler-1229"
+      ],
+      "ms": 2.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.4
+        },
+        "20": {
+          "full": false,
+          "recall": 0.4
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "books-count",
+      "family": "count",
+      "ranked": [
+        "filler-254",
+        "filler-1217",
+        "filler-390",
+        "filler-1105",
+        "filler-1414",
+        "filler-284",
+        "filler-1021",
+        "filler-588",
+        "filler-945",
+        "filler-1091",
+        "filler-457",
+        "books-1",
+        "filler-392",
+        "books-d1",
+        "filler-1263",
+        "filler-1460",
+        "filler-1157",
+        "books-4",
+        "filler-837",
+        "filler-922"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.4
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "books-count",
+      "family": "count",
+      "ranked": [
+        "filler-254",
+        "filler-392",
+        "filler-1107",
+        "filler-284",
+        "filler-1389",
+        "filler-1091",
+        "filler-922",
+        "filler-629",
+        "filler-588",
+        "filler-1460",
+        "filler-837",
+        "books-d1",
+        "books-4",
+        "filler-1329",
+        "filler-390",
+        "filler-749",
+        "filler-872",
+        "books-1",
+        "filler-1021",
+        "filler-1231"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.4
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "flights-count",
+      "family": "count",
+      "ranked": [
+        "filler-826",
+        "flights-d1",
+        "filler-1295",
+        "filler-1016",
+        "filler-564",
+        "filler-1329",
+        "filler-1414",
+        "filler-951",
+        "filler-915",
+        "flights-3",
+        "flights-d2",
+        "flights-1",
+        "filler-612",
+        "flights-4",
+        "concert-d1",
+        "filler-917",
+        "filler-1060",
+        "run-2",
+        "filler-675",
+        "filler-732"
+      ],
+      "ms": 17.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "flights-count",
+      "family": "count",
+      "ranked": [
+        "flights-d1",
+        "filler-915",
+        "filler-826",
+        "filler-612",
+        "filler-1295",
+        "filler-1016",
+        "filler-1414",
+        "filler-79",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-1263",
+        "filler-922",
+        "filler-872",
+        "filler-629",
+        "filler-749",
+        "filler-1064",
+        "filler-1329",
+        "filler-752"
+      ],
+      "ms": 65.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "flights-count",
+      "family": "count",
+      "ranked": [
+        "filler-915",
+        "filler-390",
+        "flights-d1",
+        "filler-1414",
+        "filler-826",
+        "filler-79",
+        "filler-284",
+        "filler-457",
+        "filler-612",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-1263",
+        "filler-922",
+        "filler-872",
+        "filler-629",
+        "filler-749",
+        "filler-1064",
+        "filler-397"
+      ],
+      "ms": 37.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "flights-count",
+      "family": "count",
+      "ranked": [
+        "filler-915",
+        "filler-390",
+        "filler-1414",
+        "filler-284",
+        "filler-1021",
+        "filler-79",
+        "filler-826",
+        "flights-d1",
+        "filler-945",
+        "filler-1091",
+        "filler-457",
+        "filler-1263",
+        "filler-837",
+        "filler-922",
+        "filler-612",
+        "filler-629",
+        "filler-1329",
+        "filler-872",
+        "filler-752",
+        "filler-397"
+      ],
+      "ms": 8.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "flights-count",
+      "family": "count",
+      "ranked": [
+        "filler-915",
+        "filler-1107",
+        "filler-79",
+        "flights-3",
+        "filler-284",
+        "filler-1389",
+        "flights-d1",
+        "filler-826",
+        "filler-1091",
+        "filler-612",
+        "filler-922",
+        "filler-629",
+        "filler-837",
+        "filler-1329",
+        "filler-390",
+        "filler-749",
+        "filler-872",
+        "filler-1021",
+        "filler-1231",
+        "filler-397"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "migraines-count",
+      "family": "count",
+      "ranked": [
+        "meds-4",
+        "filler-961",
+        "migraine-1",
+        "filler-951",
+        "filler-1091",
+        "migraine-4",
+        "migraine-3",
+        "migraine-2",
+        "filler-1414",
+        "migraine-d2",
+        "filler-1203",
+        "therapy-2",
+        "meds-3",
+        "filler-1406",
+        "volunteer-d2",
+        "therapy-3",
+        "filler-732",
+        "filler-886",
+        "coffee-2",
+        "filler-1266"
+      ],
+      "ms": 166.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "migraines-count",
+      "family": "count",
+      "ranked": [
+        "meds-4",
+        "filler-961",
+        "filler-752",
+        "filler-872",
+        "filler-1054",
+        "filler-1263",
+        "filler-886",
+        "filler-1091",
+        "filler-736",
+        "filler-1278",
+        "filler-805",
+        "filler-922",
+        "filler-749",
+        "filler-1064",
+        "filler-1329",
+        "filler-770",
+        "filler-1414",
+        "filler-868",
+        "filler-943",
+        "filler-835"
+      ],
+      "ms": 6.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "migraines-count",
+      "family": "count",
+      "ranked": [
+        "filler-122",
+        "filler-407",
+        "meds-4",
+        "filler-961",
+        "filler-752",
+        "filler-872",
+        "filler-655",
+        "filler-163",
+        "filler-1054",
+        "filler-284",
+        "filler-1263",
+        "filler-886",
+        "filler-1091",
+        "filler-736",
+        "filler-1278",
+        "filler-805",
+        "filler-922",
+        "filler-629",
+        "filler-749",
+        "filler-570"
+      ],
+      "ms": 2.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "migraines-count",
+      "family": "count",
+      "ranked": [
+        "filler-752",
+        "filler-407",
+        "filler-122",
+        "filler-872",
+        "filler-655",
+        "meds-4",
+        "filler-961",
+        "filler-163",
+        "filler-284",
+        "filler-1054",
+        "filler-1263",
+        "filler-1091",
+        "filler-886",
+        "filler-736",
+        "filler-922",
+        "filler-805",
+        "filler-629",
+        "filler-1278",
+        "filler-1329",
+        "filler-19"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "migraines-count",
+      "family": "count",
+      "ranked": [
+        "migraine-1",
+        "filler-122",
+        "filler-752",
+        "filler-872",
+        "filler-407",
+        "filler-655",
+        "filler-163",
+        "filler-886",
+        "filler-284",
+        "migraine-d1",
+        "migraine-3",
+        "meds-4",
+        "filler-1054",
+        "migraine-4",
+        "filler-961",
+        "filler-1091",
+        "migraine-2",
+        "filler-1263",
+        "filler-736",
+        "filler-922"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "interviews-count",
+      "family": "count",
+      "ranked": [
+        "interview-d2",
+        "interview-1",
+        "filler-1380",
+        "filler-186",
+        "filler-1091",
+        "filler-284",
+        "filler-103",
+        "filler-1144",
+        "filler-73",
+        "filler-951",
+        "filler-75",
+        "filler-955",
+        "filler-1329",
+        "filler-1120",
+        "filler-1074",
+        "filler-303",
+        "filler-1440",
+        "filler-615",
+        "filler-922",
+        "filler-613"
+      ],
+      "ms": 13.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "interviews-count",
+      "family": "count",
+      "ranked": [
+        "interview-d2",
+        "interview-1",
+        "filler-186",
+        "filler-615",
+        "filler-922",
+        "filler-284",
+        "filler-103",
+        "filler-752",
+        "filler-1380",
+        "filler-1091",
+        "filler-1414",
+        "filler-955",
+        "filler-872",
+        "filler-1144",
+        "filler-629",
+        "filler-749",
+        "filler-421",
+        "filler-1064",
+        "filler-397",
+        "filler-1329"
+      ],
+      "ms": 8.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "interviews-count",
+      "family": "count",
+      "ranked": [
+        "interview-d2",
+        "interview-1",
+        "filler-186",
+        "filler-615",
+        "filler-922",
+        "filler-284",
+        "filler-103",
+        "filler-752",
+        "filler-1380",
+        "filler-1091",
+        "filler-1414",
+        "filler-955",
+        "filler-872",
+        "filler-1144",
+        "filler-629",
+        "filler-749",
+        "filler-421",
+        "filler-1064",
+        "filler-397",
+        "filler-1329"
+      ],
+      "ms": 2.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "interviews-count",
+      "family": "count",
+      "ranked": [
+        "interview-d2",
+        "interview-1",
+        "filler-922",
+        "filler-186",
+        "filler-615",
+        "filler-284",
+        "filler-752",
+        "filler-1380",
+        "filler-1414",
+        "filler-1091",
+        "filler-103",
+        "filler-1144",
+        "filler-955",
+        "filler-1263",
+        "filler-629",
+        "filler-1329",
+        "filler-872",
+        "filler-397",
+        "filler-655",
+        "filler-421"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "interviews-count",
+      "family": "count",
+      "ranked": [
+        "interview-d2",
+        "interview-1",
+        "filler-186",
+        "filler-284",
+        "interview-2",
+        "filler-1091",
+        "filler-615",
+        "filler-922",
+        "filler-629",
+        "filler-1380",
+        "filler-355",
+        "filler-890",
+        "filler-103",
+        "filler-613",
+        "filler-955",
+        "filler-1329",
+        "filler-749",
+        "filler-872",
+        "filler-397",
+        "filler-421"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "concerts-count",
+      "family": "count",
+      "ranked": [
+        "filler-1459",
+        "filler-1077",
+        "filler-576",
+        "filler-951",
+        "filler-1414",
+        "filler-1106",
+        "filler-1329",
+        "filler-1040",
+        "filler-703",
+        "filler-1245",
+        "concert-d1",
+        "filler-1316",
+        "filler-1351",
+        "filler-1363",
+        "filler-732",
+        "filler-1045",
+        "filler-662",
+        "filler-1062",
+        "filler-1454",
+        "filler-929"
+      ],
+      "ms": 211.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "concerts-count",
+      "family": "count",
+      "ranked": [
+        "filler-1077",
+        "filler-1459",
+        "filler-576",
+        "filler-1414",
+        "filler-872",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-951",
+        "filler-886",
+        "filler-1263",
+        "filler-1479",
+        "filler-922",
+        "filler-629",
+        "filler-749",
+        "filler-727",
+        "filler-654",
+        "filler-1064",
+        "filler-1329"
+      ],
+      "ms": 6.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "concerts-count",
+      "family": "count",
+      "ranked": [
+        "filler-390",
+        "filler-1077",
+        "filler-1414",
+        "filler-1459",
+        "filler-872",
+        "filler-284",
+        "filler-457",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-951",
+        "filler-886",
+        "filler-1263",
+        "filler-1479",
+        "filler-922",
+        "filler-629",
+        "filler-749",
+        "filler-727",
+        "filler-654"
+      ],
+      "ms": 21.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "concerts-count",
+      "family": "count",
+      "ranked": [
+        "filler-390",
+        "filler-1077",
+        "filler-1459",
+        "filler-872",
+        "filler-1414",
+        "filler-1021",
+        "filler-284",
+        "filler-951",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-922",
+        "filler-1263",
+        "filler-727",
+        "filler-886",
+        "filler-1329",
+        "filler-629",
+        "filler-457",
+        "filler-1479",
+        "filler-745"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "concerts-count",
+      "family": "count",
+      "ranked": [
+        "filler-1077",
+        "filler-1459",
+        "filler-1107",
+        "filler-872",
+        "filler-886",
+        "filler-375",
+        "filler-390",
+        "filler-284",
+        "concert-d2",
+        "migraine-4",
+        "filler-1389",
+        "filler-1091",
+        "filler-1316",
+        "filler-951",
+        "filler-922",
+        "filler-629",
+        "filler-837",
+        "filler-1329",
+        "filler-666",
+        "filler-749"
+      ],
+      "ms": 21.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "bread-count",
+      "family": "count",
+      "ranked": [
+        "bread-1",
+        "bread-d1",
+        "filler-1428",
+        "filler-640",
+        "bread-d2",
+        "bread-4",
+        "filler-516",
+        "filler-1443",
+        "filler-1335",
+        "filler-1182",
+        "filler-951",
+        "filler-1193",
+        "bread-3",
+        "filler-1452",
+        "filler-791",
+        "filler-547",
+        "filler-1015",
+        "filler-177",
+        "filler-886",
+        "bread-2"
+      ],
+      "ms": 172.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "bread-count",
+      "family": "count",
+      "ranked": [
+        "bread-d2",
+        "bread-4",
+        "bread-1",
+        "filler-640",
+        "filler-516",
+        "bread-d1",
+        "filler-1335",
+        "filler-1428",
+        "filler-1182",
+        "filler-1443",
+        "filler-1495",
+        "filler-1414",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-1263",
+        "filler-177",
+        "filler-922",
+        "filler-872"
+      ],
+      "ms": 26.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "bread-count",
+      "family": "count",
+      "ranked": [
+        "bread-d2",
+        "bread-4",
+        "filler-640",
+        "bread-1",
+        "filler-516",
+        "filler-390",
+        "filler-1495",
+        "filler-1414",
+        "bread-d1",
+        "filler-284",
+        "filler-372",
+        "filler-457",
+        "filler-1021",
+        "filler-1091",
+        "filler-945",
+        "filler-837",
+        "filler-1428",
+        "filler-1335",
+        "filler-1263",
+        "filler-922"
+      ],
+      "ms": 5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "bread-count",
+      "family": "count",
+      "ranked": [
+        "filler-640",
+        "filler-516",
+        "bread-d2",
+        "bread-4",
+        "filler-390",
+        "filler-1414",
+        "bread-1",
+        "filler-284",
+        "filler-1495",
+        "filler-1021",
+        "bread-d1",
+        "filler-945",
+        "filler-1091",
+        "filler-457",
+        "filler-372",
+        "filler-1263",
+        "filler-837",
+        "filler-922",
+        "filler-547",
+        "filler-629"
+      ],
+      "ms": 0.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "bread-count",
+      "family": "count",
+      "ranked": [
+        "filler-837",
+        "filler-640",
+        "filler-516",
+        "filler-390",
+        "filler-1107",
+        "filler-1443",
+        "filler-943",
+        "filler-284",
+        "bread-d2",
+        "bread-4",
+        "filler-1389",
+        "bread-d1",
+        "filler-1162",
+        "bread-1",
+        "filler-1091",
+        "filler-378",
+        "filler-922",
+        "filler-466",
+        "filler-629",
+        "filler-1428"
+      ],
+      "ms": 1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "repairs-sum",
+      "family": "sum",
+      "ranked": [
+        "repair-1",
+        "repair-d1",
+        "car-1",
+        "repair-2",
+        "filler-312",
+        "car-2",
+        "filler-447",
+        "repair-3",
+        "filler-1290",
+        "filler-180",
+        "filler-7",
+        "filler-78",
+        "filler-1360",
+        "filler-567",
+        "filler-1431",
+        "filler-1133",
+        "filler-1042",
+        "filler-440",
+        "filler-1015",
+        "filler-1228"
+      ],
+      "ms": 150.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "repairs-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-312",
+        "filler-319",
+        "repair-1",
+        "filler-1187",
+        "filler-1360",
+        "filler-121",
+        "car-1",
+        "filler-148",
+        "repair-d1",
+        "repair-2",
+        "filler-1050",
+        "filler-959",
+        "filler-447",
+        "car-2",
+        "filler-261",
+        "volunteer-2",
+        "repair-3",
+        "filler-1265",
+        "filler-78",
+        "filler-428"
+      ],
+      "ms": 7.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "repairs-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-312",
+        "filler-319",
+        "repair-1",
+        "filler-1187",
+        "filler-1360",
+        "filler-121",
+        "car-1",
+        "filler-148",
+        "repair-d1",
+        "repair-2",
+        "filler-1050",
+        "filler-959",
+        "filler-447",
+        "car-2",
+        "filler-261",
+        "volunteer-2",
+        "repair-3",
+        "filler-1265",
+        "filler-78",
+        "filler-428"
+      ],
+      "ms": 3.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "repairs-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-312",
+        "repair-1",
+        "filler-319",
+        "filler-1187",
+        "filler-447",
+        "filler-1360",
+        "filler-121",
+        "filler-78",
+        "filler-1050",
+        "filler-959",
+        "filler-261",
+        "filler-428",
+        "filler-148",
+        "filler-1266",
+        "filler-746",
+        "filler-1118",
+        "filler-1265",
+        "filler-575",
+        "filler-445",
+        "filler-1431"
+      ],
+      "ms": 0.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "repairs-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-312",
+        "filler-447",
+        "filler-806",
+        "filler-319",
+        "filler-1187",
+        "filler-148",
+        "filler-121",
+        "filler-959",
+        "car-1",
+        "repair-2",
+        "repair-d1",
+        "repair-1",
+        "car-2",
+        "filler-1360",
+        "repair-3",
+        "filler-261",
+        "filler-1120",
+        "filler-1272",
+        "filler-1050",
+        "filler-1015"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "japan-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-1326",
+        "japan-d2",
+        "japan-1",
+        "japan-3",
+        "japan-4",
+        "filler-1258",
+        "filler-1295",
+        "japan-2",
+        "filler-1484",
+        "filler-995",
+        "filler-400",
+        "filler-1476",
+        "filler-1200",
+        "filler-37",
+        "filler-260",
+        "filler-312",
+        "flights-d1",
+        "filler-1327",
+        "filler-755",
+        "filler-1498"
+      ],
+      "ms": 27.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.75
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "japan-sum",
+      "family": "sum",
+      "ranked": [
+        "japan-d2",
+        "filler-1326",
+        "filler-1295",
+        "japan-1",
+        "japan-4",
+        "japan-3",
+        "filler-1118",
+        "filler-1258",
+        "filler-37",
+        "filler-847",
+        "filler-1043",
+        "filler-1200",
+        "filler-400",
+        "filler-995",
+        "filler-568",
+        "filler-1449",
+        "filler-1290",
+        "japan-2",
+        "filler-1162",
+        "filler-1212"
+      ],
+      "ms": 6.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "japan-sum",
+      "family": "sum",
+      "ranked": [
+        "japan-1",
+        "japan-d2",
+        "japan-3",
+        "japan-4",
+        "filler-1326",
+        "filler-1295",
+        "filler-1118",
+        "filler-37",
+        "filler-1258",
+        "filler-400",
+        "filler-847",
+        "filler-568",
+        "filler-1043",
+        "filler-995",
+        "japan-2",
+        "filler-1200",
+        "filler-746",
+        "filler-959",
+        "filler-35",
+        "filler-900"
+      ],
+      "ms": 2.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.75
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "japan-sum",
+      "family": "sum",
+      "ranked": [
+        "japan-1",
+        "japan-3",
+        "japan-d2",
+        "japan-4",
+        "filler-1326",
+        "filler-1295",
+        "filler-1118",
+        "filler-37",
+        "filler-847",
+        "filler-400",
+        "filler-1258",
+        "filler-568",
+        "filler-1043",
+        "filler-746",
+        "filler-995",
+        "filler-312",
+        "filler-1212",
+        "filler-1200",
+        "filler-35",
+        "filler-1290"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.75
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "japan-sum",
+      "family": "sum",
+      "ranked": [
+        "japan-1",
+        "japan-3",
+        "japan-4",
+        "japan-d2",
+        "filler-1295",
+        "filler-1326",
+        "filler-1258",
+        "filler-1043",
+        "filler-995",
+        "filler-400",
+        "japan-2",
+        "filler-959",
+        "filler-35",
+        "filler-1290",
+        "filler-1098",
+        "filler-260",
+        "filler-1133",
+        "filler-746",
+        "filler-1118",
+        "filler-1272"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.75
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "weight-sum",
+      "family": "sum",
+      "ranked": [
+        "weight-1",
+        "weight-2",
+        "filler-466",
+        "filler-312",
+        "filler-1133",
+        "filler-571",
+        "filler-294",
+        "filler-465",
+        "filler-1290",
+        "filler-1406",
+        "filler-453",
+        "filler-847",
+        "weight-3",
+        "filler-1452",
+        "filler-1026",
+        "weight-4",
+        "filler-959",
+        "weight-d1",
+        "filler-1000",
+        "filler-1181"
+      ],
+      "ms": 144.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "weight-sum",
+      "family": "sum",
+      "ranked": [
+        "weight-1",
+        "filler-1133",
+        "filler-847",
+        "weight-2",
+        "filler-312",
+        "filler-1026",
+        "filler-466",
+        "filler-959",
+        "filler-571",
+        "filler-870",
+        "filler-1449",
+        "filler-465",
+        "filler-1466",
+        "filler-786",
+        "filler-532",
+        "filler-82",
+        "filler-1045",
+        "filler-770",
+        "filler-1124",
+        "filler-1118"
+      ],
+      "ms": 9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "weight-sum",
+      "family": "sum",
+      "ranked": [
+        "weight-1",
+        "filler-1133",
+        "filler-847",
+        "weight-2",
+        "filler-312",
+        "filler-1026",
+        "filler-466",
+        "filler-959",
+        "filler-571",
+        "filler-870",
+        "filler-1449",
+        "filler-465",
+        "filler-1466",
+        "filler-786",
+        "filler-532",
+        "filler-82",
+        "filler-1045",
+        "filler-770",
+        "filler-1124",
+        "filler-1118"
+      ],
+      "ms": 80.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "weight-sum",
+      "family": "sum",
+      "ranked": [
+        "weight-1",
+        "filler-1133",
+        "filler-847",
+        "filler-312",
+        "weight-2",
+        "filler-959",
+        "filler-1026",
+        "filler-571",
+        "filler-1449",
+        "filler-465",
+        "filler-870",
+        "filler-466",
+        "filler-532",
+        "filler-1466",
+        "filler-1045",
+        "filler-786",
+        "filler-770",
+        "filler-1231",
+        "filler-1266",
+        "filler-1118"
+      ],
+      "ms": 1.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "weight-sum",
+      "family": "sum",
+      "ranked": [
+        "weight-1",
+        "filler-1133",
+        "filler-1120",
+        "filler-1337",
+        "filler-959",
+        "weight-2",
+        "filler-1026",
+        "filler-312",
+        "filler-532",
+        "filler-847",
+        "filler-1145",
+        "filler-571",
+        "filler-466",
+        "filler-465",
+        "filler-171",
+        "filler-569",
+        "filler-1449",
+        "filler-1045",
+        "filler-770",
+        "filler-746"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "volunteering-sum",
+      "family": "sum",
+      "ranked": [
+        "volunteer-1",
+        "volunteer-3",
+        "volunteer-2",
+        "filler-1303",
+        "filler-1166",
+        "filler-1064",
+        "filler-1225",
+        "volunteer-d2",
+        "interview-4",
+        "filler-1073",
+        "filler-1472",
+        "volunteer-d1",
+        "filler-1414",
+        "filler-787",
+        "filler-77",
+        "filler-975",
+        "filler-305",
+        "filler-856",
+        "filler-900",
+        "filler-909"
+      ],
+      "ms": 14.8,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "volunteering-sum",
+      "family": "sum",
+      "ranked": [
+        "volunteer-1",
+        "volunteer-3",
+        "volunteer-2",
+        "filler-1064",
+        "filler-1073",
+        "interview-4",
+        "filler-1303",
+        "filler-77",
+        "filler-872",
+        "filler-787",
+        "filler-1414",
+        "filler-284",
+        "filler-1472",
+        "volunteer-d2",
+        "filler-1091",
+        "filler-1166",
+        "filler-20",
+        "flights-3",
+        "filler-671",
+        "filler-1264"
+      ],
+      "ms": 6.3,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "volunteering-sum",
+      "family": "sum",
+      "ranked": [
+        "volunteer-1",
+        "volunteer-3",
+        "volunteer-2",
+        "filler-1064",
+        "filler-1073",
+        "interview-4",
+        "filler-1303",
+        "filler-77",
+        "filler-872",
+        "filler-787",
+        "filler-1414",
+        "filler-284",
+        "filler-1472",
+        "volunteer-d2",
+        "filler-1091",
+        "filler-1166",
+        "filler-20",
+        "flights-3",
+        "filler-671",
+        "filler-1264"
+      ],
+      "ms": 4.7,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "volunteering-sum",
+      "family": "sum",
+      "ranked": [
+        "volunteer-1",
+        "volunteer-3",
+        "volunteer-2",
+        "filler-1073",
+        "filler-1064",
+        "filler-1303",
+        "filler-77",
+        "filler-787",
+        "interview-4",
+        "filler-872",
+        "filler-1414",
+        "filler-284",
+        "filler-1472",
+        "filler-20",
+        "filler-162",
+        "filler-1166",
+        "filler-1091",
+        "filler-671",
+        "filler-1264",
+        "filler-1329"
+      ],
+      "ms": 0.7,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "volunteering-sum",
+      "family": "sum",
+      "ranked": [
+        "volunteer-1",
+        "volunteer-2",
+        "volunteer-3",
+        "filler-1166",
+        "filler-1303",
+        "filler-1225",
+        "filler-1064",
+        "filler-776",
+        "filler-77",
+        "filler-284",
+        "filler-1073",
+        "filler-1472",
+        "filler-1091",
+        "filler-922",
+        "filler-629",
+        "filler-787",
+        "filler-507",
+        "filler-1264",
+        "filler-1329",
+        "filler-1341"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "dan-sum",
+      "family": "sum",
+      "ranked": [
+        "dan-d1",
+        "dan-4",
+        "dan-2",
+        "dan-3",
+        "home-d1",
+        "meds-d1",
+        "dan-1",
+        "filler-1290",
+        "filler-428",
+        "filler-1420",
+        "concert-d1",
+        "filler-312",
+        "filler-1118",
+        "filler-1392",
+        "filler-1324",
+        "filler-1342",
+        "filler-1283",
+        "filler-1494",
+        "filler-1449",
+        "filler-962"
+      ],
+      "ms": 14.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.75
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "dan-sum",
+      "family": "sum",
+      "ranked": [
+        "dan-d1",
+        "filler-1118",
+        "dan-4",
+        "dan-2",
+        "filler-1392",
+        "filler-962",
+        "home-d1",
+        "dan-3",
+        "filler-1283",
+        "filler-1290",
+        "filler-1342",
+        "filler-700",
+        "filler-650",
+        "meds-d1",
+        "dan-1",
+        "filler-1264",
+        "filler-1449",
+        "filler-959",
+        "filler-1215",
+        "filler-731"
+      ],
+      "ms": 4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "dan-sum",
+      "family": "sum",
+      "ranked": [
+        "dan-2",
+        "filler-1118",
+        "dan-d1",
+        "dan-4",
+        "home-d1",
+        "filler-962",
+        "dan-3",
+        "filler-700",
+        "dan-1",
+        "filler-650",
+        "meds-d1",
+        "filler-1392",
+        "filler-1283",
+        "filler-1290",
+        "filler-1342",
+        "filler-731",
+        "filler-959",
+        "filler-1264",
+        "filler-424",
+        "filler-218"
+      ],
+      "ms": 100,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "dan-sum",
+      "family": "sum",
+      "ranked": [
+        "dan-2",
+        "filler-1118",
+        "filler-962",
+        "dan-d1",
+        "filler-700",
+        "dan-4",
+        "filler-650",
+        "filler-1283",
+        "filler-1392",
+        "home-d1",
+        "filler-1290",
+        "dan-3",
+        "filler-1342",
+        "dan-1",
+        "meds-d1",
+        "filler-731",
+        "filler-959",
+        "filler-1264",
+        "filler-218",
+        "filler-424"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "dan-sum",
+      "family": "sum",
+      "ranked": [
+        "dan-2",
+        "filler-1118",
+        "dan-d1",
+        "filler-700",
+        "home-d1",
+        "filler-962",
+        "meds-d1",
+        "dan-4",
+        "filler-650",
+        "filler-1392",
+        "filler-1342",
+        "dan-3",
+        "filler-1283",
+        "filler-1290",
+        "dan-1",
+        "filler-731",
+        "filler-1264",
+        "filler-959",
+        "filler-218",
+        "filler-424"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "kitchen-sum",
+      "family": "sum",
+      "ranked": [
+        "kitchen-3",
+        "kitchen-2",
+        "filler-914",
+        "kitchen-1",
+        "filler-1357",
+        "filler-1362",
+        "filler-459",
+        "coffee-d1",
+        "filler-1451",
+        "filler-1228",
+        "filler-1462",
+        "filler-897",
+        "filler-1315",
+        "kitchen-d2",
+        "filler-1031",
+        "filler-1144",
+        "filler-886",
+        "filler-1452",
+        "filler-1368",
+        "filler-1365"
+      ],
+      "ms": 20.2,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "kitchen-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-1228",
+        "filler-897",
+        "filler-886",
+        "filler-1031",
+        "filler-914",
+        "filler-1462",
+        "kitchen-3",
+        "kitchen-d2",
+        "filler-1315",
+        "kitchen-2",
+        "filler-1368",
+        "kitchen-1",
+        "filler-1054",
+        "filler-1365",
+        "filler-478",
+        "filler-1036",
+        "filler-114",
+        "filler-1362",
+        "filler-412",
+        "filler-945"
+      ],
+      "ms": 52.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "kitchen-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-897",
+        "filler-1228",
+        "filler-886",
+        "filler-914",
+        "filler-1031",
+        "kitchen-3",
+        "kitchen-2",
+        "kitchen-d2",
+        "kitchen-1",
+        "filler-1315",
+        "filler-1462",
+        "filler-1054",
+        "filler-478",
+        "filler-114",
+        "filler-1368",
+        "filler-412",
+        "filler-1036",
+        "filler-30",
+        "filler-1365",
+        "filler-945"
+      ],
+      "ms": 2.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "kitchen-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-897",
+        "filler-1228",
+        "filler-886",
+        "filler-914",
+        "filler-1031",
+        "kitchen-2",
+        "kitchen-3",
+        "kitchen-d2",
+        "filler-1315",
+        "kitchen-1",
+        "filler-114",
+        "filler-1054",
+        "filler-1462",
+        "filler-1036",
+        "filler-1368",
+        "filler-412",
+        "filler-1365",
+        "filler-478",
+        "filler-944",
+        "filler-312"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "kitchen-sum",
+      "family": "sum",
+      "ranked": [
+        "filler-1228",
+        "filler-897",
+        "filler-114",
+        "filler-886",
+        "filler-1281",
+        "filler-1031",
+        "filler-914",
+        "kitchen-3",
+        "kitchen-1",
+        "kitchen-2",
+        "kitchen-d2",
+        "filler-1315",
+        "filler-1036",
+        "filler-412",
+        "filler-1054",
+        "filler-1462",
+        "filler-600",
+        "filler-1368",
+        "filler-1365",
+        "filler-478"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "plants-set",
+      "family": "set",
+      "ranked": [
+        "filler-1332",
+        "filler-313",
+        "filler-633",
+        "filler-1477",
+        "filler-1357",
+        "flights-d1",
+        "filler-1098",
+        "filler-894",
+        "filler-868",
+        "filler-734",
+        "filler-1479",
+        "filler-1423",
+        "filler-981",
+        "filler-1108",
+        "filler-1019",
+        "filler-1221",
+        "filler-752",
+        "filler-144",
+        "japan-d2",
+        "practice-3"
+      ],
+      "ms": 38.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "plants-set",
+      "family": "set",
+      "ranked": [
+        "flights-d1",
+        "filler-734",
+        "filler-868",
+        "filler-1098",
+        "filler-894",
+        "filler-981",
+        "filler-1019",
+        "filler-230",
+        "weight-d1",
+        "japan-d2",
+        "filler-755",
+        "filler-330",
+        "filler-918",
+        "filler-465",
+        "practice-3",
+        "filler-629",
+        "filler-335",
+        "filler-871",
+        "filler-625",
+        "filler-1231"
+      ],
+      "ms": 4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "plants-set",
+      "family": "set",
+      "ranked": [
+        "flights-d1",
+        "filler-734",
+        "filler-868",
+        "filler-894",
+        "filler-1098",
+        "filler-230",
+        "filler-981",
+        "filler-1019",
+        "filler-330",
+        "weight-d1",
+        "filler-755",
+        "filler-465",
+        "japan-d2",
+        "filler-918",
+        "filler-335",
+        "filler-629",
+        "filler-267",
+        "filler-625",
+        "filler-871",
+        "run-2"
+      ],
+      "ms": 50,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "plants-set",
+      "family": "set",
+      "ranked": [
+        "flights-d1",
+        "filler-734",
+        "filler-868",
+        "filler-230",
+        "filler-894",
+        "filler-981",
+        "filler-1098",
+        "filler-1019",
+        "filler-335",
+        "filler-330",
+        "filler-918",
+        "filler-491",
+        "filler-453",
+        "filler-465",
+        "filler-426",
+        "filler-512",
+        "filler-1077",
+        "filler-755",
+        "filler-171",
+        "filler-629"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "plants-set",
+      "family": "set",
+      "ranked": [
+        "flights-d1",
+        "filler-734",
+        "filler-868",
+        "filler-894",
+        "filler-230",
+        "filler-1098",
+        "filler-981",
+        "filler-1019",
+        "filler-918",
+        "filler-465",
+        "filler-330",
+        "filler-335",
+        "filler-426",
+        "filler-1077",
+        "filler-629",
+        "filler-474",
+        "filler-755",
+        "filler-1231",
+        "filler-512",
+        "filler-554"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "streaming-set",
+      "family": "set",
+      "ranked": [
+        "filler-1408",
+        "filler-1183",
+        "filler-919",
+        "filler-1155",
+        "filler-1296",
+        "filler-1415",
+        "filler-1389",
+        "filler-1215",
+        "filler-1402",
+        "streaming-d1",
+        "filler-470",
+        "filler-1294",
+        "filler-873",
+        "practice-3",
+        "filler-1281",
+        "streaming-1",
+        "filler-317",
+        "filler-1154",
+        "filler-1405",
+        "carrier-3"
+      ],
+      "ms": 11.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.2
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "streaming-set",
+      "family": "set",
+      "ranked": [
+        "filler-1408",
+        "filler-1183",
+        "filler-1296",
+        "filler-1415",
+        "filler-919",
+        "filler-1155",
+        "filler-873",
+        "filler-317",
+        "filler-1294",
+        "filler-680",
+        "filler-323",
+        "filler-894",
+        "filler-981",
+        "filler-787",
+        "filler-589",
+        "filler-1154",
+        "practice-3",
+        "filler-907",
+        "japan-d2",
+        "filler-152"
+      ],
+      "ms": 4.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "streaming-set",
+      "family": "set",
+      "ranked": [
+        "filler-1183",
+        "filler-1408",
+        "filler-1296",
+        "filler-919",
+        "filler-317",
+        "filler-873",
+        "filler-1415",
+        "filler-1155",
+        "filler-323",
+        "filler-680",
+        "filler-589",
+        "filler-787",
+        "filler-894",
+        "filler-981",
+        "filler-1294",
+        "filler-152",
+        "filler-1154",
+        "filler-907",
+        "filler-803",
+        "japan-d2"
+      ],
+      "ms": 2.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "streaming-set",
+      "family": "set",
+      "ranked": [
+        "filler-1183",
+        "filler-1408",
+        "filler-1296",
+        "filler-919",
+        "filler-1415",
+        "filler-894",
+        "filler-317",
+        "filler-323",
+        "filler-873",
+        "filler-787",
+        "filler-1155",
+        "filler-680",
+        "filler-589",
+        "filler-152",
+        "filler-981",
+        "filler-230",
+        "filler-907",
+        "filler-298",
+        "filler-1294",
+        "filler-1154"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "streaming-set",
+      "family": "set",
+      "ranked": [
+        "filler-1183",
+        "filler-1408",
+        "filler-1296",
+        "filler-323",
+        "filler-7",
+        "filler-1494",
+        "filler-1290",
+        "filler-919",
+        "filler-1130",
+        "filler-521",
+        "filler-317",
+        "filler-1294",
+        "filler-1415",
+        "repair-d2",
+        "filler-455",
+        "filler-333",
+        "filler-30",
+        "filler-1154",
+        "filler-981",
+        "filler-589"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "team-set",
+      "family": "set",
+      "ranked": [
+        "practice-3",
+        "team-4",
+        "job-2",
+        "team-1",
+        "filler-1213",
+        "coach-2",
+        "filler-780",
+        "flights-1",
+        "coach-1",
+        "filler-653",
+        "filler-624",
+        "filler-1061",
+        "filler-1492",
+        "manager-3",
+        "japan-d2",
+        "flights-d1",
+        "filler-1072",
+        "filler-868",
+        "team-3",
+        "filler-1048"
+      ],
+      "ms": 10.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "team-set",
+      "family": "set",
+      "ranked": [
+        "practice-3",
+        "flights-d1",
+        "team-4",
+        "japan-d2",
+        "filler-868",
+        "filler-1492",
+        "filler-734",
+        "filler-1048",
+        "filler-780",
+        "team-3",
+        "job-2",
+        "team-1",
+        "filler-521",
+        "filler-1098",
+        "weight-d1",
+        "team-d1",
+        "coach-2",
+        "flights-1",
+        "filler-1171",
+        "coach-1"
+      ],
+      "ms": 5.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "team-set",
+      "family": "set",
+      "ranked": [
+        "practice-3",
+        "flights-d1",
+        "filler-868",
+        "japan-d2",
+        "filler-734",
+        "team-4",
+        "filler-1048",
+        "filler-1492",
+        "filler-780",
+        "filler-521",
+        "job-2",
+        "team-1",
+        "weight-d1",
+        "team-3",
+        "filler-1098",
+        "flights-1",
+        "coach-1",
+        "filler-267",
+        "filler-518",
+        "team-d1"
+      ],
+      "ms": 2.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "team-set",
+      "family": "set",
+      "ranked": [
+        "practice-3",
+        "flights-d1",
+        "filler-868",
+        "team-4",
+        "filler-734",
+        "japan-d2",
+        "filler-1048",
+        "filler-780",
+        "job-2",
+        "filler-1492",
+        "team-1",
+        "filler-521",
+        "filler-267",
+        "weight-d1",
+        "filler-1171",
+        "filler-1098",
+        "filler-122",
+        "filler-844",
+        "filler-393",
+        "filler-396"
+      ],
+      "ms": 1.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "team-set",
+      "family": "set",
+      "ranked": [
+        "practice-3",
+        "flights-d1",
+        "filler-734",
+        "filler-780",
+        "team-1",
+        "team-4",
+        "filler-1098",
+        "filler-868",
+        "flights-1",
+        "team-3",
+        "team-d1",
+        "filler-546",
+        "therapy-2",
+        "filler-653",
+        "coach-1",
+        "job-2",
+        "filler-267",
+        "coach-2",
+        "filler-624",
+        "filler-474"
+      ],
+      "ms": 0.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "meds-set",
+      "family": "set",
+      "ranked": [
+        "therapy-3",
+        "meds-1",
+        "filler-1043",
+        "filler-1415",
+        "filler-1154",
+        "filler-1406",
+        "meds-4",
+        "meds-3",
+        "filler-1203",
+        "filler-1294",
+        "filler-961",
+        "filler-904",
+        "filler-900",
+        "migraine-d1",
+        "migraine-4",
+        "practice-3",
+        "filler-1287",
+        "filler-878",
+        "migraine-2",
+        "volunteer-d2"
+      ],
+      "ms": 11.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.75
+        },
+        "20": {
+          "full": false,
+          "recall": 0.75
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "meds-set",
+      "family": "set",
+      "ranked": [
+        "filler-1154",
+        "filler-1415",
+        "filler-1043",
+        "therapy-3",
+        "filler-900",
+        "filler-152",
+        "filler-878",
+        "filler-1294",
+        "filler-275",
+        "filler-734",
+        "meds-1",
+        "japan-d2",
+        "filler-321",
+        "filler-751",
+        "filler-787",
+        "filler-803",
+        "practice-3",
+        "filler-871",
+        "filler-604",
+        "filler-512"
+      ],
+      "ms": 18.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "meds-set",
+      "family": "set",
+      "ranked": [
+        "filler-1154",
+        "filler-1043",
+        "filler-152",
+        "filler-1415",
+        "therapy-3",
+        "filler-900",
+        "filler-275",
+        "filler-878",
+        "meds-1",
+        "filler-734",
+        "filler-321",
+        "filler-1294",
+        "filler-751",
+        "filler-787",
+        "filler-803",
+        "japan-d2",
+        "filler-604",
+        "filler-512",
+        "filler-871",
+        "run-2"
+      ],
+      "ms": 70.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "meds-set",
+      "family": "set",
+      "ranked": [
+        "filler-1154",
+        "filler-1043",
+        "filler-152",
+        "filler-1415",
+        "filler-275",
+        "filler-751",
+        "filler-878",
+        "filler-787",
+        "filler-321",
+        "filler-1294",
+        "filler-900",
+        "therapy-3",
+        "filler-734",
+        "filler-803",
+        "meds-1",
+        "filler-848",
+        "filler-512",
+        "filler-604",
+        "gym-3",
+        "japan-d2"
+      ],
+      "ms": 1.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "meds-set",
+      "family": "set",
+      "ranked": [
+        "filler-521",
+        "filler-1154",
+        "ana-2",
+        "filler-1043",
+        "filler-152",
+        "filler-1125",
+        "filler-916",
+        "filler-651",
+        "filler-634",
+        "filler-1349",
+        "filler-751",
+        "filler-1294",
+        "filler-1415",
+        "filler-892",
+        "filler-734",
+        "filler-408",
+        "filler-1163",
+        "filler-787",
+        "filler-561",
+        "filler-803"
+      ],
+      "ms": 3.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "pets-set",
+      "family": "set",
+      "ranked": [
+        "pets-4",
+        "filler-1357",
+        "filler-12",
+        "filler-82",
+        "filler-288",
+        "filler-854",
+        "filler-105",
+        "filler-716",
+        "filler-1493",
+        "filler-1426",
+        "pets-d1",
+        "filler-761",
+        "filler-1466",
+        "pets-2",
+        "filler-1085",
+        "filler-591",
+        "filler-599",
+        "filler-21",
+        "filler-1398",
+        "filler-308"
+      ],
+      "ms": 22.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.25
+        },
+        "10": {
+          "full": false,
+          "recall": 0.25
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "pets-set",
+      "family": "set",
+      "ranked": [
+        "filler-105",
+        "filler-12",
+        "filler-1426",
+        "filler-761",
+        "filler-1466",
+        "filler-1085",
+        "filler-599",
+        "filler-1398",
+        "filler-308",
+        "filler-199",
+        "filler-177",
+        "filler-832",
+        "filler-359",
+        "filler-1369",
+        "filler-1357",
+        "filler-1164",
+        "filler-915",
+        "pets-4",
+        "filler-408",
+        "filler-590"
+      ],
+      "ms": 3.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "pets-set",
+      "family": "set",
+      "ranked": [
+        "filler-105",
+        "filler-12",
+        "filler-1426",
+        "filler-761",
+        "filler-1466",
+        "filler-1085",
+        "filler-599",
+        "filler-1398",
+        "filler-308",
+        "filler-199",
+        "filler-177",
+        "filler-832",
+        "filler-359",
+        "filler-1369",
+        "filler-1357",
+        "filler-1164",
+        "filler-915",
+        "pets-4",
+        "filler-408",
+        "filler-590"
+      ],
+      "ms": 31.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "pets-set",
+      "family": "set",
+      "ranked": [
+        "filler-105",
+        "filler-12",
+        "filler-1466",
+        "filler-1426",
+        "filler-1085",
+        "filler-761",
+        "filler-599",
+        "filler-1398",
+        "filler-199",
+        "filler-177",
+        "filler-359",
+        "filler-1357",
+        "filler-1164",
+        "filler-308",
+        "filler-832",
+        "filler-915",
+        "filler-1369",
+        "filler-512",
+        "filler-408",
+        "filler-635"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "pets-set",
+      "family": "set",
+      "ranked": [
+        "filler-12",
+        "filler-105",
+        "filler-1062",
+        "filler-1466",
+        "filler-1426",
+        "filler-1398",
+        "filler-1357",
+        "filler-308",
+        "filler-1164",
+        "filler-915",
+        "filler-512",
+        "filler-408",
+        "filler-900",
+        "filler-599",
+        "filler-1085",
+        "filler-342",
+        "filler-1493",
+        "filler-992",
+        "pets-4",
+        "filler-61"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "classes-set",
+      "family": "set",
+      "ranked": [
+        "filler-321",
+        "filler-1092",
+        "filler-878",
+        "filler-158",
+        "filler-981",
+        "filler-1485",
+        "filler-29",
+        "filler-1154",
+        "flights-d1",
+        "filler-1126",
+        "filler-1415",
+        "filler-1136",
+        "filler-1480",
+        "therapy-3",
+        "books-4",
+        "books-d1",
+        "filler-70",
+        "filler-1473",
+        "filler-1382",
+        "filler-437"
+      ],
+      "ms": 12.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "classes-set",
+      "family": "set",
+      "ranked": [
+        "filler-1154",
+        "flights-d1",
+        "filler-321",
+        "filler-1126",
+        "filler-1136",
+        "filler-396",
+        "filler-1092",
+        "filler-1415",
+        "filler-734",
+        "filler-152",
+        "filler-815",
+        "therapy-3",
+        "filler-868",
+        "filler-1098",
+        "filler-1382",
+        "filler-94",
+        "filler-1469",
+        "filler-878",
+        "filler-1294",
+        "filler-275"
+      ],
+      "ms": 32.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "classes-set",
+      "family": "set",
+      "ranked": [
+        "filler-321",
+        "flights-d1",
+        "filler-1154",
+        "filler-396",
+        "filler-1126",
+        "filler-152",
+        "filler-1136",
+        "filler-734",
+        "filler-1092",
+        "filler-815",
+        "filler-868",
+        "filler-94",
+        "filler-1415",
+        "filler-1098",
+        "therapy-3",
+        "filler-275",
+        "filler-537",
+        "filler-330",
+        "filler-878",
+        "filler-1382"
+      ],
+      "ms": 3.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "classes-set",
+      "family": "set",
+      "ranked": [
+        "filler-321",
+        "flights-d1",
+        "filler-1154",
+        "filler-396",
+        "filler-1126",
+        "filler-152",
+        "filler-1136",
+        "filler-1092",
+        "filler-815",
+        "filler-734",
+        "filler-868",
+        "filler-94",
+        "filler-1415",
+        "filler-1098",
+        "filler-981",
+        "filler-330",
+        "filler-275",
+        "filler-537",
+        "filler-1382",
+        "filler-878"
+      ],
+      "ms": 1.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "classes-set",
+      "family": "set",
+      "ranked": [
+        "filler-321",
+        "flights-d1",
+        "filler-396",
+        "filler-1126",
+        "filler-1154",
+        "filler-29",
+        "filler-152",
+        "filler-629",
+        "filler-734",
+        "filler-1136",
+        "filler-1092",
+        "filler-868",
+        "filler-916",
+        "filler-1098",
+        "filler-1294",
+        "filler-1415",
+        "filler-330",
+        "filler-815",
+        "classes-1",
+        "filler-981"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.25
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "homes-history",
+      "family": "history",
+      "ranked": [
+        "home-1",
+        "home-2",
+        "ana-2",
+        "practice-2",
+        "japan-3",
+        "filler-101",
+        "filler-951",
+        "filler-1414",
+        "filler-1329",
+        "filler-12",
+        "filler-304",
+        "filler-935",
+        "filler-212",
+        "office-2",
+        "filler-365",
+        "filler-284",
+        "filler-1003",
+        "filler-289",
+        "home-3",
+        "filler-776"
+      ],
+      "ms": 23.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "homes-history",
+      "family": "history",
+      "ranked": [
+        "home-1",
+        "home-2",
+        "ana-2",
+        "japan-3",
+        "practice-2",
+        "filler-935",
+        "filler-101",
+        "filler-284",
+        "filler-372",
+        "filler-1479",
+        "filler-753",
+        "filler-1091",
+        "filler-872",
+        "filler-837",
+        "filler-1064",
+        "filler-960",
+        "filler-1072",
+        "filler-442",
+        "filler-756",
+        "filler-922"
+      ],
+      "ms": 6.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "homes-history",
+      "family": "history",
+      "ranked": [
+        "home-1",
+        "home-2",
+        "japan-3",
+        "filler-101",
+        "filler-935",
+        "ana-2",
+        "practice-2",
+        "filler-284",
+        "filler-372",
+        "filler-1479",
+        "filler-753",
+        "filler-1091",
+        "filler-872",
+        "filler-837",
+        "filler-1064",
+        "filler-960",
+        "filler-1072",
+        "filler-442",
+        "filler-756",
+        "filler-922"
+      ],
+      "ms": 3.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "homes-history",
+      "family": "history",
+      "ranked": [
+        "filler-101",
+        "home-1",
+        "japan-3",
+        "home-2",
+        "filler-935",
+        "filler-284",
+        "filler-1479",
+        "filler-960",
+        "practice-2",
+        "ana-2",
+        "filler-753",
+        "filler-1072",
+        "filler-837",
+        "filler-872",
+        "filler-1064",
+        "filler-1091",
+        "filler-72",
+        "filler-442",
+        "filler-390",
+        "filler-372"
+      ],
+      "ms": 0.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "homes-history",
+      "family": "history",
+      "ranked": [
+        "filler-935",
+        "filler-471",
+        "filler-837",
+        "filler-390",
+        "filler-101",
+        "filler-1107",
+        "filler-1479",
+        "filler-284",
+        "filler-296",
+        "filler-1389",
+        "filler-1162",
+        "filler-1091",
+        "filler-922",
+        "filler-629",
+        "home-1",
+        "filler-1430",
+        "filler-1050",
+        "filler-960",
+        "home-2",
+        "practice-2"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "homes-before",
+      "family": "history",
+      "ranked": [
+        "home-3",
+        "office-2",
+        "filler-1187",
+        "filler-887",
+        "filler-1454",
+        "filler-1203",
+        "home-2",
+        "filler-855",
+        "home-1",
+        "concert-3",
+        "filler-407",
+        "filler-1215",
+        "ana-2",
+        "filler-1015",
+        "filler-729",
+        "filler-1101",
+        "filler-122",
+        "flights-d2",
+        "volunteer-2",
+        "flights-1"
+      ],
+      "ms": 77,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "homes-before",
+      "family": "history",
+      "ranked": [
+        "filler-1203",
+        "home-3",
+        "office-2",
+        "filler-855",
+        "concert-3",
+        "filler-1215",
+        "filler-1015",
+        "filler-1101",
+        "filler-1187",
+        "volunteer-2",
+        "filler-148",
+        "filler-1066",
+        "filler-121",
+        "filler-440",
+        "filler-739",
+        "filler-285",
+        "filler-494",
+        "filler-923",
+        "filler-261",
+        "filler-1454"
+      ],
+      "ms": 3.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "homes-before",
+      "family": "history",
+      "ranked": [
+        "filler-1203",
+        "home-3",
+        "office-2",
+        "filler-855",
+        "concert-3",
+        "filler-1215",
+        "filler-1015",
+        "filler-1101",
+        "filler-1187",
+        "volunteer-2",
+        "filler-148",
+        "filler-1066",
+        "filler-121",
+        "filler-440",
+        "filler-739",
+        "filler-285",
+        "filler-494",
+        "filler-923",
+        "filler-261",
+        "filler-1454"
+      ],
+      "ms": 2.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "homes-before",
+      "family": "history",
+      "ranked": [
+        "filler-1203",
+        "home-3",
+        "office-2",
+        "filler-855",
+        "concert-3",
+        "filler-1215",
+        "filler-1015",
+        "filler-1066",
+        "filler-1101",
+        "filler-285",
+        "volunteer-2",
+        "filler-148",
+        "filler-1187",
+        "filler-1454",
+        "filler-551",
+        "filler-121",
+        "filler-538",
+        "filler-494",
+        "filler-595",
+        "filler-440"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "homes-before",
+      "family": "history",
+      "ranked": [
+        "filler-1203",
+        "home-3",
+        "filler-1",
+        "office-2",
+        "filler-711",
+        "filler-855",
+        "filler-1015",
+        "filler-115",
+        "filler-1104",
+        "volunteer-2",
+        "filler-1187",
+        "concert-3",
+        "filler-148",
+        "filler-857",
+        "ana-1",
+        "filler-1215",
+        "filler-494",
+        "filler-121",
+        "plants-1",
+        "filler-538"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "jobs-history",
+      "family": "history",
+      "ranked": [
+        "job-1",
+        "filler-7",
+        "filler-125",
+        "filler-67",
+        "filler-30",
+        "filler-35",
+        "filler-16",
+        "filler-122",
+        "filler-29",
+        "filler-92",
+        "filler-951",
+        "filler-19",
+        "filler-25",
+        "filler-759",
+        "gym-1",
+        "filler-94",
+        "migraine-1",
+        "filler-105",
+        "filler-75",
+        "manager-1"
+      ],
+      "ms": 75.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "jobs-history",
+      "family": "history",
+      "ranked": [
+        "filler-67",
+        "filler-30",
+        "filler-35",
+        "filler-752",
+        "filler-847",
+        "filler-29",
+        "filler-943",
+        "filler-736",
+        "filler-92",
+        "filler-1278",
+        "filler-19",
+        "weight-1",
+        "filler-886",
+        "filler-25",
+        "filler-94",
+        "filler-105",
+        "filler-443",
+        "filler-1000",
+        "filler-75",
+        "filler-453"
+      ],
+      "ms": 12.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "jobs-history",
+      "family": "history",
+      "ranked": [
+        "filler-407",
+        "filler-752",
+        "filler-872",
+        "filler-655",
+        "filler-943",
+        "filler-847",
+        "filler-163",
+        "filler-1054",
+        "filler-284",
+        "filler-1263",
+        "filler-886",
+        "filler-1091",
+        "filler-736",
+        "filler-1278",
+        "filler-922",
+        "filler-629",
+        "filler-749",
+        "filler-570",
+        "filler-19",
+        "filler-1064"
+      ],
+      "ms": 2.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "jobs-history",
+      "family": "history",
+      "ranked": [
+        "filler-752",
+        "filler-407",
+        "filler-872",
+        "filler-655",
+        "filler-943",
+        "filler-847",
+        "filler-163",
+        "filler-284",
+        "filler-1054",
+        "filler-1263",
+        "filler-1091",
+        "filler-886",
+        "filler-736",
+        "filler-922",
+        "filler-629",
+        "filler-1278",
+        "filler-1329",
+        "filler-19",
+        "filler-570",
+        "filler-770"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "jobs-history",
+      "family": "history",
+      "ranked": [
+        "filler-752",
+        "filler-355",
+        "filler-872",
+        "filler-407",
+        "filler-943",
+        "filler-655",
+        "filler-163",
+        "filler-909",
+        "filler-886",
+        "filler-401",
+        "filler-284",
+        "filler-1054",
+        "filler-453",
+        "filler-759",
+        "filler-1091",
+        "filler-1094",
+        "filler-1263",
+        "filler-736",
+        "filler-922",
+        "filler-629"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "cars-history",
+      "family": "history",
+      "ranked": [
+        "filler-1329",
+        "filler-1414",
+        "filler-951",
+        "filler-163",
+        "filler-284",
+        "weight-1",
+        "filler-1319",
+        "filler-1263",
+        "filler-1228",
+        "filler-983",
+        "car-2",
+        "filler-872",
+        "filler-1054",
+        "filler-752",
+        "concert-d1",
+        "filler-180",
+        "filler-943",
+        "filler-1278",
+        "filler-447",
+        "filler-407"
+      ],
+      "ms": 12.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0.3333333333333333
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "cars-history",
+      "family": "history",
+      "ranked": [
+        "filler-752",
+        "filler-872",
+        "filler-407",
+        "filler-943",
+        "filler-1054",
+        "filler-655",
+        "filler-1263",
+        "filler-163",
+        "filler-1278",
+        "filler-1091",
+        "filler-886",
+        "filler-284",
+        "filler-229",
+        "filler-479",
+        "filler-736",
+        "filler-922",
+        "filler-1329",
+        "filler-1064",
+        "filler-749",
+        "filler-629"
+      ],
+      "ms": 7.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "cars-history",
+      "family": "history",
+      "ranked": [
+        "filler-407",
+        "filler-752",
+        "filler-872",
+        "filler-655",
+        "filler-943",
+        "filler-163",
+        "filler-1054",
+        "filler-284",
+        "filler-229",
+        "filler-1263",
+        "filler-479",
+        "filler-886",
+        "filler-1091",
+        "filler-736",
+        "filler-1278",
+        "filler-922",
+        "filler-629",
+        "filler-749",
+        "filler-570",
+        "filler-19"
+      ],
+      "ms": 68.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "cars-history",
+      "family": "history",
+      "ranked": [
+        "filler-752",
+        "filler-407",
+        "filler-872",
+        "filler-655",
+        "filler-943",
+        "filler-163",
+        "filler-284",
+        "filler-1054",
+        "filler-1263",
+        "filler-1091",
+        "filler-886",
+        "filler-736",
+        "filler-229",
+        "filler-479",
+        "filler-922",
+        "filler-629",
+        "filler-1278",
+        "filler-1329",
+        "filler-19",
+        "filler-570"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "cars-history",
+      "family": "history",
+      "ranked": [
+        "filler-752",
+        "filler-872",
+        "filler-407",
+        "filler-943",
+        "filler-655",
+        "filler-447",
+        "filler-390",
+        "filler-163",
+        "filler-808",
+        "filler-886",
+        "filler-174",
+        "filler-538",
+        "filler-284",
+        "filler-1054",
+        "filler-453",
+        "filler-1091",
+        "repair-4",
+        "filler-1263",
+        "filler-736",
+        "filler-922"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "managers-history",
+      "family": "history",
+      "ranked": [
+        "filler-142",
+        "manager-3",
+        "manager-1",
+        "filler-758",
+        "job-1",
+        "filler-1230",
+        "filler-756",
+        "filler-1175",
+        "filler-623",
+        "filler-324",
+        "filler-960",
+        "filler-1086",
+        "filler-990",
+        "filler-1213",
+        "filler-1172",
+        "coach-2",
+        "team-1",
+        "filler-210",
+        "filler-64",
+        "filler-3"
+      ],
+      "ms": 65.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "managers-history",
+      "family": "history",
+      "ranked": [
+        "filler-142",
+        "filler-758",
+        "filler-101",
+        "filler-1111",
+        "filler-1324",
+        "filler-844",
+        "filler-1479",
+        "filler-390",
+        "carrier-2",
+        "filler-1026",
+        "filler-1107",
+        "filler-950",
+        "filler-308",
+        "filler-837",
+        "filler-136",
+        "filler-753",
+        "filler-243",
+        "dan-4",
+        "weight-3",
+        "filler-957"
+      ],
+      "ms": 4.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "managers-history",
+      "family": "history",
+      "ranked": [
+        "filler-101",
+        "filler-1111",
+        "filler-142",
+        "filler-1324",
+        "filler-758",
+        "filler-844",
+        "filler-1479",
+        "filler-390",
+        "carrier-2",
+        "filler-1026",
+        "filler-1107",
+        "filler-950",
+        "filler-308",
+        "filler-837",
+        "filler-136",
+        "filler-753",
+        "filler-243",
+        "dan-4",
+        "weight-3",
+        "filler-957"
+      ],
+      "ms": 2.9,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "managers-history",
+      "family": "history",
+      "ranked": [
+        "filler-101",
+        "filler-1111",
+        "filler-1324",
+        "filler-844",
+        "filler-142",
+        "filler-1479",
+        "filler-390",
+        "filler-758",
+        "carrier-2",
+        "filler-753",
+        "filler-1026",
+        "filler-243",
+        "filler-950",
+        "filler-136",
+        "filler-1107",
+        "filler-837",
+        "filler-957",
+        "filler-1115",
+        "filler-1245",
+        "filler-1050"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "managers-history",
+      "family": "history",
+      "ranked": [
+        "filler-844",
+        "filler-101",
+        "filler-1107",
+        "filler-1111",
+        "filler-1324",
+        "filler-1287",
+        "filler-1479",
+        "filler-603",
+        "filler-390",
+        "manager-1",
+        "manager-3",
+        "filler-1220",
+        "carrier-2",
+        "filler-1459",
+        "filler-1026",
+        "filler-753",
+        "filler-950",
+        "filler-243",
+        "filler-136",
+        "filler-254"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.3333333333333333
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "manager-now",
+      "family": "latest",
+      "ranked": [
+        "manager-3",
+        "manager-1",
+        "job-1",
+        "filler-324",
+        "therapy-2",
+        "filler-3",
+        "coach-2",
+        "filler-1492",
+        "japan-d2",
+        "team-2",
+        "team-1",
+        "filler-1048",
+        "filler-1360",
+        "filler-1211",
+        "job-2",
+        "team-3",
+        "filler-1171",
+        "team-4",
+        "interview-d2",
+        "practice-3"
+      ],
+      "ms": 130.8,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "manager-now",
+      "family": "latest",
+      "ranked": [
+        "manager-3",
+        "japan-d2",
+        "filler-1492",
+        "manager-1",
+        "filler-1048",
+        "job-1",
+        "filler-324",
+        "filler-780",
+        "filler-1171",
+        "filler-1211",
+        "filler-1360",
+        "filler-518",
+        "filler-442",
+        "filler-877",
+        "filler-1165",
+        "filler-1242",
+        "therapy-2",
+        "practice-3",
+        "filler-844",
+        "filler-871"
+      ],
+      "ms": 3.1,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "manager-now",
+      "family": "latest",
+      "ranked": [
+        "manager-3",
+        "manager-1",
+        "japan-d2",
+        "job-1",
+        "filler-324",
+        "filler-1048",
+        "filler-1492",
+        "filler-780",
+        "filler-518",
+        "filler-442",
+        "filler-1171",
+        "filler-1211",
+        "filler-877",
+        "filler-1360",
+        "therapy-2",
+        "filler-1165",
+        "filler-844",
+        "filler-1242",
+        "filler-871",
+        "run-2"
+      ],
+      "ms": 1.9,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "manager-now",
+      "family": "latest",
+      "ranked": [
+        "manager-3",
+        "manager-1",
+        "japan-d2",
+        "job-1",
+        "filler-1048",
+        "filler-324",
+        "filler-1492",
+        "filler-780",
+        "filler-1171",
+        "filler-518",
+        "filler-442",
+        "therapy-2",
+        "filler-1211",
+        "filler-877",
+        "filler-1360",
+        "filler-1165",
+        "filler-844",
+        "filler-755",
+        "filler-122",
+        "filler-1242"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "manager-now",
+      "family": "latest",
+      "ranked": [
+        "manager-1",
+        "manager-3",
+        "filler-1287",
+        "filler-226",
+        "filler-780",
+        "job-1",
+        "therapy-2",
+        "filler-1175",
+        "filler-142",
+        "filler-324",
+        "filler-521",
+        "filler-615",
+        "filler-1165",
+        "filler-758",
+        "filler-755",
+        "filler-1142",
+        "filler-122",
+        "filler-210",
+        "japan-d2",
+        "filler-1242"
+      ],
+      "ms": 0.2,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "hair-history",
+      "family": "history",
+      "ranked": [
+        "hair-3",
+        "filler-1011",
+        "filler-1020",
+        "hair-1",
+        "hair-d1",
+        "filler-690",
+        "weight-1",
+        "filler-344",
+        "filler-1457",
+        "filler-1262",
+        "coffee-3",
+        "filler-1080",
+        "filler-1301",
+        "filler-1337",
+        "filler-1398",
+        "filler-1278",
+        "filler-229",
+        "hair-2",
+        "filler-1044",
+        "filler-1488"
+      ],
+      "ms": 27.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "hair-history",
+      "family": "history",
+      "ranked": [
+        "hair-3",
+        "filler-1020",
+        "filler-1262",
+        "filler-1011",
+        "filler-229",
+        "hair-d1",
+        "filler-943",
+        "filler-690",
+        "filler-1031",
+        "filler-1278",
+        "hair-1",
+        "filler-269",
+        "filler-736",
+        "filler-479",
+        "filler-1028",
+        "filler-570",
+        "filler-1004",
+        "filler-105",
+        "filler-609",
+        "filler-835"
+      ],
+      "ms": 59.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.3333333333333333
+        },
+        "10": {
+          "full": false,
+          "recall": 0.3333333333333333
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "hair-history",
+      "family": "history",
+      "ranked": [
+        "filler-229",
+        "filler-1020",
+        "hair-3",
+        "filler-1011",
+        "filler-1262",
+        "hair-d1",
+        "hair-1",
+        "filler-269",
+        "filler-690",
+        "filler-943",
+        "filler-479",
+        "filler-736",
+        "filler-1031",
+        "filler-105",
+        "filler-1278",
+        "filler-570",
+        "filler-1028",
+        "filler-163",
+        "filler-609",
+        "filler-1004"
+      ],
+      "ms": 4.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.3333333333333333
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "hair-history",
+      "family": "history",
+      "ranked": [
+        "filler-1020",
+        "filler-1262",
+        "filler-1011",
+        "filler-229",
+        "hair-3",
+        "hair-d1",
+        "filler-269",
+        "filler-943",
+        "hair-1",
+        "filler-690",
+        "filler-105",
+        "filler-736",
+        "filler-479",
+        "filler-1278",
+        "filler-1031",
+        "filler-570",
+        "filler-163",
+        "filler-609",
+        "filler-795",
+        "filler-344"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.3333333333333333
+        },
+        "10": {
+          "full": false,
+          "recall": 0.6666666666666666
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "hair-history",
+      "family": "history",
+      "ranked": [
+        "filler-1011",
+        "filler-1020",
+        "filler-690",
+        "filler-269",
+        "filler-480",
+        "filler-1457",
+        "filler-538",
+        "hair-3",
+        "filler-1262",
+        "filler-453",
+        "filler-943",
+        "hair-1",
+        "hair-d1",
+        "filler-229",
+        "filler-736",
+        "filler-105",
+        "filler-1099",
+        "filler-1031",
+        "filler-1278",
+        "filler-1004"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0.3333333333333333
+        },
+        "20": {
+          "full": false,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "therapy-history",
+      "family": "history",
+      "ranked": [
+        "filler-491",
+        "filler-597",
+        "filler-777",
+        "filler-897",
+        "therapy-1",
+        "therapy-2",
+        "filler-361",
+        "filler-598",
+        "filler-441",
+        "therapy-3",
+        "filler-103",
+        "filler-1204",
+        "filler-778",
+        "filler-102",
+        "filler-625",
+        "filler-540",
+        "filler-1034",
+        "filler-400",
+        "filler-951",
+        "filler-253"
+      ],
+      "ms": 10.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "therapy-history",
+      "family": "history",
+      "ranked": [
+        "filler-897",
+        "filler-361",
+        "filler-598",
+        "filler-103",
+        "filler-1204",
+        "filler-102",
+        "filler-625",
+        "filler-400",
+        "filler-951",
+        "filler-1231",
+        "filler-999",
+        "filler-491",
+        "filler-453",
+        "filler-318",
+        "filler-1197",
+        "filler-879",
+        "filler-313",
+        "filler-777",
+        "filler-125",
+        "filler-1147"
+      ],
+      "ms": 4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "therapy-history",
+      "family": "history",
+      "ranked": [
+        "filler-897",
+        "filler-361",
+        "filler-598",
+        "filler-103",
+        "filler-1204",
+        "filler-102",
+        "filler-625",
+        "filler-400",
+        "filler-951",
+        "filler-1231",
+        "filler-999",
+        "filler-491",
+        "filler-453",
+        "filler-318",
+        "filler-1197",
+        "filler-879",
+        "filler-313",
+        "filler-777",
+        "filler-125",
+        "filler-1147"
+      ],
+      "ms": 2.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "therapy-history",
+      "family": "history",
+      "ranked": [
+        "filler-897",
+        "filler-598",
+        "filler-361",
+        "filler-103",
+        "filler-1204",
+        "filler-102",
+        "filler-951",
+        "filler-625",
+        "filler-400",
+        "filler-453",
+        "filler-491",
+        "filler-999",
+        "filler-125",
+        "filler-1231",
+        "filler-1147",
+        "filler-77",
+        "filler-363",
+        "filler-313",
+        "filler-7",
+        "filler-470"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0
+        },
+        "10": {
+          "full": false,
+          "recall": 0
+        },
+        "20": {
+          "full": false,
+          "recall": 0
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "therapy-history",
+      "family": "history",
+      "ranked": [
+        "therapy-1",
+        "filler-897",
+        "filler-598",
+        "filler-361",
+        "filler-103",
+        "therapy-2",
+        "filler-441",
+        "filler-1204",
+        "filler-1163",
+        "filler-102",
+        "filler-400",
+        "filler-951",
+        "filler-625",
+        "filler-683",
+        "filler-453",
+        "filler-1231",
+        "filler-999",
+        "filler-125",
+        "filler-491",
+        "filler-1147"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5
+        },
+        "10": {
+          "full": true,
+          "recall": 1
+        },
+        "20": {
+          "full": true,
+          "recall": 1
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "therapy-now",
+      "family": "latest",
+      "ranked": [
+        "therapy-2",
+        "therapy-1",
+        "filler-441",
+        "filler-1163",
+        "filler-683",
+        "filler-125",
+        "filler-1450",
+        "therapy-3",
+        "filler-1415",
+        "filler-1416",
+        "flights-d1",
+        "filler-1469",
+        "filler-1406",
+        "filler-848",
+        "filler-1294",
+        "filler-1098",
+        "filler-868",
+        "filler-734",
+        "filler-396",
+        "filler-1154"
+      ],
+      "ms": 28.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "therapy-now",
+      "family": "latest",
+      "ranked": [
+        "flights-d1",
+        "therapy-1",
+        "therapy-2",
+        "filler-1415",
+        "filler-848",
+        "filler-396",
+        "filler-734",
+        "filler-1163",
+        "filler-868",
+        "filler-1098",
+        "filler-441",
+        "filler-1294",
+        "filler-1154",
+        "weight-d1",
+        "filler-16",
+        "filler-787",
+        "filler-73",
+        "japan-d2",
+        "filler-803",
+        "practice-3"
+      ],
+      "ms": 4.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "therapy-now",
+      "family": "latest",
+      "ranked": [
+        "therapy-1",
+        "flights-d1",
+        "filler-396",
+        "therapy-2",
+        "filler-848",
+        "filler-734",
+        "filler-441",
+        "filler-868",
+        "filler-1415",
+        "filler-1163",
+        "filler-1098",
+        "filler-16",
+        "filler-73",
+        "weight-d1",
+        "filler-1294",
+        "filler-1154",
+        "filler-787",
+        "filler-152",
+        "filler-803",
+        "filler-465"
+      ],
+      "ms": 2.8,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "therapy-now",
+      "family": "latest",
+      "ranked": [
+        "therapy-1",
+        "flights-d1",
+        "filler-396",
+        "therapy-2",
+        "filler-848",
+        "filler-441",
+        "filler-1098",
+        "filler-734",
+        "filler-868",
+        "filler-787",
+        "filler-1154",
+        "filler-465",
+        "filler-803",
+        "filler-474",
+        "filler-1415",
+        "filler-703",
+        "filler-152",
+        "filler-16",
+        "gym-3",
+        "filler-267"
+      ],
+      "ms": 0.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "therapy-now",
+      "family": "latest",
+      "ranked": [
+        "therapy-1",
+        "flights-d1",
+        "filler-396",
+        "therapy-2",
+        "filler-734",
+        "filler-441",
+        "filler-868",
+        "filler-1098",
+        "filler-1163",
+        "filler-848",
+        "filler-1294",
+        "filler-1415",
+        "filler-1077",
+        "filler-467",
+        "filler-1154",
+        "filler-787",
+        "filler-803",
+        "filler-296",
+        "filler-465",
+        "filler-152"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "commute-now",
+      "family": "composite",
+      "ranked": [
+        "office-2",
+        "office-1",
+        "filler-805",
+        "filler-1405",
+        "filler-510",
+        "filler-421",
+        "filler-396",
+        "filler-609",
+        "filler-1372",
+        "filler-1363",
+        "filler-855",
+        "filler-1393",
+        "filler-1108",
+        "filler-1366",
+        "japan-d2",
+        "concert-3",
+        "home-3",
+        "filler-337",
+        "filler-595",
+        "filler-759"
+      ],
+      "ms": 226.3,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "commute-now",
+      "family": "composite",
+      "ranked": [
+        "office-2",
+        "filler-855",
+        "filler-1372",
+        "filler-337",
+        "office-1",
+        "filler-1108",
+        "filler-1363",
+        "filler-595",
+        "filler-495",
+        "japan-d2",
+        "filler-634",
+        "filler-1366",
+        "filler-368",
+        "concert-3",
+        "filler-724",
+        "filler-340",
+        "filler-1215",
+        "filler-1405",
+        "filler-711",
+        "filler-1317"
+      ],
+      "ms": 4.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "commute-now",
+      "family": "composite",
+      "ranked": [
+        "filler-855",
+        "filler-337",
+        "office-2",
+        "filler-595",
+        "filler-495",
+        "office-1",
+        "filler-1108",
+        "filler-1372",
+        "filler-1363",
+        "filler-634",
+        "filler-368",
+        "filler-340",
+        "japan-d2",
+        "filler-724",
+        "filler-127",
+        "filler-255",
+        "filler-1366",
+        "filler-711",
+        "concert-3",
+        "filler-610"
+      ],
+      "ms": 3.1,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "commute-now",
+      "family": "composite",
+      "ranked": [
+        "filler-855",
+        "filler-337",
+        "filler-595",
+        "office-2",
+        "office-1",
+        "filler-1372",
+        "filler-1108",
+        "filler-724",
+        "filler-495",
+        "filler-1363",
+        "filler-711",
+        "filler-368",
+        "filler-1366",
+        "filler-805",
+        "filler-634",
+        "filler-255",
+        "filler-127",
+        "filler-340",
+        "filler-1317",
+        "filler-1405"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "commute-now",
+      "family": "composite",
+      "ranked": [
+        "filler-711",
+        "filler-855",
+        "office-2",
+        "filler-595",
+        "filler-1104",
+        "filler-1372",
+        "filler-857",
+        "filler-1108",
+        "filler-1363",
+        "filler-634",
+        "filler-724",
+        "filler-337",
+        "filler-1317",
+        "filler-368",
+        "filler-127",
+        "filler-1366",
+        "filler-389",
+        "filler-1405",
+        "filler-805",
+        "filler-1332"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "sister-now",
+      "family": "composite",
+      "ranked": [
+        "filler-1350",
+        "ana-2",
+        "filler-1421",
+        "ana-1",
+        "filler-1080",
+        "filler-122",
+        "practice-3",
+        "office-2",
+        "filler-975",
+        "filler-493",
+        "filler-190",
+        "filler-865",
+        "filler-538",
+        "filler-304",
+        "filler-621",
+        "team-4",
+        "filler-1132",
+        "filler-1449",
+        "filler-535",
+        "filler-396"
+      ],
+      "ms": 56.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "sister-now",
+      "family": "composite",
+      "ranked": [
+        "filler-1132",
+        "filler-1158",
+        "filler-1350",
+        "filler-865",
+        "ana-2",
+        "filler-1130",
+        "filler-737",
+        "filler-1360",
+        "ana-1",
+        "filler-1421",
+        "filler-1080",
+        "filler-98",
+        "filler-81",
+        "filler-1495",
+        "filler-1236",
+        "filler-792",
+        "filler-1050",
+        "filler-122",
+        "filler-1276",
+        "filler-493"
+      ],
+      "ms": 11,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "sister-now",
+      "family": "composite",
+      "ranked": [
+        "ana-1",
+        "filler-865",
+        "filler-737",
+        "filler-1130",
+        "ana-2",
+        "filler-1158",
+        "filler-389",
+        "filler-98",
+        "filler-81",
+        "filler-734",
+        "filler-1350",
+        "filler-751",
+        "filler-668",
+        "filler-235",
+        "filler-1132",
+        "filler-122",
+        "filler-390",
+        "filler-1080",
+        "filler-226",
+        "filler-227"
+      ],
+      "ms": 3.5,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "sister-now",
+      "family": "composite",
+      "ranked": [
+        "ana-1",
+        "filler-865",
+        "filler-737",
+        "filler-1130",
+        "filler-1158",
+        "filler-389",
+        "filler-98",
+        "filler-734",
+        "ana-2",
+        "filler-235",
+        "filler-751",
+        "filler-1132",
+        "filler-227",
+        "filler-1350",
+        "filler-226",
+        "filler-390",
+        "filler-668",
+        "filler-1110",
+        "filler-81",
+        "filler-792"
+      ],
+      "ms": 0.7,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "sister-now",
+      "family": "composite",
+      "ranked": [
+        "ana-1",
+        "filler-98",
+        "filler-1158",
+        "filler-865",
+        "filler-737",
+        "filler-1495",
+        "filler-754",
+        "ana-2",
+        "filler-1110",
+        "filler-1130",
+        "filler-734",
+        "filler-845",
+        "filler-798",
+        "filler-389",
+        "filler-1080",
+        "filler-199",
+        "filler-81",
+        "filler-227",
+        "filler-1425",
+        "filler-235"
+      ],
+      "ms": 0.4,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0,
+          "currentFirst": false
+        },
+        "10": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "20": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "al-buddy",
+      "question": "coach-now",
+      "family": "composite",
+      "ranked": [
+        "practice-3",
+        "coach-2",
+        "practice-d1",
+        "practice-1",
+        "coach-1",
+        "practice-2",
+        "classes-d1",
+        "weight-d1",
+        "bread-d2",
+        "filler-838",
+        "team-1",
+        "hair-d1",
+        "filler-1449",
+        "team-4",
+        "team-3",
+        "filler-1356",
+        "flights-1",
+        "team-d1",
+        "job-2",
+        "filler-766"
+      ],
+      "ms": 13.4,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "al-buddy-keyword",
+      "question": "coach-now",
+      "family": "composite",
+      "ranked": [
+        "practice-3",
+        "coach-2",
+        "practice-d1",
+        "coach-1",
+        "practice-1",
+        "practice-2",
+        "filler-1001",
+        "filler-1048",
+        "filler-1171",
+        "flights-d1",
+        "filler-1449",
+        "weight-d1",
+        "filler-1184",
+        "filler-780",
+        "filler-838",
+        "classes-d1",
+        "bread-d2",
+        "filler-1438",
+        "pets-3",
+        "laptop-d1"
+      ],
+      "ms": 4.6,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": true
+        }
+      }
+    },
+    {
+      "system": "fts",
+      "question": "coach-now",
+      "family": "composite",
+      "ranked": [
+        "coach-1",
+        "practice-1",
+        "practice-3",
+        "practice-d1",
+        "practice-2",
+        "coach-2",
+        "filler-1001",
+        "filler-1048",
+        "filler-1171",
+        "flights-d1",
+        "weight-d1",
+        "filler-780",
+        "filler-838",
+        "classes-d1",
+        "filler-1184",
+        "filler-1449",
+        "bread-d2",
+        "filler-393",
+        "pets-3",
+        "laptop-d1"
+      ],
+      "ms": 3.2,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25",
+      "question": "coach-now",
+      "family": "composite",
+      "ranked": [
+        "coach-1",
+        "practice-1",
+        "practice-3",
+        "practice-d1",
+        "practice-2",
+        "coach-2",
+        "filler-1048",
+        "filler-1001",
+        "filler-1171",
+        "filler-838",
+        "filler-1184",
+        "filler-780",
+        "filler-1438",
+        "flights-d1",
+        "filler-1287",
+        "filler-1449",
+        "weight-d1",
+        "filler-393",
+        "filler-653",
+        "classes-d1"
+      ],
+      "ms": 0.6,
+      "scores": {
+        "5": {
+          "full": false,
+          "recall": 0.5,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    },
+    {
+      "system": "bm25-stem",
+      "question": "coach-now",
+      "family": "composite",
+      "ranked": [
+        "coach-1",
+        "coach-2",
+        "practice-3",
+        "practice-1",
+        "practice-d1",
+        "practice-2",
+        "filler-960",
+        "filler-1171",
+        "filler-87",
+        "classes-d1",
+        "laptop-d1",
+        "pets-3",
+        "bread-d2",
+        "filler-780",
+        "hair-d1",
+        "filler-838",
+        "filler-1449",
+        "filler-1438",
+        "weight-d1",
+        "filler-1006"
+      ],
+      "ms": 0.3,
+      "scores": {
+        "5": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "10": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        },
+        "20": {
+          "full": true,
+          "recall": 1,
+          "currentFirst": false
+        }
+      }
+    }
+  ]
+}
