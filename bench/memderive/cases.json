@@ -1,0 +1,451 @@
+{
+  "name": "derived-state",
+  "version": 1,
+  "about": "Questions whose answer is not stored anywhere: it has to be worked out from several things one person said over a year (a count, a total, the members of a set after adds and removes, a sequence of states, the latest value, two latest values combined). Each question lists the events it needs (`needs`); a reader shown fewer cannot derive the answer. `supersedes` maps a needed event to the older ones it replaced, for questions where an outdated value ranked first would most likely be repeated. Distractors share words with the questions but are not needed. Written by hand on 2026-10-21 for docs/research/memderive-2026-10.md. It is NOT the MemDerive dataset (arXiv 2610.25373): that paper and its code could not be read where this was written, so this is our own test of the claim as it was described to us.",
+  "now": "2026-09-01T00:00:00.000Z",
+  "subjects": [
+    {
+      "id": "gym",
+      "events": [
+        { "id": "gym-1", "at": "2025-10-03", "text": "Signed up at Planet Fitness on 5th Street, $25 a month." },
+        { "id": "gym-2", "at": "2026-01-12", "text": "Cancelled Planet Fitness and joined the YMCA near work." },
+        { "id": "gym-3", "at": "2026-06-08", "text": "I left the Y. I train at CrossFit Ridgeline now, five mornings a week." }
+      ],
+      "distractors": [{ "id": "gym-d1", "at": "2026-03-02", "text": "My coworker Raj keeps inviting me to his climbing gym." }],
+      "questions": [
+        { "id": "gym-now", "family": "latest", "text": "Which gym do I go to these days?", "needs": ["gym-3"], "supersedes": { "gym-3": ["gym-1", "gym-2"] }, "answer": "CrossFit Ridgeline" }
+      ]
+    },
+    {
+      "id": "practice",
+      "events": [
+        { "id": "practice-1", "at": "2025-09-15", "text": "Maya's soccer practice is on Tuesdays at 5." },
+        { "id": "practice-2", "at": "2026-02-20", "text": "Maya's practice moved to Thursdays this season." },
+        { "id": "practice-3", "at": "2026-08-10", "text": "Note to self: Maya's team now practices Wednesday evenings." }
+      ],
+      "distractors": [{ "id": "practice-d1", "at": "2026-05-04", "text": "Maya scored twice in Saturday's soccer game!" }],
+      "questions": [
+        { "id": "practice-now", "family": "latest", "text": "What day is Maya's soccer practice?", "needs": ["practice-3"], "supersedes": { "practice-3": ["practice-1", "practice-2"] }, "answer": "Wednesday evenings" }
+      ]
+    },
+    {
+      "id": "laptop",
+      "events": [
+        { "id": "laptop-1", "at": "2025-09-08", "text": "My work laptop is a ThinkPad X1 Carbon." },
+        { "id": "laptop-2", "at": "2026-01-26", "text": "IT swapped my ThinkPad for a Dell XPS 13." },
+        { "id": "laptop-3", "at": "2026-07-14", "text": "Got a MacBook Pro with the M4 chip from work today; returned the Dell." }
+      ],
+      "distractors": [{ "id": "laptop-d1", "at": "2026-04-11", "text": "Bought Maya a refurbished Chromebook for school." }],
+      "questions": [
+        { "id": "laptop-now", "family": "latest", "text": "What laptop do I use for work?", "needs": ["laptop-3"], "supersedes": { "laptop-3": ["laptop-1", "laptop-2"] }, "answer": "a MacBook Pro (M4)" }
+      ]
+    },
+    {
+      "id": "coffee",
+      "events": [
+        { "id": "coffee-1", "at": "2025-11-02", "text": "My usual coffee order is an oat milk latte." },
+        { "id": "coffee-2", "at": "2026-03-18", "text": "I've switched my usual to a cortado." },
+        { "id": "coffee-3", "at": "2026-08-01", "text": "Cutting back on milk, so these days I just get a black americano." }
+      ],
+      "distractors": [{ "id": "coffee-d1", "at": "2026-06-20", "text": "The new café on Elm has great pastries but slow service." }],
+      "questions": [
+        { "id": "coffee-now", "family": "latest", "text": "What's my usual coffee order?", "needs": ["coffee-3"], "supersedes": { "coffee-3": ["coffee-1", "coffee-2"] }, "answer": "a black americano" }
+      ]
+    },
+    {
+      "id": "running",
+      "events": [
+        { "id": "run-1", "at": "2025-10-20", "text": "I'm running about 15 km a week." },
+        { "id": "run-2", "at": "2026-02-09", "text": "Up to 25 km a week of running now." },
+        { "id": "run-3", "at": "2026-07-27", "text": "Half-marathon training block: 40 km per week." }
+      ],
+      "distractors": [{ "id": "run-d1", "at": "2026-05-30", "text": "Bought new running shoes, the Brooks Ghost 16." }],
+      "questions": [
+        { "id": "running-now", "family": "latest", "text": "How far am I running each week?", "needs": ["run-3"], "supersedes": { "run-3": ["run-1", "run-2"] }, "answer": "40 km" }
+      ]
+    },
+    {
+      "id": "carrier",
+      "events": [
+        { "id": "carrier-1", "at": "2025-09-22", "text": "My phone plan is with Mint Mobile." },
+        { "id": "carrier-2", "at": "2026-02-03", "text": "Ported my number over to Visible." },
+        { "id": "carrier-3", "at": "2026-06-29", "text": "Switched my phone line to Google Fi for the international roaming." }
+      ],
+      "distractors": [{ "id": "carrier-d1", "at": "2026-04-15", "text": "Dropped my phone and cracked the screen again." }],
+      "questions": [
+        { "id": "carrier-now", "family": "latest", "text": "Which carrier is my phone on now?", "needs": ["carrier-3"], "supersedes": { "carrier-3": ["carrier-1", "carrier-2"] }, "answer": "Google Fi" }
+      ]
+    },
+    {
+      "id": "books",
+      "events": [
+        { "id": "books-1", "at": "2026-01-18", "text": "Finished Project Hail Mary last night." },
+        { "id": "books-2", "at": "2026-02-27", "text": "Just wrapped up Tomorrow, and Tomorrow, and Tomorrow." },
+        { "id": "books-3", "at": "2026-04-09", "text": "Done reading The Overstory, took me forever." },
+        { "id": "books-4", "at": "2026-05-22", "text": "Finished the audiobook of Educated on my commute." },
+        { "id": "books-5", "at": "2026-07-05", "text": "Read Piranesi cover to cover this weekend." }
+      ],
+      "distractors": [
+        { "id": "books-d1", "at": "2025-12-20", "text": "Finished Lessons in Chemistry over the holidays." },
+        { "id": "books-d2", "at": "2026-08-12", "text": "Started Middlemarch but I'm only fifty pages in." },
+        { "id": "books-d3", "at": "2026-03-14", "text": "Bought Dune for my brother's birthday." }
+      ],
+      "questions": [
+        { "id": "books-count", "family": "count", "text": "How many books have I finished this year?", "needs": ["books-1", "books-2", "books-3", "books-4", "books-5"], "answer": "5" }
+      ]
+    },
+    {
+      "id": "flights",
+      "events": [
+        { "id": "flights-1", "at": "2026-01-30", "text": "Flew to Denver for the team offsite." },
+        { "id": "flights-2", "at": "2026-03-12", "text": "Took the red-eye to Boston for Sam's wedding." },
+        { "id": "flights-3", "at": "2026-04-02", "text": "My flight to Austin was delayed two hours." },
+        { "id": "flights-4", "at": "2026-06-18", "text": "Flew out to Chicago for the product conference." }
+      ],
+      "distractors": [
+        { "id": "flights-d1", "at": "2026-05-08", "text": "Looked at flights to Lisbon but they're too pricey right now." },
+        { "id": "flights-d2", "at": "2026-07-19", "text": "Drove to Portland for the weekend instead of flying." }
+      ],
+      "questions": [
+        { "id": "flights-count", "family": "count", "text": "How many flights have I taken this year?", "needs": ["flights-1", "flights-2", "flights-3", "flights-4"], "answer": "4" }
+      ]
+    },
+    {
+      "id": "migraines",
+      "events": [
+        { "id": "migraine-1", "at": "2026-03-09", "text": "Had a migraine and left work early." },
+        { "id": "migraine-2", "at": "2026-04-21", "text": "Woke up with a pounding migraine, stayed in a dark room all morning." },
+        { "id": "migraine-3", "at": "2026-06-03", "text": "Migraine hit in the middle of the board meeting." },
+        { "id": "migraine-4", "at": "2026-07-30", "text": "Another migraine after the concert, probably the lights." }
+      ],
+      "distractors": [
+        { "id": "migraine-d1", "at": "2026-02-11", "text": "Migraine this morning, the first one in months." },
+        { "id": "migraine-d2", "at": "2026-05-15", "text": "Saw the neurologist; she wants me to track my sleep." }
+      ],
+      "questions": [
+        { "id": "migraines-count", "family": "count", "text": "How many migraines have I had since March?", "needs": ["migraine-1", "migraine-2", "migraine-3", "migraine-4"], "answer": "4" }
+      ]
+    },
+    {
+      "id": "interviews",
+      "events": [
+        { "id": "interview-1", "at": "2026-02-17", "text": "Interviewed at Stripe today, I think it went well." },
+        { "id": "interview-2", "at": "2026-03-05", "text": "Second-round interview with Figma this afternoon." },
+        { "id": "interview-3", "at": "2026-03-19", "text": "Phone screen with a recruiter from Notion." },
+        { "id": "interview-4", "at": "2026-04-08", "text": "Final round at Datadog, five hours of back-to-back sessions." }
+      ],
+      "distractors": [
+        { "id": "interview-d1", "at": "2026-02-02", "text": "Updated my resume and my LinkedIn headline." },
+        { "id": "interview-d2", "at": "2026-06-02", "text": "I interviewed a candidate for our designer opening." }
+      ],
+      "questions": [
+        { "id": "interviews-count", "family": "count", "text": "How many companies have I interviewed with?", "needs": ["interview-1", "interview-2", "interview-3", "interview-4"], "answer": "4" }
+      ]
+    },
+    {
+      "id": "concerts",
+      "events": [
+        { "id": "concert-1", "at": "2026-02-14", "text": "Saw Phoebe Bridgers at the Greek Theatre." },
+        { "id": "concert-2", "at": "2026-05-02", "text": "Went to the LCD Soundsystem show downtown; my ears are still ringing." },
+        { "id": "concert-3", "at": "2026-07-29", "text": "Caught Khruangbin live at the amphitheater." }
+      ],
+      "distractors": [
+        { "id": "concert-d1", "at": "2026-08-20", "text": "Bought tickets for Bon Iver in November." },
+        { "id": "concert-d2", "at": "2025-11-08", "text": "Went to a jazz concert at the Blue Note." }
+      ],
+      "questions": [
+        { "id": "concerts-count", "family": "count", "text": "How many concerts have I been to this year?", "needs": ["concert-1", "concert-2", "concert-3"], "answer": "3" }
+      ]
+    },
+    {
+      "id": "bread",
+      "events": [
+        { "id": "bread-1", "at": "2026-01-11", "text": "Baked my first sourdough loaf, a little flat but tasty." },
+        { "id": "bread-2", "at": "2026-02-08", "text": "Second sourdough came out dense; my starter needs work." },
+        { "id": "bread-3", "at": "2026-03-29", "text": "Made a rye loaf for the neighborhood potluck." },
+        { "id": "bread-4", "at": "2026-06-14", "text": "Baked focaccia with rosemary from the garden." }
+      ],
+      "distractors": [
+        { "id": "bread-d1", "at": "2026-04-25", "text": "Bought a bread machine for my mom." },
+        { "id": "bread-d2", "at": "2026-05-10", "text": "Baked chocolate chip cookies with Maya." }
+      ],
+      "questions": [
+        { "id": "bread-count", "family": "count", "text": "How many times have I baked bread this year?", "needs": ["bread-1", "bread-2", "bread-3", "bread-4"], "answer": "4" }
+      ]
+    },
+    {
+      "id": "repairs",
+      "events": [
+        { "id": "repair-1", "at": "2025-11-14", "text": "Paid $420 for new brake pads on the Civic." },
+        { "id": "repair-2", "at": "2025-12-29", "text": "The Civic needed a new battery: $189." },
+        { "id": "repair-3", "at": "2026-02-06", "text": "$1,150 at the shop to replace the Civic's timing belt." },
+        { "id": "repair-4", "at": "2026-03-01", "text": "Wheel alignment on the car, $95." }
+      ],
+      "distractors": [
+        { "id": "repair-d1", "at": "2026-01-17", "text": "Filled up the Civic's tank, $48." },
+        { "id": "repair-d2", "at": "2026-04-12", "text": "The Ioniq's first service was free under the lease." }
+      ],
+      "questions": [
+        { "id": "repairs-sum", "family": "sum", "text": "How much did I spend on repairs for the Civic in total?", "needs": ["repair-1", "repair-2", "repair-3", "repair-4"], "answer": "$1,854" }
+      ]
+    },
+    {
+      "id": "japan",
+      "events": [
+        { "id": "japan-1", "at": "2025-12-01", "text": "Put $300 into the Japan trip fund." },
+        { "id": "japan-2", "at": "2026-01-31", "text": "Added $250 to the Japan savings." },
+        { "id": "japan-3", "at": "2026-03-15", "text": "Moved $500 into the Japan fund after my bonus came in." },
+        { "id": "japan-4", "at": "2026-05-01", "text": "Took $150 out of the Japan fund to cover rent." }
+      ],
+      "distractors": [
+        { "id": "japan-d1", "at": "2026-04-19", "text": "Watched a documentary about Kyoto temples." },
+        { "id": "japan-d2", "at": "2026-06-07", "text": "Emergency fund is at $4,000 now." }
+      ],
+      "questions": [
+        { "id": "japan-sum", "family": "sum", "text": "How much is in my Japan trip fund now?", "needs": ["japan-1", "japan-2", "japan-3", "japan-4"], "answer": "$900" }
+      ]
+    },
+    {
+      "id": "weight",
+      "events": [
+        { "id": "weight-1", "at": "2026-01-20", "text": "Down 2 kg since starting the new diet." },
+        { "id": "weight-2", "at": "2026-02-24", "text": "Lost another 1.5 kg this month." },
+        { "id": "weight-3", "at": "2026-04-06", "text": "Gained 1 kg back over Easter." },
+        { "id": "weight-4", "at": "2026-06-01", "text": "Dropped 3 kg more this spring." }
+      ],
+      "distractors": [{ "id": "weight-d1", "at": "2026-03-08", "text": "Maya gained 2 kg; the pediatrician says she's right on track." }],
+      "questions": [
+        { "id": "weight-sum", "family": "sum", "text": "How much weight have I lost in total since starting the diet?", "needs": ["weight-1", "weight-2", "weight-3", "weight-4"], "answer": "5.5 kg" }
+      ]
+    },
+    {
+      "id": "volunteering",
+      "events": [
+        { "id": "volunteer-1", "at": "2026-01-24", "text": "Volunteered 4 hours at the food bank." },
+        { "id": "volunteer-2", "at": "2026-03-07", "text": "Did a 6-hour shift at the food bank on Saturday." },
+        { "id": "volunteer-3", "at": "2026-05-16", "text": "Spent 3 hours sorting donations at the food bank." }
+      ],
+      "distractors": [
+        { "id": "volunteer-d1", "at": "2026-04-30", "text": "Donated two bags of canned food to the school drive." },
+        { "id": "volunteer-d2", "at": "2026-06-25", "text": "Worked 11 hours today, exhausted." }
+      ],
+      "questions": [
+        { "id": "volunteering-sum", "family": "sum", "text": "How many hours have I volunteered at the food bank?", "needs": ["volunteer-1", "volunteer-2", "volunteer-3"], "answer": "13" }
+      ]
+    },
+    {
+      "id": "dan",
+      "events": [
+        { "id": "dan-1", "at": "2025-10-12", "text": "Lent my brother Dan $500 for his apartment deposit." },
+        { "id": "dan-2", "at": "2026-01-05", "text": "Dan paid me back $200." },
+        { "id": "dan-3", "at": "2026-03-27", "text": "Lent Dan another $300 for his car insurance." },
+        { "id": "dan-4", "at": "2026-06-22", "text": "Dan sent $100 back over Venmo." }
+      ],
+      "distractors": [{ "id": "dan-d1", "at": "2026-07-08", "text": "Dan got engaged to Priyanka!" }],
+      "questions": [
+        { "id": "dan-sum", "family": "sum", "text": "How much does Dan still owe me?", "needs": ["dan-1", "dan-2", "dan-3", "dan-4"], "answer": "$500" }
+      ]
+    },
+    {
+      "id": "kitchen",
+      "events": [
+        { "id": "kitchen-1", "at": "2026-02-10", "text": "The contractor's first invoice for the kitchen was $4,200." },
+        { "id": "kitchen-2", "at": "2026-03-24", "text": "Paid $1,800 for the new kitchen countertops." },
+        { "id": "kitchen-3", "at": "2026-04-28", "text": "New sink and faucet for the kitchen: $650." }
+      ],
+      "distractors": [
+        { "id": "kitchen-d1", "at": "2026-05-19", "text": "Got a quote of $9,000 to redo the bathroom." },
+        { "id": "kitchen-d2", "at": "2026-06-11", "text": "Cooked paella in the new kitchen for the first time." }
+      ],
+      "questions": [
+        { "id": "kitchen-sum", "family": "sum", "text": "What has the kitchen remodel cost so far?", "needs": ["kitchen-1", "kitchen-2", "kitchen-3"], "answer": "$6,650" }
+      ]
+    },
+    {
+      "id": "plants",
+      "events": [
+        { "id": "plants-1", "at": "2025-10-18", "text": "Bought a fiddle leaf fig for the living room." },
+        { "id": "plants-2", "at": "2025-12-06", "text": "Picked up a snake plant and a pothos at the nursery." },
+        { "id": "plants-3", "at": "2026-02-15", "text": "The fiddle leaf fig died; I threw it out." },
+        { "id": "plants-4", "at": "2026-05-09", "text": "My neighbor gave me a monstera cutting." }
+      ],
+      "distractors": [{ "id": "plants-d1", "at": "2026-04-03", "text": "Planted tomatoes and basil in the backyard beds." }],
+      "questions": [
+        { "id": "plants-set", "family": "set", "text": "Which houseplants do I have right now?", "needs": ["plants-1", "plants-2", "plants-3", "plants-4"], "answer": "a snake plant, a pothos and a monstera" }
+      ]
+    },
+    {
+      "id": "streaming",
+      "events": [
+        { "id": "streaming-1", "at": "2025-09-10", "text": "Subscribed to Netflix again." },
+        { "id": "streaming-2", "at": "2025-11-20", "text": "Signed up for HBO Max to watch the new season." },
+        { "id": "streaming-3", "at": "2026-01-08", "text": "Cancelled Netflix, it's too expensive." },
+        { "id": "streaming-4", "at": "2026-02-22", "text": "Added Disney+ for the kids, $14 a month." },
+        { "id": "streaming-5", "at": "2026-04-14", "text": "Dropped HBO Max after the finale." }
+      ],
+      "distractors": [{ "id": "streaming-d1", "at": "2026-05-27", "text": "Spotify raised its price again." }],
+      "questions": [
+        { "id": "streaming-set", "family": "set", "text": "Which streaming services am I paying for now?", "needs": ["streaming-1", "streaming-2", "streaming-3", "streaming-4", "streaming-5"], "answer": "Disney+" }
+      ]
+    },
+    {
+      "id": "team",
+      "events": [
+        { "id": "team-1", "at": "2026-05-26", "text": "Priya joined my team as a backend engineer." },
+        { "id": "team-2", "at": "2026-06-09", "text": "We hired Marco as our product designer." },
+        { "id": "team-3", "at": "2026-07-21", "text": "Priya transferred to the payments team." },
+        { "id": "team-4", "at": "2026-08-04", "text": "Lena started on my team as a data analyst." }
+      ],
+      "distractors": [{ "id": "team-d1", "at": "2026-07-02", "text": "Team lunch at the ramen place was fun." }],
+      "questions": [
+        { "id": "team-set", "family": "set", "text": "Who is on my team right now?", "needs": ["team-1", "team-2", "team-3", "team-4"], "answer": "Marco and Lena" }
+      ]
+    },
+    {
+      "id": "meds",
+      "events": [
+        { "id": "meds-1", "at": "2025-11-03", "text": "Started taking 10 mg of lisinopril for my blood pressure." },
+        { "id": "meds-2", "at": "2026-01-14", "text": "Doctor added a daily vitamin D supplement." },
+        { "id": "meds-3", "at": "2026-04-17", "text": "Stopped the lisinopril; switched to amlodipine 5 mg." },
+        { "id": "meds-4", "at": "2026-06-26", "text": "Started sumatriptan for the migraines, only as needed." }
+      ],
+      "distractors": [{ "id": "meds-d1", "at": "2026-03-03", "text": "Picked up Dan's prescription at the pharmacy for him." }],
+      "questions": [
+        { "id": "meds-set", "family": "set", "text": "What medications am I taking now?", "needs": ["meds-1", "meds-2", "meds-3", "meds-4"], "answer": "vitamin D, amlodipine and sumatriptan" }
+      ]
+    },
+    {
+      "id": "pets",
+      "events": [
+        { "id": "pets-1", "at": "2025-09-27", "text": "The kids won a goldfish at the county fair; they named him Bubbles." },
+        { "id": "pets-2", "at": "2025-12-13", "text": "We adopted a gray cat named Miso from the shelter." },
+        { "id": "pets-3", "at": "2026-04-26", "text": "Bubbles the goldfish died, Maya was heartbroken." },
+        { "id": "pets-4", "at": "2026-07-11", "text": "Brought home a beagle puppy, Biscuit." }
+      ],
+      "distractors": [{ "id": "pets-d1", "at": "2026-05-23", "text": "Fostered the neighbor's dog for a weekend." }],
+      "questions": [
+        { "id": "pets-set", "family": "set", "text": "What pets do we have at home?", "needs": ["pets-1", "pets-2", "pets-3", "pets-4"], "answer": "Miso the cat and Biscuit the beagle" }
+      ]
+    },
+    {
+      "id": "classes",
+      "events": [
+        { "id": "classes-1", "at": "2025-10-06", "text": "Signed up for a Spanish class on Monday nights." },
+        { "id": "classes-2", "at": "2026-01-15", "text": "Enrolled in pottery on Thursday evenings." },
+        { "id": "classes-3", "at": "2026-03-10", "text": "Dropped out of Spanish, I couldn't keep up with work." },
+        { "id": "classes-4", "at": "2026-06-17", "text": "Joined a Wednesday improv workshop." }
+      ],
+      "distractors": [{ "id": "classes-d1", "at": "2026-04-22", "text": "Maya started piano lessons." }],
+      "questions": [
+        { "id": "classes-set", "family": "set", "text": "Which classes am I taking right now?", "needs": ["classes-1", "classes-2", "classes-3", "classes-4"], "answer": "pottery and improv" }
+      ]
+    },
+    {
+      "id": "homes",
+      "events": [
+        { "id": "home-1", "at": "2025-09-05", "text": "Moved into an apartment in Oakland." },
+        { "id": "home-2", "at": "2026-01-03", "text": "We moved to a bigger place in Berkeley." },
+        { "id": "home-3", "at": "2026-05-30", "text": "Relocated to Sacramento; the new place has a yard." }
+      ],
+      "distractors": [{ "id": "home-d1", "at": "2026-02-28", "text": "Dan is thinking about moving to Seattle." }],
+      "questions": [
+        { "id": "homes-history", "family": "history", "text": "How many times have I moved in the past year?", "needs": ["home-1", "home-2", "home-3"], "answer": "3" },
+        { "id": "homes-before", "family": "history", "text": "Where did I live before Sacramento?", "needs": ["home-2", "home-3"], "answer": "Berkeley" }
+      ]
+    },
+    {
+      "id": "jobs",
+      "events": [
+        { "id": "job-1", "at": "2025-09-29", "text": "Started a new job at Globex as a product manager." },
+        { "id": "job-2", "at": "2026-05-18", "text": "First day at Datadog today, on the APM team." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "jobs-history", "family": "history", "text": "How many jobs have I had since last September?", "needs": ["job-1", "job-2"], "answer": "2 (Globex, then Datadog)" }
+      ]
+    },
+    {
+      "id": "cars",
+      "events": [
+        { "id": "car-1", "at": "2025-10-05", "text": "Bought a used 2015 Honda Civic." },
+        { "id": "car-2", "at": "2026-03-22", "text": "Sold the Civic and leased a Hyundai Ioniq 5." },
+        { "id": "car-3", "at": "2026-08-15", "text": "Traded in the Ioniq for a Toyota RAV4 hybrid." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "cars-history", "family": "history", "text": "How many cars have I had since last fall?", "needs": ["car-1", "car-2", "car-3"], "answer": "3" }
+      ]
+    },
+    {
+      "id": "managers",
+      "events": [
+        { "id": "manager-1", "at": "2025-10-01", "text": "My manager at Globex is Tom Becker." },
+        { "id": "manager-2", "at": "2026-05-19", "text": "At Datadog I report to Aisha." },
+        { "id": "manager-3", "at": "2026-08-18", "text": "Reorg: my new manager is Greg." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "managers-history", "family": "history", "text": "Who have my managers been over the past year?", "needs": ["manager-1", "manager-2", "manager-3"], "answer": "Tom Becker, Aisha, Greg" },
+        { "id": "manager-now", "family": "latest", "text": "Who is my manager now?", "needs": ["manager-3"], "supersedes": { "manager-3": ["manager-1", "manager-2"] }, "answer": "Greg" }
+      ]
+    },
+    {
+      "id": "hair",
+      "events": [
+        { "id": "hair-1", "at": "2025-10-30", "text": "Dyed my hair blue for the Halloween party." },
+        { "id": "hair-2", "at": "2026-01-09", "text": "Went back to my natural brown." },
+        { "id": "hair-3", "at": "2026-06-21", "text": "Bleached my hair platinum for summer." }
+      ],
+      "distractors": [{ "id": "hair-d1", "at": "2026-03-21", "text": "Maya wants pink streaks in her hair." }],
+      "questions": [
+        { "id": "hair-history", "family": "history", "text": "What hair colors have I had since last fall?", "needs": ["hair-1", "hair-2", "hair-3"], "answer": "blue, brown, platinum" }
+      ]
+    },
+    {
+      "id": "therapy",
+      "events": [
+        { "id": "therapy-1", "at": "2025-11-10", "text": "Started seeing a therapist, Dr. Kim." },
+        { "id": "therapy-2", "at": "2026-03-16", "text": "Switched to a new therapist, Dr. Alvarez, who takes my insurance." },
+        { "id": "therapy-3", "at": "2026-07-16", "text": "Taking a break from therapy for the summer." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "therapy-history", "family": "history", "text": "Which therapists have I seen?", "needs": ["therapy-1", "therapy-2"], "answer": "Dr. Kim, then Dr. Alvarez" },
+        { "id": "therapy-now", "family": "latest", "text": "Am I seeing a therapist right now?", "needs": ["therapy-3"], "supersedes": { "therapy-3": ["therapy-1", "therapy-2"] }, "answer": "No, on a break for the summer" }
+      ]
+    },
+    {
+      "id": "office",
+      "events": [
+        { "id": "office-1", "at": "2026-05-20", "text": "The Datadog office I go to is in downtown San Francisco." },
+        { "id": "office-2", "at": "2026-06-15", "text": "I'm hybrid now: two days a week at the new Sacramento office on J Street." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "commute-now", "family": "composite", "text": "Where do I live now, and where is my office?", "needs": ["home-3", "office-2"], "supersedes": { "home-3": ["home-1", "home-2"], "office-2": ["office-1"] }, "answer": "Sacramento; the Sacramento office on J Street" }
+      ]
+    },
+    {
+      "id": "sister",
+      "events": [
+        { "id": "ana-1", "at": "2025-10-25", "text": "My sister Ana lives in Madrid." },
+        { "id": "ana-2", "at": "2026-04-04", "text": "Ana moved to Toronto for her medical residency." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "sister-now", "family": "composite", "text": "What's the time difference between me and my sister Ana now?", "needs": ["home-3", "ana-2"], "supersedes": { "home-3": ["home-1", "home-2"], "ana-2": ["ana-1"] }, "answer": "3 hours (Sacramento and Toronto)" }
+      ]
+    },
+    {
+      "id": "coach",
+      "events": [
+        { "id": "coach-1", "at": "2025-09-15", "text": "Coach Rivera runs Maya's soccer team." },
+        { "id": "coach-2", "at": "2026-08-11", "text": "Maya's team got a new coach, Coach Lee." }
+      ],
+      "distractors": [],
+      "questions": [
+        { "id": "coach-now", "family": "composite", "text": "Who coaches Maya's soccer team now, and when do they practice?", "needs": ["coach-2", "practice-3"], "supersedes": { "coach-2": ["coach-1"], "practice-3": ["practice-1", "practice-2"] }, "answer": "Coach Lee; Wednesday evenings" }
+      ]
+    }
+  ]
+}
