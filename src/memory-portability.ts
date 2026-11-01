@@ -1,4 +1,4 @@
-import { assertRestorable, edgeRestoreIsNoop } from "./immutable.js";
+import { assertRestorable, edgeRestoreIsNoop, trailExtends } from "./immutable.js";
 import { canonicalEdge, canonicalNode, instantMs } from "./instant.js";
 import { assertVersion, assertVersionFitsNode, isHistoryCapable, versionsEqual } from "./history.js";
 import type { GraphSnapshot, MemoryEdge, MemoryNode, MemoryStore, NodeVersion, SnapshotCapable } from "./types/memory.js";
@@ -45,8 +45,14 @@ export interface PortableExport {
 }
 
 export interface ImportSummary {
+  /** Facts restored, or already held exactly as the artifact has them. */
   nodes: number;
   edges: number;
+  /**
+   * Facts left as they are because this store already holds them in a newer
+   * state: the artifact's copy is an earlier point of the same history.
+   */
+  skipped: number;
 }
 
 /**
@@ -252,18 +258,33 @@ function validatePortable(artifact: PortableExport): void {
  * already holds and this copy would rewrite, an edge that contradicts one
  * already recorded, and an edge endpoint that exists neither in the artifact
  * nor in the store. All reads; nothing is written.
+ *
+ * Returns the facts to skip: those the store already holds in a newer state.
+ * Importing an older backup after a change used to refuse the whole file,
+ * because the stored trail is longer than the backup's and a trail is never
+ * shortened (Fable review, 2026-10-13). The rule stands; the older copy is now
+ * left out instead, and counted. A copy that disagrees with the stored trail,
+ * rather than stopping short of it, is refused as before.
  */
-async function preflightDestination(project: PortableProject, store: MemoryStore, pending: PendingWrites): Promise<void> {
+async function preflightDestination(project: PortableProject, store: MemoryStore, pending: PendingWrites): Promise<Set<string>> {
   const existingEdges = new Map<string, MemoryEdge>();
+  const skipped = new Set<string>();
   for (const node of project.nodes) {
     const incoming = canonicalNode(node);
     const existing = await store.getNode(node.nodeId);
-    assertRestorable(incoming, existing);
-    // An earlier project in this artifact bound for the same store writes
-    // first, so this copy must also restore cleanly over that one.
-    const earlier = pending.nodes.get(node.nodeId);
-    if (earlier !== undefined) assertRestorable(incoming, earlier);
     if (existing) for (const e of await store.getEdges(node.nodeId)) existingEdges.set(e.edgeId, e);
+    // An earlier project in this artifact bound for the same store writes
+    // first, so this copy is checked against what that one leaves behind. That
+    // copy was itself checked against the stored fact, so passing it passes both.
+    const held = pending.nodes.get(node.nodeId) ?? existing;
+    // Strictly longer: an equal trail restores as it always has (a no-op when
+    // the copy is identical).
+    if (held !== undefined && held.temporalAnchors.length > incoming.temporalAnchors.length && trailExtends(held, incoming)) {
+      skipped.add(node.nodeId);
+      pending.nodes.set(node.nodeId, held);
+      continue;
+    }
+    assertRestorable(incoming, held);
     pending.nodes.set(node.nodeId, incoming);
   }
   for (const edge of project.edges) {
@@ -279,6 +300,7 @@ async function preflightDestination(project: PortableProject, store: MemoryStore
     edgeRestoreIsNoop(incoming, pending.edges.get(edge.edgeId));
     pending.edges.set(edge.edgeId, incoming);
   }
+  return skipped;
 }
 
 /** A link the store already holds under this id, looked up from either end. */
@@ -313,6 +335,11 @@ interface PendingWrites {
  * another writer moving underneath) can still leave an import part-way. Import
  * into an empty store when you need all-or-nothing, and keep the artifact: the
  * import is idempotent, so running it again finishes the job.
+ *
+ * Facts the store already holds in a newer state are skipped and counted in
+ * `skipped`. Their versions and links in the artifact are left in: versions are
+ * keyed by id and links are immutable, so the store holds them already and
+ * restoring them is a no-op.
  */
 export async function importPortable(
   artifact: PortableExport,
@@ -326,6 +353,7 @@ export async function importPortable(
   // after the nodes are in (release review 2026-09-21).
   const versionIds = new Map<MemoryStore, Map<string, NodeVersion>>();
   const pending = new Map<MemoryStore, PendingWrites>();
+  const skippedIn = new Map<PortableProject, Set<string>>();
   for (const project of artifact.projects) {
     const store = storeFor(project.project);
     stores.set(project, store);
@@ -334,7 +362,7 @@ export async function importPortable(
       writes = { nodes: new Map(), edges: new Map() };
       pending.set(store, writes);
     }
-    await preflightDestination(project, store, writes);
+    skippedIn.set(project, await preflightDestination(project, store, writes));
     if (!isHistoryCapable(store) || (project.versions ?? []).length === 0) continue;
     let known = versionIds.get(store);
     if (known === undefined) {
@@ -351,9 +379,15 @@ export async function importPortable(
   }
   let nodes = 0;
   let edges = 0;
+  let skipped = 0;
   for (const project of artifact.projects) {
     const store = stores.get(project)!;
+    const skip = skippedIn.get(project)!;
     for (const node of project.nodes) {
+      if (skip.has(node.nodeId)) {
+        skipped += 1;
+        continue;
+      }
       await store.restoreNode(node);
       nodes += 1;
     }
@@ -365,5 +399,5 @@ export async function importPortable(
       for (const version of project.versions ?? []) await store.restoreVersion(version);
     }
   }
-  return { nodes, edges };
+  return { nodes, edges, skipped };
 }

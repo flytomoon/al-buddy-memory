@@ -90,6 +90,15 @@ earlier were GitHub releases only.
 - **`teamMemory` refuses a write carrying a `promotion` label** (importers excepted), refuses
   changes to a copy's `promotion` record, and lets only a copy's author, promoter or an admin
   close it. Facts that are not promoted copies are judged as before.
+- **Importing an older backup no longer refuses the whole file.** Once any fact had changed since
+  the export (invalidated, re-weighted, recalled), `importPortable` and `al-buddy-memory import`
+  refused the artifact, because the stored history is longer than the backup's and history is never
+  shortened. Facts this store already holds in a newer state are now skipped and counted, in a new
+  `ImportSummary.skipped`; identical ones are no-ops, and the rest restore as before. A copy whose
+  history disagrees with the stored one (a different event or instant at the same position), or
+  whose provenance, key reference or content differs, is still refused before anything is written.
+  `ImportSummary` gains the `skipped` field, so a caller comparing the whole summary sees it, and
+  the CLI line ends "skipped N fact(s) already held in a newer state here" when any were.
 
 ## 0.12.0 — 2026-10-16
 

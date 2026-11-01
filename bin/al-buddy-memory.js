@@ -6,7 +6,8 @@
 //   stdout, or to --out, a NEW file (never overwritten), readable by you only.
 // al-buddy-memory import <export.json> [--db path]
 //   restore a portable export verbatim, as the owner. The whole file is checked
-//   before anything is written; running it twice is safe.
+//   before anything is written; running it twice is safe. Facts the database
+//   already holds in a newer state are skipped and counted.
 // al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]
 //   a short briefing for the start of an assistant session (pinned rules, facts
 //   mentioning the project, the most recent facts), read as the assistant would
@@ -120,7 +121,7 @@ if (cmd === "export" || cmd === "import" || cmd === "context" || cmd === "status
     } else if (cmd === "import") {
       if (!args[1] || args[1].startsWith("--")) throw new Error("usage: al-buddy-memory import <export.json> [--db path]");
       const summary = await cli.importMemory({ db, owner, file: args[1] });
-      console.log(`imported ${summary.nodes} fact(s) and ${summary.edges} link(s) into ${db}`);
+      console.log(cli.formatImportSummary(summary, db));
     } else {
       let cwd = flag("--cwd") ?? process.cwd();
       if (has("--hook")) {
