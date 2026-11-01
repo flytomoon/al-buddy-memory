@@ -514,6 +514,8 @@ al-buddy-memory export --out ~/memory-backup.json        # or --format markdown 
 al-buddy-memory import ~/memory-backup.json              # checks the whole file first; safe to re-run
 ```
 
+Facts this store already holds in a newer state are skipped and counted; identical ones are no-ops.
+
 Both read `AL_BUDDY_MEMORY_DB` (or `--db`) like the server. `al-buddy-memory context` prints the
 short briefing the Claude Code plugin shows at session start, and `al-buddy-memory status` the
 counts, the database path, the last write and whether semantic search is available.

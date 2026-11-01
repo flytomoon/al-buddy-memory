@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CONTEXT_MAX_CHARS, exportMemory, formatStatus, importMemory, memoryDbPath, memoryStatus, semanticAvailability, sessionContext, writeNewFile } from "./cli.js";
+import { CONTEXT_MAX_CHARS, exportMemory, formatImportSummary, formatStatus, importMemory, memoryDbPath, memoryStatus, semanticAvailability, sessionContext, writeNewFile } from "./cli.js";
 import { governanceTools, serverStore } from "./mcp/governance-server.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import { storeAudit } from "./governance/audit.js";
@@ -44,11 +44,31 @@ describe("export and import — the owner's backup round-trips", () => {
     writeNewFile(file, text);
     expect(() => writeNewFile(file, text)).toThrow(/already exists/);
     const restored = join(dir, "b.db");
-    expect(await importMemory({ db: restored, file })).toEqual({ nodes: 2, edges: 0 });
+    expect(await importMemory({ db: restored, file })).toEqual({ nodes: 2, edges: 0, skipped: 0 });
     // Idempotent: the same artifact again changes nothing.
-    expect(await importMemory({ db: restored, file })).toEqual({ nodes: 2, edges: 0 });
+    expect(await importMemory({ db: restored, file })).toEqual({ nodes: 2, edges: 0, skipped: 0 });
     const again = JSON.parse(await exportMemory({ db: restored }));
     expect(again.projects[0].nodes).toEqual(artifact.projects[0].nodes);
+  });
+
+  it("an older backup imports after a change, and the line says what it skipped", async () => {
+    const db = join(dir, "a.db");
+    await seed(db, ["Prefers tea", "Lives in Leeds"]);
+    const file = join(dir, "backup.json");
+    writeNewFile(file, await exportMemory({ db }));
+    const inner = new SqliteMemoryStore(db);
+    const leeds = (await inner.listNodes()).find((n) => n.content.text === "Lives in Leeds")!;
+    await inner.updateNode(leeds.nodeId, { validTo: new Date().toISOString() });
+    inner.close();
+
+    // The bin prints formatImportSummary of what importMemory resolves to; a throw is its non-zero exit.
+    const summary = await importMemory({ db, file });
+    expect(summary).toEqual({ nodes: 1, edges: 0, skipped: 1 });
+    expect(formatImportSummary(summary, db)).toBe(`imported 1 fact(s) and 0 link(s) into ${db}; skipped 1 fact(s) already held in a newer state here`);
+    expect(formatImportSummary({ nodes: 2, edges: 0, skipped: 0 }, db)).toBe(`imported 2 fact(s) and 0 link(s) into ${db}`);
+    const after = new SqliteMemoryStore(db);
+    expect((await after.getNode(leeds.nodeId))?.validTo).toBeDefined();
+    after.close();
   });
 
   it("the Markdown mirror lists current facts", async () => {

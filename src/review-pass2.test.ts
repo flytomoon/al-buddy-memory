@@ -57,7 +57,7 @@ describe("a store can import its own export after repairing a legacy value", () 
     store = new SqliteMemoryStore(path);
     await store.updateNode(n.nodeId, { memoryType: "Experience" });
     const artifact = await exportPortable(new Map([["p", store]]));
-    await expect(importPortable(artifact, () => new SqliteMemoryStore(":memory:"))).resolves.toEqual({ nodes: 1, edges: 0 });
+    await expect(importPortable(artifact, () => new SqliteMemoryStore(":memory:"))).resolves.toEqual({ nodes: 1, edges: 0, skipped: 0 });
     store.close();
   });
 });
@@ -176,7 +176,7 @@ describe.each(both)("third review: imports that used to stop part-way (%s)", (_l
     const { memoryLock } = await import("./governance/samples.js");
     const dest = make();
     const locked = govern(dest, { policies: [personalDefaults({ owner: "o" }), memoryLock()], context: () => ({ actor: "o" }) });
-    await expect(importPortable(artifact, () => locked)).resolves.toEqual({ nodes: 2, edges: 0 });
+    await expect(importPortable(artifact, () => locked)).resolves.toEqual({ nodes: 2, edges: 0, skipped: 0 });
     expect((await dest.getNode(kept.nodeId))?.retentionTier).toBe("FullRetention");
     expect((await dest.getNode(binned.nodeId))?.retentionTier).toBe("PendingDeletion");
   });
