@@ -61,6 +61,24 @@ export function assertRestorable(incoming: MemoryNode, existing?: MemoryNode): v
 }
 
 /**
+ * True when the stored fact already holds everything this copy says, and
+ * possibly more: the same provenance, key reference and content, and an anchor
+ * trail at least as long whose opening entries are this copy's, event for event
+ * and instant for instant. An older backup of a fact changed since is exactly
+ * this, and import skips it rather than refusing it (Fable review, 2026-10-13).
+ * A trail that differs at any shared position is not an extension: that is
+ * still {@link assertRestorable}'s refusal.
+ */
+export function trailExtends(stored: MemoryNode, incoming: MemoryNode): boolean {
+  for (const field of ["provenance", "encryptionKeyRef", "content"] as const) {
+    if (canonical(stored[field]) !== canonical(incoming[field])) return false;
+  }
+  const had = stored.temporalAnchors;
+  const brings = incoming.temporalAnchors;
+  return had.length >= brings.length && brings.every((a, i) => a.event === had[i]?.event && sameInstant(a.timestamp, had[i]?.timestamp));
+}
+
+/**
  * There is no updateEdge: a link says what it says. Re-importing an identical
  * link is a no-op (the return value says so); anything else over an existing id
  * is refused. Replacing it used to be allowed, which let a caller refused an

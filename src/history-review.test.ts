@@ -148,7 +148,7 @@ describe("imports cannot write history nobody recorded", () => {
     const a = JSON.parse(JSON.stringify(await exportPortable(new Map([["p", src]])))) as PortableExport;
     a.formatVersion = "1.0.0";
     delete a.projects[0]!.versions;
-    await expect(importPortable(a, () => new SqliteMemoryStore(":memory:"))).resolves.toEqual({ nodes: 1, edges: 0 });
+    await expect(importPortable(a, () => new SqliteMemoryStore(":memory:"))).resolves.toEqual({ nodes: 1, edges: 0, skipped: 0 });
   });
 });
 
