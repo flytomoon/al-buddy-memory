@@ -204,4 +204,36 @@ describe("docs — the claims a reader will check", () => {
     const written = await teamMemory().beforeWrite!({ contextualMetadata: {} } as never, { actor: "alice", purpose: "write", attributes, now: new Date() });
     expect(written.contextualMetadata).toEqual({ scope: "user:alice", author: "alice" });
   });
+
+  /**
+   * Importing an older backup after any fact changed refused the whole file
+   * (Fable review, 2026-10-13, H2). The README, the plugin page and the
+   * plugin's /import command now promise the opposite, in one sentence; the
+   * sentence holds only while import skips and counts the older copy, prints
+   * that count, and leaves an identical one exactly as it was.
+   */
+  it("import skips and counts facts held in a newer state, and an identical one is a no-op", async () => {
+    const claim = "Facts this store already holds in a newer state are skipped and counted; identical ones are no-ops";
+    for (const f of ["README.md", "docs/claude-plugin.md", "plugin/commands/import.md"]) {
+      expect(read(f).replace(/\s+/g, " ")).toContain(claim);
+    }
+
+    const { InMemoryStore } = await import("./in-memory-store.js");
+    const { exportPortable, importPortable } = await import("./memory-portability.js");
+    const { formatImportSummary } = await import("./cli.js");
+    const { makeNode } = await import("./memory-store-conformance.spec.js");
+    const store = new InMemoryStore();
+    const kept = await store.addNode(makeNode({ content: { text: "Prefers tea" } }));
+    const moved = await store.addNode(makeNode({ content: { text: "Lives in Leeds" } }));
+    const backup = await exportPortable(new Map([["p", store]]));
+    await store.updateNode(moved.nodeId, { validTo: new Date().toISOString() });
+    const before = { nodes: await store.listNodes(), kept: await store.history(kept.nodeId), moved: await store.history(moved.nodeId) };
+
+    const summary = await importPortable(backup, () => store);
+    expect(summary).toEqual({ nodes: 1, edges: 0, skipped: 1 });
+    expect(formatImportSummary(summary, "memory.db")).toMatch(/skipped 1 fact\(s\) already held in a newer state here$/);
+    expect(await store.listNodes()).toEqual(before.nodes);
+    expect(await store.history(kept.nodeId)).toEqual(before.kept);
+    expect(await store.history(moved.nodeId)).toEqual(before.moved);
+  });
 });

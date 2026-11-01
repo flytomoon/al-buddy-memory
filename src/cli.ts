@@ -74,6 +74,7 @@ export function writeNewFile(path: string, text: string): void {
 /**
  * Restore a portable export into the database, as the owner. Every check runs
  * on the whole artifact before anything is written; running it again is safe.
+ * Facts the database already holds in a newer state are skipped and counted.
  */
 export async function importMemory(opts: CliStoreOptions & { file: string }): Promise<ImportSummary> {
   const artifact = JSON.parse(readFileSync(opts.file, "utf8")) as PortableExport;
@@ -85,6 +86,12 @@ export async function importMemory(opts: CliStoreOptions & { file: string }): Pr
   } finally {
     inner.close();
   }
+}
+
+/** The import's one-line result, as `import` prints it. */
+export function formatImportSummary(summary: ImportSummary, db: string): string {
+  const skipped = summary.skipped > 0 ? `; skipped ${summary.skipped} fact(s) already held in a newer state here` : "";
+  return `imported ${summary.nodes} fact(s) and ${summary.edges} link(s) into ${db}${skipped}`;
 }
 
 /** Upper bound on what `context` prints, whatever is asked for: a hook's context is capped at 10,000 characters. */

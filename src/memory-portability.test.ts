@@ -5,7 +5,7 @@ import { makeNode } from "./memory-store-conformance.spec.js";
 import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import { exportView, personalDefaults } from "./governance/index.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
-import type { MemoryNode, MemoryStore } from "./types/memory.js";
+import type { HistoryCapable, MemoryNode, MemoryStore } from "./types/memory.js";
 
 async function seededStore(): Promise<InMemoryStore> {
   const store = new InMemoryStore();
@@ -186,6 +186,99 @@ describe("importPortable — validation + safety", () => {
 });
 
 /**
+ * Restoring last week's backup after one fact changed refused the whole file:
+ * the stored trail was longer than the backup's, and a trail is never shortened
+ * (Fable review, 2026-10-13). The older copy is now skipped and counted.
+ */
+describe("importPortable — an older backup over a store that moved on", () => {
+  for (const [label, make] of [
+    ["InMemoryStore", () => new InMemoryStore()],
+    ["SqliteMemoryStore", () => new SqliteMemoryStore(":memory:")],
+  ] as const) {
+    it(`${label}: skips the facts held in a newer state, counts them, and leaves everything else as it is`, async () => {
+      const store: MemoryStore & HistoryCapable = make();
+      const a = await store.addNode(makeNode({ content: { text: "one" } }));
+      const b = await store.addNode(makeNode({ content: { text: "two" } }));
+      await store.addNode(makeNode({ content: { text: "three" } }));
+      await store.addEdge({ sourceNodeId: a.nodeId, targetNodeId: b.nodeId, relationshipType: "Temporal", strength: 0.5, provenance: "UserAsserted" });
+      const backup = await exportPortable(new Map([["p", store]]));
+      expect(backup.projects[0]!.nodes).toHaveLength(3);
+
+      await store.updateNode(b.nodeId, { validTo: new Date().toISOString() });
+      const added = await store.addNode(makeNode({ content: { text: "four" } }));
+      const before = await store.listNodes();
+      const historyBefore = await store.history(b.nodeId);
+
+      await expect(importPortable(backup, () => store)).resolves.toEqual({ nodes: 2, edges: 1, skipped: 1 });
+      expect((await store.getNode(b.nodeId))?.validTo).toBeDefined();
+      expect(await store.getNode(added.nodeId)).toBeDefined();
+      expect(await store.listNodes()).toEqual(before);
+      expect(await store.history(b.nodeId)).toEqual(historyBefore);
+      expect((await store.history(b.nodeId)).map((v) => v.event)).not.toContain("restored");
+      // Run twice: the same answer, and still nothing written.
+      await expect(importPortable(backup, () => store)).resolves.toEqual({ nodes: 2, edges: 1, skipped: 1 });
+      expect(await store.listNodes()).toEqual(before);
+      (store as { close?: () => void }).close?.();
+    });
+
+    it(`${label}: still refuses a copy whose history disagrees, before writing anything`, async () => {
+      const store: MemoryStore = make();
+      const older = await store.addNode(makeNode({ content: { text: "changed since the backup" } }));
+      const fact = await store.addNode(makeNode({ content: { text: "rewritten in the file" } }));
+      const backup = await exportPortable(new Map([["p", store]]));
+      await store.updateNode(older.nodeId, { confidenceWeight: 0.4 });
+      await store.updateNode(fact.nodeId, { confidenceWeight: 0.5 });
+      const newcomer = await new InMemoryStore().addNode(makeNode({ content: { text: "new in the file" } }));
+
+      const artifact = await exportPortable(new Map([["p", store]]));
+      const p = artifact.projects[0]!;
+      // Same length as the stored trail, a different event at position 1. The
+      // older fact goes first: it is skippable, and must not mask the refusal.
+      const current = p.nodes.find((x) => x.nodeId === fact.nodeId)!;
+      const [created, changed] = current.temporalAnchors;
+      const conflicting = { ...current, temporalAnchors: [created!, { ...changed!, event: "recalled" as const }] };
+      artifact.projects[0] = {
+        ...p,
+        nodes: [backup.projects[0]!.nodes.find((x) => x.nodeId === older.nodeId)!, newcomer, conflicting],
+        versions: [],
+      };
+      const before = await store.listNodes();
+
+      await expect(importPortable(artifact, () => store)).rejects.toThrow(new RegExp(`${fact.nodeId}.*append-only`));
+      expect(await store.listNodes()).toEqual(before);
+      expect(await store.getNode(newcomer.nodeId)).toBeUndefined();
+
+      // Shorter than the stored trail but disagreeing inside it is not an older
+      // copy either: refused, not skipped.
+      await store.updateNode(fact.nodeId, { confidenceWeight: 0.6 });
+      artifact.projects[0] = { ...p, nodes: [conflicting], versions: [] };
+      await expect(importPortable(artifact, () => store)).rejects.toThrow(new RegExp(`${fact.nodeId}.*append-only`));
+      // And a different immutable field over an older trail is refused as before.
+      const recontented = { ...backup.projects[0]!.nodes.find((x) => x.nodeId === older.nodeId)!, content: { text: "something else" } };
+      artifact.projects[0] = { ...p, nodes: [recontented], versions: [] };
+      await expect(importPortable(artifact, () => store)).rejects.toThrow(new RegExp(`${older.nodeId}.*content is immutable`));
+      (store as { close?: () => void }).close?.();
+    });
+
+    it(`${label}: two projects bound for the same store, the newer first: the older copy is skipped, not refused`, async () => {
+      const source: MemoryStore = make();
+      const fact = await source.addNode(makeNode({ content: { text: "moves on" } }));
+      const old = await exportPortable(new Map([["p", source]]));
+      await source.updateNode(fact.nodeId, { confidenceWeight: 0.3 });
+      const newer = await exportPortable(new Map([["p", source]]));
+      const artifact = { ...newer, projects: [newer.projects[0]!, { ...old.projects[0]!, project: "q" }] };
+
+      const into = new SqliteMemoryStore(":memory:");
+      await expect(importPortable(artifact, () => into)).resolves.toEqual({ nodes: 1, edges: 0, skipped: 1 });
+      expect((await into.getNode(fact.nodeId))?.confidenceWeight).toBe(0.3);
+      expect((await into.history(fact.nodeId)).map((v) => v.event)).not.toContain("restored");
+      (source as { close?: () => void }).close?.();
+      into.close();
+    });
+  }
+});
+
+/**
  * The artifact must be a state the store actually had. Export enumerated the
  * nodes, then fetched each node's edges one await at a time, so a delete landing
  * in between produced two nodes and zero edges — a graph that never existed
@@ -284,7 +377,7 @@ describe("exportPortable is complete, in both stores", () => {
       expect(artifact.projects[0]!.edges).toHaveLength(1);
 
       const into = new SqliteMemoryStore(":memory:");
-      await expect(importPortable(artifact, () => into)).resolves.toEqual({ nodes: ids.length, edges: 1 });
+      await expect(importPortable(artifact, () => into)).resolves.toEqual({ nodes: ids.length, edges: 1, skipped: 0 });
       expect((await into.listNodes()).map((n) => n.nodeId).sort()).toEqual([...ids].sort());
       (store as { close?: () => void }).close?.();
       into.close();

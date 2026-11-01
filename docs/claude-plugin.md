@@ -72,7 +72,8 @@ npx al-buddy-memory export --format markdown > memory.md      # a readable mirro
 npx al-buddy-memory import ~/memory-backup.json               # restore; safe to run twice
 ```
 
-Import checks the whole file before writing anything. Any MCP client can then use the same memory:
+Import checks the whole file before writing anything. Facts this store already holds in a newer
+state are skipped and counted; identical ones are no-ops. Any MCP client can then use the same memory:
 see [Codex and the ChatGPT desktop app](#codex-and-the-chatgpt-desktop-app) below.
 
 ## Delete it
