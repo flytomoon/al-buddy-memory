@@ -194,6 +194,36 @@ describe("compare.mjs — an A/B, question by question", () => {
     expect(text).toMatch(/CPU p50 \/ p95 +80 \/ 80 +500 \/ 500/);
   });
 
+  it("puts what a question cost beside its accuracy: tokens and notional dollars per answered question", () => {
+    const run = (rows: { usage?: Record<string, number>; judge?: Record<string, number>; usd?: number; judgeUsd?: number }[]) => ({
+      judge: { requestedModel: "sonnet" },
+      settings: {},
+      questions: rows.map((r, i) => ({
+        question_id: `q${i}`,
+        question_type: "multi-session",
+        label: true,
+        ...(r.usage ? { answerUsage: r.usage, answerNotionalCostUsd: r.usd } : {}),
+        ...(r.judge ? { judgeUsage: r.judge, judgeNotionalCostUsd: r.judgeUsd } : {}),
+      })),
+      summary: { qa: summarizeQa(rows.map((_, i) => ({ question_id: `q${i}`, question_type: "multi-session", label: true }))), retrieval: {} },
+    });
+    const base = digest(
+      run([
+        { usage: { input_tokens: 10, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 990, output_tokens: 200 }, judge: { input_tokens: 300, output_tokens: 5 }, usd: 0.02, judgeUsd: 0.001 },
+        { usage: { input_tokens: 10, cache_creation_input_tokens: 7_000, cache_read_input_tokens: 990, output_tokens: 400 }, judge: { input_tokens: 500, output_tokens: 5 }, usd: 0.04, judgeUsd: 0.003 },
+      ]),
+      "base",
+    );
+    expect(base.cost).toEqual({ answered: 2, answerInputTokens: 7_000, answerOutputTokens: 300, judged: 2, judgeTokens: 405, notionalUsd: 0.032 });
+    // A retrieval-only run (--answerer none) spent nothing, and says "—", not 0.
+    const free = digest(run([{}, {}]), "free");
+    expect(free.cost).toEqual({ answered: 0, answerInputTokens: null, answerOutputTokens: null, judged: 0, judgeTokens: null, notionalUsd: null });
+    const text = report([base, free]);
+    expect(text).toMatch(/answer tokens in \/ out +7000 \/ 300 +—/);
+    expect(text).toMatch(/judge tokens +405 +—/);
+    expect(text).toMatch(/notional \$ \/ question +\$0\.0320 +—/);
+  });
+
   it("says so when the judges differ", () => {
     const text = report([digest(result({ a: ["multi-session", true] }), "base"), digest(result({ a: ["multi-session", true] }, "opus"), "other")]);
     expect(text).toContain("[judge opus vs sonnet]");
