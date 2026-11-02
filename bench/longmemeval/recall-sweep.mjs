@@ -10,7 +10,11 @@
 // no arm always goes first. One question at a time: a recall is never timed
 // while another is running.
 //
-// An arm is `none`, or parts joined by `+`:
+// An arm is `none` — the raw-retrieval baseline: HybridRetriever.recall over the
+// raw messages, with no expand, cross-encoder or recall option — or parts joined by `+`:
+//   expand                    recall with expand, as the MCP recall tool does by default;
+//                             `--arm none --arm expand` is the baseline beside the shipped
+//                             default (refused with --expand, which expands every arm)
 //   <model>:<dtype>:<depth>   a cross-encoder — model `minilm`, `bge` or a Hugging
 //                             Face cross-encoder id, depth a number of candidates or `all`
 //   <model>:<dtype>:<depth>:window
@@ -21,15 +25,16 @@
 //   build:<dir>               another build of the library (e.g. the commit before,
 //                             compiled to <dir>), recalling over an exact copy of the
 //                             memory: same ids, anchors and vectors, so ties fall the same way
-// e.g. `--arm none --arm build:../base/dist --arm content-words --arm content-words+minilm:q8:30`.
+// e.g. `--arm none --arm expand --arm build:../base/dist --arm content-words --arm expand+minilm:q8:30`.
 //
 // Writes bench/results/<date>-lme-recall-sweep.json: per arm, the recall call's
 // wall-clock and CPU time, the share of recalls within --budget-ms, the
 // official retrieval averages, how often the reader would see every evidence
 // turn, in how many questions it would see the same rounds as the first arm,
 // and which questions newly see (or no longer see) every evidence turn
-// against the first arm. A question's accuracy can only move when the rounds
-// it is shown do. A `:window` arm whose arm without the cross-encoder is also
+// against the first arm, and how much text the reader would be handed
+// (characters, and tokens estimated at four characters each). A question's
+// accuracy can only move when the rounds it is shown do. A `:window` arm whose arm without the cross-encoder is also
 // swept (`minilm:q8:30:window` and `none`, say) is held to its bar against it
 // (`windowGateCheck`), and the last such check is the RESULT. The last line
 // printed is `RESULT: …`, one sentence.
@@ -43,10 +48,9 @@ import { parseArgs } from "node:util";
 import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { corpusOf, isAbstention, loadInstances, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
-import { cachingEmbedder, fastPathOptions, ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
+import { armRecallSettings, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
+import { cachingEmbedder, ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
 import { retrievalMetrics, sameRounds, shownEvidence, summarizeRecallTime, summarizeRetrieval, windowGateCheck } from "./metrics.mjs";
-
-const RERANK_MODELS = { minilm: "Xenova/ms-marco-MiniLM-L-6-v2", bge: "Xenova/bge-reranker-base" };
 
 const { values: args } = parseArgs({
   options: {
@@ -112,44 +116,25 @@ const rerankers = new Map();
 const builds = new Map();
 const arms = [];
 for (const spec of args.arm) {
-  const arm = { name: "none", reranker: null, depth: null, when: "always", rerankPart: null, recallOptions: {}, build: null };
-  if (spec === "none") {
-    arms.push(arm);
-    continue;
+  let parsed;
+  try {
+    parsed = parseArm(spec, { globalExpand: args.expand });
+  } catch (e) {
+    fail(e.message);
   }
-  const names = [];
-  let contentWords = false;
-  for (const part of spec.split("+")) {
-    const [kind, ...rest] = part.split(":");
-    if (part === "content-words") contentWords = true;
-    else if (kind === "build") {
-      if (arm.build) fail(`--arm ${spec}: one build per arm`);
-      const dir = resolve(rest.join(":"));
-      if (!existsSync(join(dir, "index.js"))) fail(`--arm ${spec}: ${dir}/index.js is missing (compile that commit's src/ there first)`);
-      if (!builds.has(dir)) builds.set(dir, await import(pathToFileURL(join(dir, "index.js")).href));
-      arm.build = dir;
-    } else {
-      if (arm.reranker) fail(`--arm ${spec}: one cross-encoder per arm`);
-      const [short, dtype = "fp32", depthSpec = "all", gate, ...extra] = part.split(":");
-      // A Hugging Face id is always owner/name, so anything else is a typo or an arm that is gone.
-      if (!RERANK_MODELS[short] && !short.includes("/")) fail(`--arm ${spec}: unknown part "${part}" (have: none, content-words, build:<dir>, ${Object.keys(RERANK_MODELS).join(", ")} or a Hugging Face cross-encoder id)`);
-      const model = RERANK_MODELS[short] ?? short;
-      const depth = depthSpec === "all" ? null : Number(depthSpec);
-      if (depth !== null && (!Number.isInteger(depth) || depth < 1)) fail(`--arm ${spec}: depth must be an integer >= 1 or "all"`);
-      if ((gate !== undefined && gate !== "window") || extra.length > 0) fail(`--arm ${spec}: after the depth, only ":window" (rerank only questions that name a period)`);
-      const key = `${model}:${dtype}`;
-      if (!rerankers.has(key)) rerankers.set(key, new lib.LocalReranker({ model, dtype }));
-      const rerankPart = `${short}:${dtype}:${depthSpec}${gate ? ":window" : ""}`;
-      Object.assign(arm, { reranker: rerankers.get(key), depth, when: gate ?? "always", rerankPart });
-      names.push(rerankPart);
-      continue;
-    }
-    names.push(part);
+  const arm = { name: parsed.name, reranker: null, depth: null, when: "always", rerankPart: null, build: null, ...armRecallSettings(parsed, { globalExpand: args.expand }) };
+  if (parsed.build !== null) {
+    const dir = resolve(parsed.build);
+    if (!existsSync(join(dir, "index.js"))) fail(`--arm ${spec}: ${dir}/index.js is missing (compile that commit's src/ there first)`);
+    if (!builds.has(dir)) builds.set(dir, await import(pathToFileURL(join(dir, "index.js")).href));
+    arm.build = dir;
   }
-  arm.recallOptions = fastPathOptions({ contentWords }).options;
-  // An older build may not know the newer options; it would read them as a scope.
-  if (arm.build && Object.keys(arm.recallOptions).length > 0) fail(`--arm ${spec}: a build arm recalls as that build does; give it no recall options`);
-  arm.name = names.join("+");
+  if (parsed.rerank) {
+    const { model, dtype, depth, when, part } = parsed.rerank;
+    const key = `${model}:${dtype}`;
+    if (!rerankers.has(key)) rerankers.set(key, new lib.LocalReranker({ model, dtype }));
+    Object.assign(arm, { reranker: rerankers.get(key), depth, when, rerankPart: part });
+  }
   arms.push(arm);
 }
 if (new Set(arms.map((a) => a.name)).size !== arms.length) fail("Each --arm must be different.");
@@ -176,6 +161,7 @@ const settings = {
   arms: arms.map((a) => ({
     name: a.name,
     reranker: a.reranker ? { model: a.reranker.model, dtype: a.reranker.dtype, depth: a.depth ?? `all recalled (${recallPool})`, when: a.when } : null,
+    expand: a.expand,
     recallOptions: a.recallOptions,
     build: a.build ? relative(REPO_ROOT, a.build) || "." : null,
   })),
@@ -247,13 +233,14 @@ for (const instance of todo) {
         const armMemory = arm.build ? copies.get(arm.build) : memory;
         const retriever = new armLib.HybridRetriever(armMemory.store, queryEmbedder, arm.reranker ? { reranker: arm.reranker, ...(arm.depth ? { rerankDepth: arm.depth } : {}) } : {});
         const recallOptions = arm.reranker ? { ...arm.recallOptions, ...rerankGate(lib, instance, arm.when) } : arm.recallOptions;
-        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: args.expand, recallPool, recallOptions });
+        const { rounds, recall } = await recallRounds({ ...armMemory, retriever }, instance, { expand: arm.expand, recallPool, recallOptions });
         times.get(arm.name).push({ ...recall, load1: round2(loadavg()[0]) });
         if (rep > 0) continue;
         const shown = rounds.slice(0, k).map((r) => r.id);
         row.arms[arm.name] = {
           retrieval: skipped ? { skipped } : { skipped: null, metrics: retrievalMetrics(rounds.map((r) => r.id), correct, corpus.map((c) => c.id)), shown: shownEvidence(shown, correct) },
           shownRounds: shown,
+          shownChars: shownChars(rounds.slice(0, k)),
         };
       }
     }
@@ -293,6 +280,8 @@ const summary = Object.fromEntries(
         withinBudget: { ms: round2(armRows.filter((r) => r.recall.ms <= budgetMs).length / armRows.length), cpuMs: round2(armRows.filter((r) => r.recall.cpuMs <= budgetMs).length / armRows.length) },
         retrieval: { questions: retrieval.questions, session: retrieval.session, turn: retrieval.turn },
         shown: retrieval.shown ?? null,
+        // What the reader would be handed per question.
+        readerContext: summarizeShownChars(armRows.map((r) => r.shownChars)),
         sameRoundsAs: { arm: arms[0].name, questions: rows.filter((r) => sameRounds(r.arms[arm.name].shownRounds, r.arms[arms[0].name].shownRounds)).length, of: rows.length },
         // Which questions this arm newly shows every evidence turn for, and which it no longer does.
         allEvidenceVs: {
@@ -329,11 +318,11 @@ const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed
 console.log(`\nWrote ${out}`);
 console.log(`Attempted ${attempted} question(s), succeeded ${finished}.`);
 const w = Math.max(...arms.map((a) => a.name.length));
-console.log(`${"arm".padEnd(w)}  recall p50 / p95 / max (ms)   CPU p50 / p95 (ms)   <=${budgetMs} ms   every evidence turn shown   +/- vs ${arms[0].name}   same rounds as ${arms[0].name}`);
+console.log(`${"arm".padEnd(w)}  recall p50 / p95 / max (ms)   CPU p50 / p95 (ms)   <=${budgetMs} ms   ~tokens shown p50   every evidence turn shown   +/- vs ${arms[0].name}   same rounds as ${arms[0].name}`);
 for (const arm of arms) {
   const s = summary[arm.name];
   console.log(
-    `${arm.name.padEnd(w)}  ${`${s.recall.ms.p50} / ${s.recall.ms.p95} / ${s.recall.ms.max}`.padEnd(28)} ${`${s.recall.cpuMs.p50} / ${s.recall.cpuMs.p95}`.padEnd(20)} ${pct(s.withinBudget.ms).padEnd(9)} ${pct(s.shown?.allEvidence).padEnd(27)} ${`+${s.allEvidenceVs.gained.length} / -${s.allEvidenceVs.lost.length}`.padEnd(arms[0].name.length + 9)} ${s.sameRoundsAs.questions} of ${s.sameRoundsAs.of}`,
+    `${arm.name.padEnd(w)}  ${`${s.recall.ms.p50} / ${s.recall.ms.p95} / ${s.recall.ms.max}`.padEnd(28)} ${`${s.recall.cpuMs.p50} / ${s.recall.cpuMs.p95}`.padEnd(20)} ${pct(s.withinBudget.ms).padEnd(9)} ${String(s.readerContext?.approxTokens.p50 ?? "—").padEnd(18)} ${pct(s.shown?.allEvidence).padEnd(27)} ${`+${s.allEvidenceVs.gained.length} / -${s.allEvidenceVs.lost.length}`.padEnd(arms[0].name.length + 9)} ${s.sameRoundsAs.questions} of ${s.sameRoundsAs.of}`,
   );
 }
 const load = summary[arms[0].name].recall.load1;

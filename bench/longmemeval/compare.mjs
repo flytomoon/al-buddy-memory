@@ -15,6 +15,32 @@ import { pathToFileURL } from "node:url";
 
 import { QUESTION_TYPES } from "./dataset.mjs";
 
+const usageNumber = (u, k) => (typeof u?.[k] === "number" ? u[k] : 0);
+const meanOf = (xs) => (xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length);
+
+/**
+ * What a question cost, from its rows: the answerer's input tokens (fresh,
+ * cache-written and cache-read, since the CLI bills all three) and output
+ * tokens per answered question, the judge's tokens per judged question, and
+ * the notional API dollars per question that spent any (not billed on a
+ * subscription). A run that called no model has nulls, not zeros.
+ */
+export function costOf(questions) {
+  const answered = questions.filter((q) => q.answerUsage && typeof q.answerUsage === "object");
+  const judged = questions.filter((q) => q.judgeUsage && typeof q.judgeUsage === "object");
+  const priced = questions.filter((q) => typeof q.answerNotionalCostUsd === "number" || typeof q.judgeNotionalCostUsd === "number");
+  const input = (u) => usageNumber(u, "input_tokens") + usageNumber(u, "cache_creation_input_tokens") + usageNumber(u, "cache_read_input_tokens");
+  const round = (x, d = 0) => (x === null ? null : Math.round(x * 10 ** d) / 10 ** d);
+  return {
+    answered: answered.length,
+    answerInputTokens: round(meanOf(answered.map((q) => input(q.answerUsage)))),
+    answerOutputTokens: round(meanOf(answered.map((q) => usageNumber(q.answerUsage, "output_tokens")))),
+    judged: judged.length,
+    judgeTokens: round(meanOf(judged.map((q) => input(q.judgeUsage) + usageNumber(q.judgeUsage, "output_tokens")))),
+    notionalUsd: round(meanOf(priced.map((q) => (q.answerNotionalCostUsd ?? 0) + (q.judgeNotionalCostUsd ?? 0))), 4),
+  };
+}
+
 /** What one result file says, reduced to what a comparison needs. */
 export function digest(result, name = "result") {
   const labels = new Map(result.questions.filter((q) => typeof q.label === "boolean").map((q) => [q.question_id, { type: q.question_type, label: q.label }]));
@@ -29,6 +55,7 @@ export function digest(result, name = "result") {
     qa: result.summary.qa,
     shown: result.summary.retrieval.shown ?? null,
     recall: result.summary.recall ?? null,
+    cost: costOf(result.questions),
   };
 }
 
@@ -71,6 +98,11 @@ export function report(digests) {
   lines.push(`${"recall p95".padEnd(28)}${digests.map((d) => ms(d.recall?.ms.p95).padStart(w + 2)).join("")}`);
   lines.push(`${"  CPU p50 / p95".padEnd(28)}${digests.map((d) => (d.recall ? `${d.recall.cpuMs.p50} / ${d.recall.cpuMs.p95}` : "—").padStart(w + 2)).join("")}`);
   lines.push(`${"  machine load (1 min)".padEnd(28)}${digests.map((d) => String(d.recall?.load1?.mean ?? "—").padStart(w + 2)).join("")}`);
+  // Per answered (or judged) question; "—" where the run called no model.
+  const n = (x) => (x === null || x === undefined ? "—" : String(x));
+  lines.push(`${"answer tokens in / out".padEnd(28)}${digests.map((d) => (d.cost?.answerInputTokens == null ? "—" : `${d.cost.answerInputTokens} / ${n(d.cost.answerOutputTokens)}`).padStart(w + 2)).join("")}`);
+  lines.push(`${"judge tokens".padEnd(28)}${digests.map((d) => n(d.cost?.judgeTokens).padStart(w + 2)).join("")}`);
+  lines.push(`${"notional $ / question".padEnd(28)}${digests.map((d) => (d.cost?.notionalUsd == null ? "—" : `$${d.cost.notionalUsd.toFixed(4)}`).padStart(w + 2)).join("")}`);
   for (const d of digests.slice(1)) {
     const p = pairwise(base, d);
     const warn = [];

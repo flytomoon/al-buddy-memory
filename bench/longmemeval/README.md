@@ -192,9 +192,47 @@ node bench/longmemeval/compare.mjs $R/$D-lme-full-{baseline,all}.json
 ```
 
 `compare.mjs` prints accuracy per type side by side, how often the reader saw every evidence turn,
-and, per option, the questions it fixed and broke against the baseline. A difference of two or three
+recall time, what a question cost (the answerer's input and output tokens per answered question,
+the judge's tokens per judged question, and the notional API dollars per question; "—" for a run
+that called no model) and, per option, the questions it fixed and broke against the baseline. A difference of two or three
 questions out of 133 is inside the noise of a CLI that exposes no temperature; the fixed/broken
 counts say more than the percentages.
+
+## The raw-retrieval baseline: what each feature has to beat
+
+Work on agent memory keeps finding that plain retrieval over the raw history holds its own against
+designed memory. So every feature here — `expand`, the cross-encoder, more rounds, the
+chain-of-note reader — has to beat the run with all of them off, on the same questions, at a
+cost someone can see. That run is `run.mjs` with no option flags: `HybridRetriever.recall` over one
+memory per raw message, nothing extracted, consolidated or derived, nothing reranked or expanded.
+The MCP `recall` tool's default is the same recall with `expand` on (`GovernanceDeps.expand`).
+
+Put side by side by `compare.mjs`, the full runs in `bench/results/` (500 questions, Sonnet
+answering and judging, notional API dollars — not billed on the subscription):
+
+| | Raw baseline (09-29) | Every option, cross-encoder (09-29) | Every option, no cross-encoder (09-30) |
+|---|---|---|---|
+| Overall accuracy | 88.4% | 92.6% | 92.6% |
+| Multi-session | 75.9% | 85.0% | 82.0% |
+| Temporal reasoning | 85.7% | 94.0% | 94.0% |
+| Answer tokens in / out, per question | 17,013 / 353 | 27,383 / 423 | 27,420 / 434 |
+| Notional $ per question (answer + judge) | $0.073 | $0.118 | $0.118 |
+| Recall p50 / p95 | not recorded | not recorded | 11.7 / 33.5 ms |
+
+"Every option" is `--expand --aggregate-top-k 40 --chain-of-note`, with `--rerank minilm` in the
+first. Together they bought 4.2 points for about 60% more answer input tokens a question; with or
+without the cross-encoder, overall accuracy was the same (it moved 3 points up on multi-session
+and 3.8 down on knowledge-update, inside the noise named above). Recall
+time was not recorded before 2026-09-30, so the baseline needs a fresh run to put its latency
+beside the default's.
+
+Without a model, `recall-sweep.mjs` puts the two retrievals side by side over the same memory:
+the raw arm `none` and the shipped default `expand`, with recall p50/p95, how often the reader
+would see every evidence turn, and how many tokens of history it would be handed:
+
+```sh
+node bench/longmemeval/recall-sweep.mjs --arm none --arm expand
+```
 
 ## Recall time
 
@@ -228,8 +266,9 @@ node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
 ```
 
 An arm is `none` or `<model>:<dtype>:<depth>` (`minilm`, `bge` or a Hugging Face id; `fp32`, `q8`,
-…; a number of candidates or `all`), or the recall option `content-words`, joined with `+`
-(`content-words+minilm:q8:30`). A cross-encoder part ending in `:window` (`minilm:q8:30:window`)
+…; a number of candidates or `all`), or the recall options `expand` and `content-words`, joined
+with `+` (`expand+minilm:q8:30`). `expand` is refused beside the sweep's own `--expand`, which
+already expands every arm. A cross-encoder part ending in `:window` (`minilm:q8:30:window`)
 reads only questions that name a period, as `run.mjs --rerank-when window` does; when the same arm
 without it is swept too (`none`, or `content-words` for `content-words+minilm:q8:30:window`), the
 sweep holds it to its bar: window recalls within `--budget-ms` at p95, more of them newly showing
