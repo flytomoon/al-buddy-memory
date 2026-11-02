@@ -28,9 +28,10 @@ export const RECALL_POOL = 100;
  * best `rerankDepth` candidates. `queryEmbedder` (default `embedder`) is the
  * one recall embeds the question with: the same model without
  * `cachingEmbedder`'s memo, so a timed recall always pays for its embedding.
+ * `store` makes the empty store (the tests pass an `InMemoryStore`).
  */
-export async function ingestHistory(lib, instance, { embedder, queryEmbedder = embedder, reranker, rerankDepth } = {}) {
-  const store = new lib.SqliteMemoryStore(":memory:");
+export async function ingestHistory(lib, instance, { embedder, queryEmbedder = embedder, reranker, rerankDepth, store: newStore = () => new lib.SqliteMemoryStore(":memory:") } = {}) {
+  const store = newStore();
   /** nodeId → where the message sits in the history. */
   const origin = new Map();
   for (let s = 0; s < instance.haystack_sessions.length; s += 1) {

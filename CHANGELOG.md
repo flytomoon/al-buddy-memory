@@ -13,6 +13,14 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **A raw-retrieval baseline beside the shipped default, in the LongMemEval benchmark**
+  (`bench/longmemeval/README.md#the-raw-retrieval-baseline-what-each-feature-has-to-beat`).
+  `recall-sweep.mjs` takes an `expand` arm, so `--arm none --arm expand` sweeps plain recall over
+  the raw messages and the MCP `recall` tool's default over the same memory, with no model call;
+  each arm also reports how many tokens of history the reader would be handed. `compare.mjs`
+  prints what a question cost beside its accuracy: answer and judge tokens, and notional dollars,
+  per question. Measurement only: recall is unchanged.
+
 - **Scopes, and the `teamMemory` sample policy** (`docs/policies/scopes.md`). Personal, team and
   company memory in one tenant, by a fact's `contextualMetadata.scope` (`user:<actor>`,
   `team:<id>`, `org`, or a list of these) and `author`. `teamMemory()` reads each actor their
