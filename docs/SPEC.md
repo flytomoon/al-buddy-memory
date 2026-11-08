@@ -116,6 +116,13 @@ be shown beside what it was drawn from. Raw text is immutable, so evidence that 
 holds while the source exists; `verifyDerived()` re-checks it for what arrived by import or from
 an older library, and retracts — never deletes — a conclusion whose evidence no longer holds.
 
+Recall returns append a `recalled` anchor to each returned node. This slows confidence decay, which
+still floors at half. A nightly caller can pass `crossCheck` to `verifyDerived()`; the library checks
+the most read and volatile state conclusions first, showing at most 50 newer raw conversation turns
+per conclusion. A proposed contradiction needs an exact quote from one of those turns before the
+conclusion is retracted. Retractions await acknowledgement in session context; call the
+`confirm_retraction` MCP tool with the fact id to clear the review flag while preserving history.
+
 ### 8c. Mental models: standing questions with answers kept current (0.7.0)
 
 A mental model is a question asked often enough that its answer should be ready before anyone asks.

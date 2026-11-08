@@ -18,12 +18,13 @@ describe("effectiveConfidence", () => {
   it("prefers the fresher of two equally confident facts", () => {
     expect(effectiveConfidence(node(1), now)).toBeGreaterThan(effectiveConfidence(node(60), now));
   });
-  it("resets the clock when a fact is reinforced or modified, not when it is merely recalled", () => {
-    const old = node(200);
-    const reinforced = node(200, 0.8, 0.01, [{ event: "reinforced", ageDays: 2 }]);
-    const recalled = node(200, 0.8, 0.01, [{ event: "recalled", ageDays: 2 }]);
+  it("resets the clock on reinforcement, while recall only slows decay", () => {
+    const old = node(60);
+    const reinforced = node(60, 0.8, 0.01, [{ event: "reinforced", ageDays: 2 }]);
+    const recalled = node(60, 0.8, 0.01, [{ event: "recalled", ageDays: 2 }]);
     expect(effectiveConfidence(reinforced, now)).toBeGreaterThan(effectiveConfidence(old, now));
-    expect(effectiveConfidence(recalled, now)).toBe(effectiveConfidence(old, now));
+    expect(effectiveConfidence(recalled, now)).toBeGreaterThan(effectiveConfidence(old, now));
+    expect(effectiveConfidence(recalled, now)).toBeLessThan(effectiveConfidence(reinforced, now));
   });
   it("never buries an old truth — the multiplier floors at half", () => {
     expect(effectiveConfidence(node(3650), now)).toBe(0.8 * DECAY_FLOOR);

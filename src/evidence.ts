@@ -14,6 +14,9 @@
  * sources by id, and nothing checked that the sources said it.
  */
 import { derivedFromOf } from "./derived.js";
+import { compareRecency } from "./decay.js";
+import { recallCount } from "./access.js";
+import { isStateNode } from "./state.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { MemoryNode, MemoryStore } from "./types/memory.js";
 
@@ -67,9 +70,37 @@ export interface VerifyReport {
   retracted: { nodeId: string; reason: string }[];
   /** Live conclusions that record no evidence (written before 0.6.0): left alone, named. */
   unverifiable: string[];
+  /** Transcript checks attempted and completed. A callback error rejects the pass. */
+  crossChecked: number;
+}
+
+export interface TranscriptContradiction {
+  /** A newer raw turn, not a derived node. */
+  nodeId: string;
+  /** Exact words in that turn that contradict the conclusion. */
+  quote: string;
+}
+
+export interface VerifyOptions {
+  now?: () => Date;
+  by?: string;
+  /** Injected judgement; null means no contradiction. This library makes no model calls. */
+  crossCheck?: (conclusion: MemoryNode, newerRaw: readonly MemoryNode[]) => Promise<TranscriptContradiction | null>;
+  /** Bound model calls per pass. Highest access and volatile states are checked first. */
+  maxCrossChecks?: number;
+}
+
+/** One-tap acknowledgement: keep the retraction and raw evidence; clear only its review flag. */
+export async function confirmTranscriptRetraction(store: MemoryStore, nodeId: string): Promise<MemoryNode> {
+  const node = await store.getNode(nodeId);
+  if (!node || node.validTo === null || (node.contextualMetadata["retraction"] as { by?: string } | undefined)?.by !== "transcript cross-check") throw new Error(`no transcript retraction for ${nodeId}`);
+  if (!node.contextualMetadata["pendingRetractionConfirmation"]) return node;
+  const { pendingRetractionConfirmation: _pending, ...metadata } = node.contextualMetadata;
+  return store.updateNode(nodeId, { contextualMetadata: metadata });
 }
 
 const EVERY_TIER = { retentionTier: [...RETENTION_TIERS], privacyClassification: [...PRIVACY_CLASSIFICATIONS] };
+const privacyRank: Record<MemoryNode["privacyClassification"], number> = { Public: 0, Private: 1, Sensitive: 2, Sealed: 3 };
 
 /**
  * Check every live derived fact's evidence against its sources, now. One whose
@@ -77,24 +108,49 @@ const EVERY_TIER = { retentionTier: [...RETENTION_TIERS], privacyClassification:
  * why — never deleted: it was believed, and the record says so. Through a
  * governed handle, the handle decides what may be read and changed.
  */
-export async function verifyDerived(store: MemoryStore, opts: { now?: () => Date; by?: string } = {}): Promise<VerifyReport> {
+export async function verifyDerived(store: MemoryStore, opts: VerifyOptions = {}): Promise<VerifyReport> {
   const now = (opts.now ?? (() => new Date()))().toISOString();
-  const report: VerifyReport = { checked: 0, retracted: [], unverifiable: [] };
+  const report: VerifyReport = { checked: 0, retracted: [], unverifiable: [], crossChecked: 0 };
   const nodes = await store.searchNodes(EVERY_TIER);
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
-  for (const n of nodes) {
-    if (n.provenance !== "AIInferred" || derivedFromOf(n).length === 0) continue;
+  const derived = nodes.filter((n) => n.provenance === "AIInferred" && (derivedFromOf(n).length > 0 || isStateNode(n)));
+  derived.sort((a, b) => (Number(isStateNode(b)) * (1 + recallCount(b))) - (Number(isStateNode(a)) * (1 + recallCount(a))) || recallCount(b) - recallCount(a) || compareRecency(a, b));
+  const cap = opts.maxCrossChecks ?? 50;
+  if (!Number.isInteger(cap) || cap < 0) throw new Error("maxCrossChecks must be an integer >= 0");
+  for (const n of derived) {
     if (n.validTo !== null && Date.parse(n.validTo) <= Date.parse(now)) continue;
     report.checked++;
     const evidence = evidenceOf(n);
-    if (evidence.length === 0) {
+    if (evidence.length === 0 && derivedFromOf(n).length > 0) {
       report.unverifiable.push(n.nodeId);
+    } else if (evidence.length > 0) {
+      const problem = evidenceProblem(derivedFromOf(n), evidence, (id) => (byId.get(id) ?? undefined)?.content.text);
+      if (problem !== null) {
+        const reason = `evidence no longer holds: ${problem}`;
+        await store.updateNode(n.nodeId, { validTo: now, contextualMetadata: { ...n.contextualMetadata, retraction: { at: now, by: opts.by ? `verifyDerived (${opts.by})` : "verifyDerived", reason } } });
+        report.retracted.push({ nodeId: n.nodeId, reason });
+        continue;
+      }
+    }
+    if (!opts.crossCheck || report.crossChecked >= cap) continue;
+    const lastCheck = n.contextualMetadata["lastTranscriptCrossCheckAt"];
+    const interval = isStateNode(n) || recallCount(n) >= 3 ? 86_400_000 : 7 * 86_400_000;
+    if (typeof lastCheck === "string" && Number.isFinite(Date.parse(lastCheck)) && Date.parse(now) - Date.parse(lastCheck) < interval) continue;
+    const newerRaw = nodes.filter((raw) => raw.provenance !== "AIInferred" && raw.memoryType === "Conversation" && compareRecency(raw, n) < 0 && raw.privacyClassification !== "Sealed" && privacyRank[raw.privacyClassification] <= privacyRank[n.privacyClassification]).sort(compareRecency).slice(0, 50);
+    if (newerRaw.length === 0) continue;
+    report.crossChecked++;
+    const conflict = await opts.crossCheck(n, newerRaw);
+    if (!conflict) {
+      const fresh = await store.getNode(n.nodeId);
+      if (fresh && fresh.validTo === null) await store.updateNode(n.nodeId, { contextualMetadata: { ...fresh.contextualMetadata, lastTranscriptCrossCheckAt: now } }, "verified");
       continue;
     }
-    const problem = evidenceProblem(derivedFromOf(n), evidence, (id) => (byId.get(id) ?? undefined)?.content.text);
-    if (problem === null) continue;
-    const reason = `evidence no longer holds: ${problem}`;
-    await store.updateNode(n.nodeId, { validTo: now, contextualMetadata: { ...n.contextualMetadata, retraction: { at: now, by: opts.by ? `verifyDerived (${opts.by})` : "verifyDerived", reason } } });
+    const source = newerRaw.find((raw) => raw.nodeId === conflict.nodeId);
+    if (!source || !quoteHolds(conflict.quote, source.content.text)) throw new Error(`crossCheck returned unsupported contradiction for ${n.nodeId}`);
+    const reason = `newer raw turn ${source.nodeId} contradicts this conclusion: ${conflict.quote}`;
+    const fresh = await store.getNode(n.nodeId);
+    if (!fresh || fresh.validTo !== null) continue;
+    await store.updateNode(n.nodeId, { validTo: now, contextualMetadata: { ...fresh.contextualMetadata, retraction: { at: now, by: "transcript cross-check", reason }, pendingRetractionConfirmation: { sourceNodeId: source.nodeId, quote: conflict.quote } } });
     report.retracted.push({ nodeId: n.nodeId, reason });
   }
   return report;

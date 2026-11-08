@@ -1,4 +1,5 @@
 import { compareBinary, compareRecency, effectiveConfidence } from "./decay.js";
+import { recordRecallHits } from "./access.js";
 import { canonicalInstant } from "./instant.js";
 import type { EmbeddingVector, MemoryNode, MemoryStore, MemoryEmbedding } from "./types/memory.js";
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
@@ -240,9 +241,10 @@ export class HybridRetriever {
       if (cues.order === "earliest") addList([...relevance].sort((a, b) => compareValidFrom(b, a)), ORDER_WEIGHT * timeScale);
     }
 
-    return rankFused(scores)
+    const hits = rankFused(scores)
       .slice(0, limit)
       .map((e) => e.node);
+    return recordRecallHits(this.store, hits);
   }
 
   /**

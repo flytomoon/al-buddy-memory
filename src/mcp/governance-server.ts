@@ -28,6 +28,8 @@ import { looksSecret, personalDefaults } from "../governance/samples.js";
 import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.js";
 
 import { HybridRetriever } from "../hybrid-retriever.js";
+import { recordRecallHits, RecallRecordingError } from "../access.js";
+import { confirmTranscriptRetraction } from "../evidence.js";
 import { PinnedBlocks } from "../pinned.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
 import { isHistoryCapable } from "../history.js";
@@ -468,11 +470,12 @@ export function governanceTools(deps: GovernanceDeps) {
         try {
           return (await r.recall(input.query, { limit, ...currentOnly, ...(expand ? { expand: true } : {}) })).map(toGovernedFact);
         } catch (err) {
+          if (err instanceof RecallRecordingError) throw err;
           // The model failing mid-session must not cost the caller its answer.
           embedderFailed(err);
         }
       }
-      return (await deps.store.searchNodes({ query: input.query, limit, ...currentOnly })).map(toGovernedFact);
+      return (await recordRecallHits(deps.store, await deps.store.searchNodes({ query: input.query, limit, ...currentOnly }))).map(toGovernedFact);
     },
     async history(input: { id: string }) {
       if (!isHistoryCapable(deps.store)) return [];
@@ -524,6 +527,10 @@ export function governanceTools(deps: GovernanceDeps) {
         contextualMetadata: { ...node.contextualMetadata, ...(input.replacedBy && { supersededBy: input.replacedBy }), ...(input.reason && { invalidatedBecause: input.reason }), ...(retiredBy && { retiredBy }), invalidatedAt: at },
       });
       return toGovernedFact(updated);
+    },
+    /** Acknowledge a transcript correction shown in the morning context. */
+    async confirmRetraction(input: { id: string }): Promise<GovernedFact> {
+      return toGovernedFact(await confirmTranscriptRetraction(deps.store, input.id));
     },
     /**
      * Share one of the caller's facts with a team or the whole organisation
@@ -629,6 +636,7 @@ export const TOOL_ANNOTATIONS = {
   mental_model: { title: "Read a mental model", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   define_mental_model: { title: "Define a mental model", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   invalidate: { title: "Retire a fact", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  confirm_retraction: { title: "Confirm a transcript correction", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   pin: { title: "Pin a rule", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   unpin: { title: "Unpin a rule", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   pinned: { title: "List pinned rules", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -699,6 +707,9 @@ export async function createGovernanceMcpServer(deps: GovernanceDeps, opts: { to
   server.tool("invalidate", "A fact stopped being true: close its validity (never delete), optionally naming what replaced it.", {
     id: z.string().max(ID_MAX_CHARS), replacedBy: z.string().max(ID_MAX_CHARS).optional(), reason: z.string().max(REASON_MAX_CHARS).optional(),
   }, TOOL_ANNOTATIONS.invalidate, async (a) => json(await tools.invalidate(a)));
+  server.tool("confirm_retraction", "Acknowledge a transcript correction from the morning briefing. Keeps the retracted conclusion and its raw source in history.", {
+    id: z.string().max(ID_MAX_CHARS),
+  }, TOOL_ANNOTATIONS.confirm_retraction, async (a) => json(await tools.confirmRetraction(a)));
   const pinWhere = deps.pinning ? "" : " Refused on this connection: pins are added on the user's own machine.";
   server.tool("pin", `Pin a fact into the always-in-prompt tier. Only rules that belong in every conversation; it is a small, budgeted tier.${pinWhere}`, { text: z.string().max(PIN_MAX_CHARS), label: z.string().max(40).optional() }, TOOL_ANNOTATIONS.pin, async (a) => json(await tools.pin(a)));
   server.tool("unpin", "Unpin a fact (its validity closes; it is kept).", { id: z.string().max(ID_MAX_CHARS) }, TOOL_ANNOTATIONS.unpin, async (a) => json(await tools.unpin(a)));
