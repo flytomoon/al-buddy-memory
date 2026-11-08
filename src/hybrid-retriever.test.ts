@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Embedder } from "./embedder.js";
 import { FakeEmbedder, cosineSimilarity } from "./embedder.js";
 import { HybridRetriever, indexMissingEmbeddings } from "./hybrid-retriever.js";
+import { recallCount } from "./access.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
 import type { MemoryNode } from "./types/memory.js";
@@ -79,6 +80,9 @@ describe("HybridRetriever", () => {
     const retriever = new HybridRetriever(store);
     const results = await retriever.recall("london", { limit: 3 });
     expect(results[0]?.content.text).toContain("london");
+    expect(recallCount((await store.getNode(results[0]!.nodeId))!)).toBe(1);
+    await retriever.recall("london", { limit: 3 });
+    expect(recallCount((await store.getNode(results[0]!.nodeId))!)).toBe(2);
   });
 
   it("excludes superseded nodes by default", async () => {
@@ -359,7 +363,7 @@ describe("HybridRetriever — candidates: how deep each list reads", () => {
     const retriever = new HybridRetriever(store);
     expect(await retriever.recall("bread", { limit: 200 })).toHaveLength(50);
     expect(await retriever.recall("bread", { limit: 200, candidates: 70 })).toHaveLength(70);
-    expect(await retriever.recall("bread", { limit: 200, candidates: 50 })).toEqual(await retriever.recall("bread", { limit: 200 }));
+    expect((await retriever.recall("bread", { limit: 200, candidates: 50 })).map((n) => n.nodeId)).toEqual((await retriever.recall("bread", { limit: 200 })).map((n) => n.nodeId));
     await expect(retriever.recall("bread", { candidates: 0 })).rejects.toThrow(/candidates must be an integer >= 1/);
   });
 });

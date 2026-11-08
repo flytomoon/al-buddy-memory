@@ -5,7 +5,8 @@
  * used it, so a fact from July and one from September with equal confidence
  * tied forever (review 2026-09-01, idea 4). The rate is per day, applied to
  * the time since the node was last created, reinforced or modified — a fact
- * he keeps confirming stays fresh, one he never mentions again slides.
+ * he keeps confirming stays fresh, one he never mentions again slides. Reads
+ * slow the rate without resetting that clock.
  *
  * FLOORED AT HALF. Age reorders; it never buries. An old truth still ranks
  * within a factor of two of a new one, so the memory block prefers what is
@@ -13,6 +14,7 @@
  */
 import { instantMs } from "./instant.js";
 import type { MemoryNode } from "./types/memory.js";
+import { recallCount } from "./access.js";
 
 const DAY_MS = 86_400_000;
 export const DECAY_FLOOR = 0.5;
@@ -29,7 +31,7 @@ export function lastTouched(node: Pick<MemoryNode, "temporalAnchors" | "validFro
   return latest;
 }
 
-/** confidence × max(0.5, e^(−rate·days)). */
+/** confidence × max(0.5, e^(−rate·days/accessFactor)). */
 export function effectiveConfidence(
   node: Pick<MemoryNode, "confidenceWeight" | "decayRate" | "temporalAnchors" | "validFrom">,
   now: number = Date.now(),
@@ -37,7 +39,10 @@ export function effectiveConfidence(
   const rate = Number.isFinite(node.decayRate) && node.decayRate > 0 ? node.decayRate : 0;
   if (rate === 0) return node.confidenceWeight;
   const days = Math.max(0, (now - lastTouched(node)) / DAY_MS);
-  return node.confidenceWeight * Math.max(DECAY_FLOOR, Math.exp(-rate * days));
+  // Reading does not reset the clock, but repeated use slows the slide. The
+  // logarithm keeps a popular stale fact from becoming permanently fresh.
+  const accessFactor = 1 + Math.log2(1 + recallCount(node));
+  return node.confidenceWeight * Math.max(DECAY_FLOOR, Math.exp(-(rate / accessFactor) * days));
 }
 
 // ---------------------------------------------------------------------------

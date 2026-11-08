@@ -84,7 +84,7 @@ export type RetentionTier = (typeof RETENTION_TIERS)[number];
  * A timestamped event in a node's temporal lifecycle.
  * The `temporalAnchors` array is append-only — entries are never removed.
  */
-export const ANCHOR_EVENTS = ["created", "recalled", "reinforced", "modified", "summarized", "archived"] as const;
+export const ANCHOR_EVENTS = ["created", "recalled", "reinforced", "modified", "summarized", "verified", "archived"] as const;
 
 export interface TemporalAnchor {
   timestamp: string; // ISO 8601

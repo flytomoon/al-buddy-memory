@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { MemoryNode, MemoryNodeType, NewMemoryNode } from "./types/memory.js";
+import { recordRecallHits } from "./access.js";
 
 import { SqliteMemoryStore, readRecordedScope } from "./sqlite-memory-store.js";
 import { renderMemoryBlock } from "./memory-block.js";
@@ -149,7 +150,7 @@ export class ProjectMemory {
 
   /** Full-text recall across this project's memories. */
   async recall(query: string, limit = 10): Promise<MemoryNode[]> {
-    return this.store.searchNodes({ query, limit });
+    return recordRecallHits(this.store, await this.store.searchNodes({ query, limit }));
   }
 
   /** Currently-valid memories (validAt=now), ranked — for iterating, e.g. to

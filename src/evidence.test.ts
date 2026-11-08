@@ -4,9 +4,11 @@
  * and any time after (verifyDerived retracts one whose evidence no longer holds).
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { consolidate } from "./consolidation.js";
-import { evidenceOf, verifyDerived } from "./evidence.js";
+import { confirmTranscriptRetraction, evidenceOf, verifyDerived } from "./evidence.js";
+import { recordRecallHits, recallCount } from "./access.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { exportPortable, importPortable } from "./memory-portability.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
@@ -14,6 +16,14 @@ import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 import type { MemoryStore } from "./types/memory.js";
 
 const since = "2000-01-01T00:00:00.000Z";
+
+it("the access-aware transcript claim in SPEC stays pinned to code", () => {
+  const spec = readFileSync(new URL("../docs/SPEC.md", import.meta.url), "utf8");
+  expect(spec).toContain("Recall returns append a `recalled` anchor");
+  expect(spec).toContain("call the\n`confirm_retraction` MCP tool");
+  expect(readFileSync(new URL("./hybrid-retriever.ts", import.meta.url), "utf8")).toContain("recordRecallHits(this.store, hits)");
+  expect(readFileSync(new URL("./mcp/governance-server.ts", import.meta.url), "utf8")).toContain('server.tool("confirm_retraction"');
+});
 
 describe.each([
   ["InMemoryStore", () => new InMemoryStore()],
@@ -101,5 +111,57 @@ describe.each([
     await importPortable(exported, () => into);
     const derived = (await into.listNodes()).find((n) => n.provenance === "AIInferred")!;
     expect(evidenceOf(derived)).toEqual([{ nodeId: a.nodeId, quote: "tea" }]);
+  });
+
+  it("prioritizes frequently recalled state, checks newer raw turns, and keeps a confirmation receipt", async () => {
+    const store = make();
+    const oldRaw = await store.addNode(makeNode({ content: { text: "Release 1 is staged" }, memoryType: "Conversation" }));
+    const state = await store.addNode(makeNode({ provenance: "AIInferred", content: { text: "Release 1 is staged" }, contextualMetadata: { stateOf: { subject: "app", key: "app|release" }, derivedFrom: [oldRaw.nodeId], evidence: [{ nodeId: oldRaw.nodeId, quote: "Release 1 is staged" }] } }));
+    const other = await store.addNode(makeNode({ provenance: "AIInferred", content: { text: "The office is open" }, contextualMetadata: { derivedFrom: [oldRaw.nodeId], evidence: [{ nodeId: oldRaw.nodeId, quote: "Release 1 is staged" }] } }));
+    await recordRecallHits(store, [state]);
+    await recordRecallHits(store, [state]);
+    expect(recallCount((await store.getNode(state.nodeId))!)).toBe(2);
+    const later = await store.addNode(makeNode({ content: { text: "Release 2 is live now" }, memoryType: "Conversation" }));
+    const order: string[] = [];
+    const report = await verifyDerived(store, { maxCrossChecks: 1, crossCheck: async (n, raw) => {
+      order.push(n.nodeId);
+      expect(raw.map((r) => r.nodeId)).toContain(later.nodeId);
+      return { nodeId: later.nodeId, quote: "Release 2 is live now" };
+    } });
+    expect(order).toEqual([state.nodeId]);
+    expect(report.crossChecked).toBe(1);
+    expect(report.retracted).toHaveLength(1);
+    const withdrawn = (await store.getNode(state.nodeId))!;
+    expect(withdrawn.validTo).not.toBeNull();
+    expect(withdrawn.contextualMetadata["pendingRetractionConfirmation"]).toMatchObject({ sourceNodeId: later.nodeId });
+    expect((await store.getNode(other.nodeId))!.validTo).toBeNull();
+    await confirmTranscriptRetraction(store, state.nodeId);
+    expect((await store.getNode(state.nodeId))!.contextualMetadata["pendingRetractionConfirmation"]).toBeUndefined();
+    expect((await store.getNode(state.nodeId))!.validTo).not.toBeNull();
+    expect((await store.getNode(later.nodeId))!.content.text).toBe("Release 2 is live now");
+  });
+
+  it("rejects a contradiction that is not quoted from a newer raw turn", async () => {
+    const store = make();
+    const old = await store.addNode(makeNode({ content: { text: "Old" }, memoryType: "Conversation" }));
+    const conclusion = await store.addNode(makeNode({ provenance: "AIInferred", content: { text: "Old" }, contextualMetadata: { derivedFrom: [old.nodeId], evidence: [{ nodeId: old.nodeId, quote: "Old" }] } }));
+    await store.addNode(makeNode({ content: { text: "New" }, memoryType: "Conversation" }));
+    await expect(verifyDerived(store, { crossCheck: async () => ({ nodeId: old.nodeId, quote: "Old" }) })).rejects.toThrow(/unsupported contradiction/);
+    expect((await store.getNode(conclusion.nodeId))!.validTo).toBeNull();
+  });
+
+  it("paces quiet conclusions weekly and read states daily without resetting decay", async () => {
+    const store = make();
+    const source = await store.addNode(makeNode({ content: { text: "Release staged" }, memoryType: "Conversation" }));
+    const state = await store.addNode(makeNode({ provenance: "AIInferred", content: { text: "Release staged" }, contextualMetadata: { stateOf: { subject: "app", key: "app|release" }, derivedFrom: [source.nodeId], evidence: [{ nodeId: source.nodeId, quote: "Release staged" }] } }));
+    const quiet = await store.addNode(makeNode({ provenance: "AIInferred", content: { text: "Other conclusion" }, contextualMetadata: { derivedFrom: [source.nodeId], evidence: [{ nodeId: source.nodeId, quote: "Release staged" }] } }));
+    await store.addNode(makeNode({ content: { text: "New raw turn" }, memoryType: "Conversation" }));
+    const seen: string[] = [];
+    const crossCheck = async (n: { nodeId: string }) => { seen.push(n.nodeId); return null; };
+    const t = Date.parse("2026-11-09T00:00:00.000Z");
+    expect((await verifyDerived(store, { now: () => new Date(t), crossCheck })).crossChecked).toBe(2);
+    expect((await verifyDerived(store, { now: () => new Date(t + 2 * 86_400_000), crossCheck })).crossChecked).toBe(1);
+    expect(seen).toEqual([state.nodeId, quiet.nodeId, state.nodeId]);
+    expect((await store.getNode(state.nodeId))!.temporalAnchors.at(-1)!.event).toBe("verified");
   });
 });

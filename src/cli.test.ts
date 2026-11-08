@@ -31,6 +31,20 @@ describe("memoryDbPath", () => {
   });
 });
 
+it("shows transcript corrections in context even when no current facts remain", async () => {
+  const db = join(dir, "corrections.db");
+  const store = new SqliteMemoryStore(db);
+  const correction = await store.addNode({ provenance: "AIInferred", encryptionKeyRef: "local", memoryType: "Lesson", privacyClassification: "Private", retentionTier: "FullRetention", content: { text: "Release one is staged" }, contextualMetadata: { retraction: { by: "transcript cross-check", reason: "new raw turn", at: new Date().toISOString() }, pendingRetractionConfirmation: { sourceNodeId: "raw", quote: "Release two is live" } }, confidenceWeight: 0.7, decayRate: 0, validTo: new Date().toISOString() });
+  store.close();
+  expect(await sessionContext({ db })).toContain(`confirm_retraction(id)`);
+  const inner = new SqliteMemoryStore(db);
+  const tools = governanceTools({ store: serverStore(inner, { audit: storeAudit(inner) }) });
+  await tools.confirmRetraction({ id: correction.nodeId });
+  await tools.confirmRetraction({ id: correction.nodeId });
+  inner.close();
+  expect(await sessionContext({ db })).toBe("");
+});
+
 describe("export and import — the owner's backup round-trips", () => {
   it("exports every fact, Sensitive included, and imports it into an empty database", async () => {
     const db = join(dir, "a.db");
