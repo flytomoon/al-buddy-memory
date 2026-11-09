@@ -1250,6 +1250,19 @@ export class SqliteMemoryStore implements MemoryStore, SnapshotCapable, AuditCap
     });
   }
 
+  async recordRecalls(nodeIds: readonly string[]): Promise<MemoryNode[]> {
+    if (nodeIds.length === 0) return [];
+    return this.mutation((): MemoryNode[] => {
+      const out: MemoryNode[] = [];
+      for (const nodeId of nodeIds) {
+        const row = this.db.prepare(`SELECT * FROM memory_nodes WHERE node_id = ?`).get(nodeId) as NodeRow | undefined;
+        if (row === undefined) break;
+        out.push(this.applyUpdate(rowToNode(row), {}, "recalled"));
+      }
+      return out;
+    });
+  }
+
   /**
    * Every fact that names sources — the only ones a cascade can reach. Read
    * inside the caller's transaction.

@@ -394,6 +394,9 @@ export class PostgresMemoryStore implements MemoryStore, SnapshotCapable, Histor
     const ends = typeof patch === "object" && patch !== null && (patch as { validTo?: unknown }).validTo != null;
     return this.write("updateNode", { nodes: [id], dependents: ends }, s => s.updateNode(id, patch, event), () => [id]);
   }
+  recordRecalls(ids: readonly string[]): Promise<MemoryNode[]> {
+    return this.write("recordRecalls", { nodes: [...ids] }, s => s.recordRecalls(ids), nodeIds);
+  }
   deleteNode(id: string): Promise<void> { return this.write("deleteNode", { nodes: [id], dependents: true, edgesOf: true }, s => s.deleteNode(id), () => [id]); }
   restoreNode(node: MemoryNode): Promise<void> { return this.write("restoreNode", { nodes: [node?.nodeId] }, s => s.restoreNode(node), () => [node.nodeId]); }
   restoreEdge(edge: MemoryEdge): Promise<void> { return this.write("restoreEdge", { nodes: [edge?.sourceNodeId, edge?.targetNodeId], edges: [edge?.edgeId] }, s => s.restoreEdge(edge), () => [edge.edgeId]); }

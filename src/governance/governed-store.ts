@@ -546,6 +546,30 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
       });
     },
 
+    ...(inner.recordRecalls ? {
+      // The batch form of the access-recording branch of updateNode below: same
+      // authority and visibility rule, one audited write for the whole recall.
+      async recordRecalls(nodeIds: readonly string[]): Promise<MemoryNode[]> {
+        const authorisedRead = authorise(opts, "recall");
+        return exclusive(async () => {
+          assertAuditUsable(opts);
+          const ctx = authorisedRead();
+          const visible: { nodeId: string; seen: MemoryNode }[] = [];
+          for (const nodeId of nodeIds) {
+            try {
+              visible.push({ nodeId, seen: (await visibleOrNotFound(nodeId, ctx)).seen });
+            } catch {
+              break;
+            }
+          }
+          if (visible.length === 0) return [];
+          const ids = visible.map((v) => v.nodeId);
+          const updated = await commitAudited(opts, inner, ctx, () => inner.recordRecalls!(ids), () => ({ ids }));
+          return Promise.all(updated.map(async (node, i) => (await view(opts, node, ctx)) ?? visible[i]!.seen));
+        });
+      },
+    } : {}),
+
     async updateNode(nodeId, input, anchorEvent): Promise<MemoryNode> {
       const patch = snapshot(input);
       if (anchorEvent === "recalled" && Object.keys(patch).length === 0) {
@@ -1057,6 +1081,7 @@ export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore
     ...view,
     addNode: refuse,
     updateNode: refuse,
+    recordRecalls: refuse,
     deleteNode: refuse,
     eraseWhere: refuse,
     promote: refuse,
