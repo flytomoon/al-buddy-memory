@@ -173,6 +173,7 @@
                   "reinforced",
                   "modified",
                   "summarized",
+                  "verified",
                   "archived"
                 ]
               }
@@ -226,7 +227,7 @@
         "versionId": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$", "description": "UUID v4" },
         "nodeId": { "type": "string", "format": "uuid" },
         "recordedAt": { "type": "string", "format": "date-time" },
-        "event": { "type": "string", "enum": ["created", "recalled", "reinforced", "modified", "summarized", "archived", "restored"] },
+        "event": { "type": "string", "enum": ["created", "recalled", "reinforced", "modified", "summarized", "verified", "archived", "restored"] },
         "before": { "$ref": "#/$defs/mutableImage" },
         "after": { "$ref": "#/$defs/mutableImage" }
       }

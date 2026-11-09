@@ -16,6 +16,7 @@ import {
   PRIVACY_CLASSIFICATIONS,
   RELATIONSHIP_TYPES,
   RETENTION_TIERS,
+  VERSION_EVENTS,
 } from "./types/memory.js";
 
 /**
@@ -35,6 +36,7 @@ describe("the published portable-format schema", () => {
     expect(node.privacyClassification.enum).toEqual([...PRIVACY_CLASSIFICATIONS]);
     expect(node.retentionTier.enum).toEqual([...RETENTION_TIERS]);
     expect(node.temporalAnchors.items.properties.event.enum).toEqual([...ANCHOR_EVENTS]);
+    expect(schema.$defs.version.properties.event.enum).toEqual([...VERSION_EVENTS]);
     expect(edge.relationshipType.enum).toEqual([...RELATIONSHIP_TYPES]);
     expect(edge.provenance.enum).toEqual([...EDGE_PROVENANCES]);
   });
@@ -56,6 +58,7 @@ describe("the published portable-format schema", () => {
       ids.push(n.nodeId);
     }
     await store.updateNode(ids[0]!, { validTo: new Date().toISOString() });
+    await store.updateNode(ids[1]!, {}, "verified");
     for (const [i, relationshipType] of RELATIONSHIP_TYPES.entries()) {
       await store.addEdge({
         sourceNodeId: ids[i % ids.length]!,

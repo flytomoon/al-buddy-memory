@@ -97,10 +97,18 @@ describe("docs — the claims a reader will check", () => {
     const named = [...line.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]!);
     const { TOOL_ANNOTATIONS } = await import("./mcp/governance-server.js");
     expect([...new Set(named)].sort()).toEqual(Object.keys(TOOL_ANNOTATIONS).sort());
+    expect(line).toMatch(/`confirm_retraction` acknowledges a transcript correction while keeping the retracted fact and raw turn in history/);
+    expect(read("src/mcp/governance-server.ts")).toMatch(/server\.tool\("confirm_retraction"[^\n]*Acknowledge a transcript correction/);
     expect(line).toMatch(/the personal server's policy refuses them/);
     const { personalDefaults } = await import("./governance/samples.js");
     expect(personalDefaults({ owner: "o" }).beforePromote).toBeUndefined();
     expect(read("src/governance/promotion.ts")).toMatch(/if \(!allowed\) deny\("promotion is not enabled: no policy allows it"\)/);
+  });
+
+  it("the README's recall audit growth claim matches per-hit writes and the MCP cap", () => {
+    expect(read("README.md")).toMatch(/A governed `recall` adds an audited access write for each returned hit \(at most 50 through MCP\), plus read audit events/);
+    expect(read("src/access.ts")).toMatch(/for \(const hit of hits\)/);
+    expect(read("src/mcp/governance-server.ts")).toMatch(/Math\.max\(1, Math\.min\(50, input\.limit \?\? 8\)\)/);
   });
 
   /**
