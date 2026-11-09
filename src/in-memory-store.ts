@@ -236,6 +236,16 @@ export class InMemoryStore implements MemoryStore, SnapshotCapable, HistoryCapab
     return copy(updated);
   }
 
+  async recordRecalls(nodeIds: readonly string[]): Promise<MemoryNode[]> {
+    const out: MemoryNode[] = [];
+    for (const nodeId of nodeIds) {
+      const existing = this.nodes.get(nodeId);
+      if (!existing) break;
+      out.push(copy(this.applyUpdate(existing, {}, "recalled")));
+    }
+    return out;
+  }
+
   /** One recorded change: anchor, version and the new state, no checks. */
   private applyUpdate(existing: MemoryNode, patch: Parameters<MemoryStore["updateNode"]>[1], anchorEvent: NonNullable<Parameters<MemoryStore["updateNode"]>[2]>): MemoryNode {
     const updated: MemoryNode = {

@@ -400,6 +400,12 @@ export interface MemoryStore {
      *  pass "reinforced" when a duplicate observation strengthens the node. */
     anchorEvent?: TemporalAnchor["event"],
   ): Promise<MemoryNode>;
+  /**
+   * Optional: append one "recalled" anchor to each fact as a single write.
+   * Returns the updated facts in order, stopping before the first id that does
+   * not exist; what came before it stays recorded.
+   */
+  recordRecalls?(nodeIds: readonly string[]): Promise<MemoryNode[]>;
   deleteNode(nodeId: string): Promise<void>;
 
   // Portability — verbatim restore for round-trip import (nodeId, anchors,

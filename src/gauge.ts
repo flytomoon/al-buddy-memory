@@ -158,7 +158,7 @@ export async function gaugeStore(path: string, opts: { embedder?: Embedder; quer
 
   const store = new SqliteMemoryStore(path);
   try {
-    const keyword = new HybridRetriever(store);
+    const keyword = new HybridRetriever(store, undefined, { recordAccess: false });
     const kTimes = await lookups((q) => keyword.recall(q, { limit: 10 }));
     let coldRecallMs: number | null = null;
     let warmRecallP50Ms: number | null = null;
@@ -167,9 +167,9 @@ export async function gaugeStore(path: string, opts: { embedder?: Embedder; quer
       // Load the model outside the timing: its cost is the embedder's, not the store's.
       await opts.embedder.embed(["warm up"]);
       // A cache that never holds: every one of these recalls reads all the vectors.
-      const cold = new HybridRetriever(store, opts.embedder, { cacheTtlMs: 0 });
+      const cold = new HybridRetriever(store, opts.embedder, { cacheTtlMs: 0, recordAccess: false });
       coldRecallMs = await median(() => cold.recall(queries[0]!, { limit: 10 }));
-      const warm = new HybridRetriever(store, opts.embedder, { cacheTtlMs: 60_000 });
+      const warm = new HybridRetriever(store, opts.embedder, { cacheTtlMs: 60_000, recordAccess: false });
       await warm.recall(queries[0]!, { limit: 10 });
       const wTimes = await lookups((q) => warm.recall(q, { limit: 10 }));
       warmRecallP50Ms = round(percentile(wTimes, 0.5));

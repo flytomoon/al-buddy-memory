@@ -86,6 +86,8 @@ export interface HybridRetrieverOptions {
   reranker?: Reranker;
   /** How many fused candidates the reranker reads: default the larger of the limit and 50. */
   rerankDepth?: number;
+  /** Record returned facts as recalled (default true). False makes recall a pure read. */
+  recordAccess?: boolean;
 }
 
 const CANDIDATE_POOL = 50;
@@ -244,7 +246,7 @@ export class HybridRetriever {
     const hits = rankFused(scores)
       .slice(0, limit)
       .map((e) => e.node);
-    return recordRecallHits(this.store, hits);
+    return this.opts.recordAccess === false ? hits : recordRecallHits(this.store, hits);
   }
 
   /**
