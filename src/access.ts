@@ -11,7 +11,10 @@ export async function recordRecallHits(store: MemoryStore, hits: readonly Memory
   const recorded: MemoryNode[] = [];
   for (const hit of hits) {
     try {
-      recorded.push(await store.updateNode(hit.nodeId, {}, "recalled"));
+      const updated = await store.updateNode(hit.nodeId, {}, "recalled");
+      // Access accounting is operational history, not a change to the fact the
+      // caller recalled. Keep repeated reads of the same fact stable on the wire.
+      recorded.push({ ...updated, temporalAnchors: updated.temporalAnchors.filter((a) => a.event !== "recalled") });
     } catch (cause) {
       throw new RecallRecordingError(recorded.length + 1, recorded.length, cause);
     }

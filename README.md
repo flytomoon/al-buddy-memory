@@ -232,7 +232,7 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 | File size | 69 MB for the 100,000 facts; each recorded change adds ~738 bytes (140 MB after one update to every fact) |
 | Audit event into `audit_events`, in the fact's own transaction | +0.04 ms per governed write, +0.5 ms per governed read (a read is audited too, so it takes the write lock briefly) |
 | Checking the chain — `verify-audit <db>` | linear, ~3 µs/event: 83 ms at 20,000 events, 325 ms at 100,000, 1.5 s at 500,000. Each process pays it once, before its first governed write and **outside** the write transaction, so it delays that process and blocks no other. Constant memory (the walk streams) |
-| How fast the trail grows | one event per governed write, one or two per governed read — a `remember` is +2, a `recall` +1. Nothing prunes it. At 500,000 events the trail is ~128 MB, which can exceed the facts it describes; if you drive a store that hard, keep an eye on it |
+| How fast the trail grows | A governed `recall` adds an audited access write for each returned hit (at most 50 through MCP), plus read audit events. Nothing prunes the trail. At 500,000 audit events it is ~128 MB, which can exceed the facts it describes; if you drive a store that hard, keep an eye on it |
 
 Ranges are three runs of the same script on 0.4.0. Paging is exact: a page of ten is the
 first ten of the full ordered read. When facts have genuinely decayed, the store may have to
@@ -478,7 +478,7 @@ The **first** `recall` of a connection also returns the pinned tier — the pers
 rules — as a second content block, so the tier that claims to be in every prompt gets there
 without spending any of the 512-character handshake.
 
-Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model`, `export`, and for team memory `promote` and `withdraw` (the personal server's policy refuses them; see [docs/policies/scopes.md](docs/policies/scopes.md#promotion)). `mental_model` reads a standing question's pre-written answer with its freshness and evidence (the host refreshes answers on its own schedule). `explain` answers why a
+Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `confirm_retraction`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model`, `export`, and for team memory `promote` and `withdraw` (the personal server's policy refuses them; see [docs/policies/scopes.md](docs/policies/scopes.md#promotion)). `confirm_retraction` acknowledges a transcript correction while keeping the retracted fact and raw turn in history. `mental_model` reads a standing question's pre-written answer with its freshness and evidence (the host refreshes answers on its own schedule). `explain` answers why a
 fact is believed: who asserted it, when it was true, what ended it, and for a conclusion the exact
 words it rests on, each checked now. `remember` takes at
 most 4,000 characters and `pin` 500; a `recall` query 1,000, an `invalidate` reason 500, and

@@ -548,6 +548,21 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
 
     async updateNode(nodeId, input, anchorEvent): Promise<MemoryNode> {
       const patch = snapshot(input);
+      if (anchorEvent === "recalled" && Object.keys(patch).length === 0) {
+        // A visible recall may record its access without granting the caller
+        // permission to edit the fact. The read policy still decides visibility;
+        // exportView overrides updateNode and remains strictly read-only.
+        const authorisedRead = authorise(opts, "recall");
+        return exclusive(async () => {
+          assertAuditUsable(opts);
+          const ctx = authorisedRead();
+          const { seen } = await visibleOrNotFound(nodeId, ctx);
+          const updated = await commitAudited(opts, inner, ctx,
+            () => inner.updateNode(nodeId, {}, "recalled"),
+            () => ({ ids: [nodeId] }));
+          return (await view(opts, updated, ctx)) ?? seen;
+        });
+      }
       const authorised = authorise(opts, patch.validTo !== undefined ? "invalidate" : "write");
       return exclusive(async () => {
         assertAuditUsable(opts);
