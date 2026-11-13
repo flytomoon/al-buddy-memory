@@ -13,6 +13,15 @@ const root = join(dirname(new URL(import.meta.url).pathname), "..");
 const read = (f: string) => readFileSync(join(root, f), "utf8");
 
 describe("docs — the claims a reader will check", () => {
+  it("pins the README's valid-time and current-state benchmark claims to code", () => {
+    const readme = read("README.md").replace(/\s+/g, " ");
+    expect(readme).toContain("recordState` now closes a late-learned state at the next state in valid-time order");
+    expect(read("src/state.ts")).toMatch(/const later = states\.filter\(\(n\) => n\.validFrom > when\)/);
+    expect(readme).toContain("the declared subject/aspect used for current-state intent");
+    expect(read("src/hybrid-retriever.ts")).toMatch(/searchNodes\(\{ tags: \[STATE_TAG\], validAt/);
+    expect(read("src/hybrid-retriever.ts")).toMatch(/if \(options\.stateIntent\)/);
+    expect(read("bench/stale-facts/stale-facts.mjs")).toMatch(/q\.kind === "now" \? \{ stateIntent: true \}/);
+  });
   it("README quick start names the clients and local behavior init actually configures", () => {
     const readme = read("README.md");
     const quick = readme.match(/## Quick start — local MCP memory\n([\s\S]*?)\n---/)?.[1] ?? "";

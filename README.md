@@ -411,27 +411,25 @@ settings in [bench/results/](bench/results/):
   through `recordState`, where a newer state closes the old one. It asks whether recall returns the
   value true now, and the value true at a past instant. No model is called; it is deterministic.
 
-Stale facts, as measured ([result](bench/results/2026-09-29-stale-facts.json); 24 questions about
-now, 11 about a past instant; keyword recall, no embedder; first 5 results):
+Stale facts, as measured ([result](bench/results/2026-11-12-stale-facts.json); 24 questions about
+now, 11 about a past instant; local hybrid recall with current-state intent for now questions; first 5 results):
 
 | | append-only | append-only + freshness | recordState |
 |---|---|---|---|
-| Now: an outdated value comes first | 50.0% | 4.2% | 0.0% |
-| Now: an outdated value in the first 5 | 87.5% | 37.5% | 0.0% |
-| Now: the current value comes first | 16.7% | 25.0% | 33.3% |
-| Then: a value not true then in the first 5 | 27.3% | 27.3% | 18.2% |
-| Then: the value true then comes first | 27.3% | 9.1% | 27.3% |
+| Now: an outdated value comes first | 50.0% | 16.7% | 0.0% |
+| Now: an outdated value in the first 5 | 91.7% | 87.5% | 0.0% |
+| Now: the current value comes first | 41.7% | 45.8% | 95.8% |
+| Then: a value not true then in the first 5 | 54.5% | 45.5% | 0.0% |
+| Then: the value true then comes first | 63.6% | 45.5% | 72.7% |
 
-Read it for what it is. Invalidation is what takes the outdated answer off the table: half the
-"where do things stand" questions put an old value first in an append-only store. Freshness hides
-that without removing it — the old value is still in the first five more than a third of the time —
-and it mistakes an old fact mentioned late for a new one: asked what car I drive, it answers with
-the 2019 Civic mentioned last. The current value coming first a third of the time at best is keyword
-recall, for every strategy alike: short questions ("what phone do I have?") match rare words in
-unrelated facts, and "I accepted an offer from Cobalt Robotics" shares only "I" with "where do I
-work?". The two past-instant questions where `recordState` still shows a wrong value are a gap this
-benchmark found: a state learned late is closed at the next state still live, not the next state in
-time, so a 2018 home mentioned after the 2025 one reads as valid alongside the homes in between.
+The previous [keyword-only run](bench/results/2026-09-29-stale-facts.json) put the current
+state first on 33.3% of now questions. With local embeddings, content-word expansion and the
+declared subject/aspect used for current-state intent, that rises to 95.8%. `recordState` now
+closes a late-learned state at the next state in valid-time order; no past-instant question
+returns another state of the same subject in the first five. These results assume the caller
+identifies current-state intent and supplies the subject/aspect when recording states; the
+benchmark does not measure either classification. Local embeddings run on-device with no API
+charges, but can require a one-time model download.
 
 ## The governance MCP server
 
