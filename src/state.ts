@@ -68,7 +68,7 @@ export interface RecordStateInput extends StateSubject {
 export interface RecordStateResult {
   /** The state memory — the new one, or the existing one when nothing changed. */
   node: MemoryNode;
-  /** The states this one closed. Empty when it arrived late or changed nothing. */
+  /** The states this one closed. Empty when it changed nothing or no earlier state spans its start. */
   superseded: MemoryNode[];
   /** True when the newest state already said this. */
   unchanged: boolean;

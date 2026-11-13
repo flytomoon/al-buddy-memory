@@ -33,12 +33,14 @@ The same statements go into the same store three ways, and the same questions ar
 - **current-state** — every statement through `recordState(subject, aspect, …)`: a newer state
   closes the one it replaces, and recall returns what is valid at the instant asked.
 
-Scored by identity, not by matching strings: every memory carries the id of the statement it came
+Now questions use `stateIntent: true`, which adds a ranked list of currently valid states whose
+declared subject/aspect matches the question; all questions use content-word and query expansion.
+The local embedder is enabled in the committed result. Scored by identity, not by matching strings: every memory carries the id of the statement it came
 from. `stale@1` is the share of questions whose first result is another statement of the same
 subject — the answer an assistant would most likely repeat. `current@k`, `stale@k` and `clean@k`
 (the true statement in the first k and no other statement of its subject there) look at the first
-k. Run it with `npm run build && node bench/stale-facts/run.mjs`; it calls no model unless you pass
-`--embedder local`, and it is deterministic. The committed run's numbers, and what they do and do
+k. Run it with `npm run build && node bench/stale-facts/run.mjs --embedder local`; the embedder
+runs on-device without model API calls. The committed run's numbers, and what they do and do
 not say, are in the [README's Benchmarks section](../README.md#benchmarks); every question's
 ranking is in its result file.
 
