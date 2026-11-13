@@ -5,9 +5,10 @@ import type { EmbeddingVector, MemoryNode, MemoryStore, MemoryEmbedding } from "
 import { PRIVACY_CLASSIFICATIONS, RETENTION_TIERS } from "./types/memory.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity } from "./embedder.js";
-import { matchesFilter, MAX_QUERY_TOKENS, type NodeFilter } from "./query-filter.js";
+import { matchesFilter, MAX_QUERY_TOKENS, queryTokens, type NodeFilter } from "./query-filter.js";
 import { analyzeQuery, inWindows, keywordsOf, type QueryCues } from "./query-cues.js";
 import { rerankTexts, type Reranker } from "./reranker.js";
+import { STATE, STATE_TAG } from "./state.js";
 
 /**
  * Hybrid recall: keyword relevance (FTS/BM25) fused with vector similarity.
@@ -73,6 +74,8 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * search is then this one, not a second list.
    */
   contentWords?: boolean;
+  /** Rank currently valid states by their declared subject/aspect when the caller knows the question asks for current state. */
+  stateIntent?: boolean;
 }
 
 export interface HybridRetrieverOptions {
@@ -156,7 +159,7 @@ export class HybridRetriever {
     // Scope (type, tags, confidence, privacy / retention tiers) applies to BOTH
     // lists, with the store's own semantics, so a scoped recall can never pull
     // an out-of-scope fact in through the vector side.
-    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, contentWords: _contentWords, ...scope } = options;
+    const { limit: _limit, validAt: _validAt, freshness: _freshness, expand: _expand, rerank: _rerank, candidates: _candidates, contentWords: _contentWords, stateIntent: _stateIntent, ...scope } = options;
     const filter: NodeFilter = { ...scope, validAt };
     const basePool = options.candidates ?? CANDIDATE_POOL;
     if (!Number.isInteger(basePool) || basePool < 1) throw new Error(`recall: candidates must be an integer >= 1 (got ${options.candidates})`);
@@ -209,6 +212,23 @@ export class HybridRetriever {
       const long = (query.match(/[\p{L}\p{N}]+/gu) ?? []).length > MAX_QUERY_TOKENS;
       if (long && !options.contentWords && keywordsOf(query)) addRelevance(await this.store.searchNodes({ ...filter, query: keywordsOf(query), limit: pool }));
       relevanceWeight = Math.max(1, lists);
+    }
+
+    if (options.stateIntent) {
+      const queryWords = new Set(queryTokens(keywordsOf(query) || query).map((w) => w.toLowerCase()));
+      const states = (await this.store.searchNodes({ tags: [STATE_TAG], validAt, limit: Number.POSITIVE_INFINITY }))
+        .filter((n) => matchesFilter(n, filter))
+        .map((node) => {
+          const meta = node.contextualMetadata[STATE] as { subject?: unknown; aspect?: unknown } | undefined;
+          const aspect = typeof meta?.aspect === "string" ? meta.aspect : "";
+          const subject = typeof meta?.subject === "string" ? meta.subject : "";
+          const aspectHits = queryTokens(aspect).filter((w) => queryWords.has(w.toLowerCase())).length;
+          const subjectHits = queryTokens(subject).filter((w) => queryWords.has(w.toLowerCase())).length;
+          return { node, relevance: aspectHits * 2 + subjectHits };
+        })
+        .filter((e) => e.relevance > 0)
+        .sort((a, b) => b.relevance - a.relevance || compareValidFrom(a.node, b.node));
+      addList(states.map((e) => e.node), 4);
     }
 
     // A cross-encoder reads the question with each of the best candidates and

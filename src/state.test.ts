@@ -58,6 +58,29 @@ describe("recordState", () => {
     expect((await stateHistory(store, { subject: "launch" })).map((h) => h.text)).toEqual(["Launched on Tuesday.", "Launch is scheduled."]);
   });
 
+  it("inserts a late state between closed states in valid-time order", async () => {
+    const store = new InMemoryStore();
+    const first = await recordState(store, { subject: "home", text: "I live in Lisbon", at: at("01T10:00") });
+    const third = await recordState(store, { subject: "home", text: "I live in Berlin", at: at("20T10:00") });
+    const fourth = await recordState(store, { subject: "home", text: "I live in Tokyo", at: at("24T10:00") });
+    const second = await recordState(store, { subject: "home", text: "I live in London", at: at("10T10:00") });
+
+    expect(second.node.validTo).toBe(third.node.validFrom);
+    expect(second.node.contextualMetadata["supersededBy"]).toBe(third.node.nodeId);
+    expect((await store.getNode(first.node.nodeId))?.validTo).toBe(second.node.validFrom);
+    expect((await store.getNode(first.node.nodeId))?.content.text).toBe("I live in Lisbon");
+    expect((await currentStates(store, { at: at("15T10:00") })).map((s) => s.nodeId)).toEqual([second.node.nodeId]);
+    expect((await currentStates(store, { at: at("22T10:00") })).map((s) => s.nodeId)).toEqual([third.node.nodeId]);
+    expect((await currentStates(store)).map((s) => s.nodeId)).toEqual([fourth.node.nodeId]);
+  });
+
+  it("rejects conflicting states at the same valid instant", async () => {
+    const store = new InMemoryStore();
+    await recordState(store, { subject: "home", text: "Lisbon", at: at("01T10:00") });
+    await expect(recordState(store, { subject: "home", text: "London", at: at("01T10:00") })).rejects.toThrow(/same instant/);
+    expect(await store.listNodes()).toHaveLength(1);
+  });
+
   it("saying the same state again changes nothing", async () => {
     const store = new InMemoryStore();
     const a = await recordState(store, { subject: "launch", text: "Launched on Tuesday.", at: at("24T10:00") });

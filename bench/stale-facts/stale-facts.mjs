@@ -159,7 +159,7 @@ export async function runStrategy(lib, cases, strategy, { k = 5, embedder } = {}
   try {
     const rows = [];
     for (const q of questionsOf(cases)) {
-      const hits = await memory.retriever.recall(q.text, { limit: k, validAt: q.validAt, ...(strategy === "append-only+freshness" ? { freshness: 1 } : {}) });
+      const hits = await memory.retriever.recall(q.text, { limit: k, validAt: q.validAt, contentWords: true, expand: true, ...(q.kind === "now" ? { stateIntent: true } : {}), ...(strategy === "append-only+freshness" ? { freshness: 1 } : {}) });
       const ranked = hits.map((n) => (typeof n.contextualMetadata["benchId"] === "string" ? n.contextualMetadata["benchId"] : n.nodeId));
       rows.push({ ...q, ranked, ...scoreRanking(ranked, q, k) });
     }
