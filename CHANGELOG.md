@@ -13,6 +13,13 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **One-command local MCP setup.** `npx -y al-buddy-memory init` creates the local SQLite
+  memory and configures Claude Code and Codex when their CLIs are installed, plus Cursor's
+  user MCP file. It keeps existing entries and starts with keyword recall, so no model
+  download is needed. The README now opens with this quick start and a fact-change demo;
+  executable TypeScript examples run in CI, and a clean Linux job installs the packed
+  tarball and exercises the MCP server.
+
 - **A raw-retrieval baseline beside the shipped default, in the LongMemEval benchmark**
   (`bench/longmemeval/README.md#the-raw-retrieval-baseline-what-each-feature-has-to-beat`).
   `recall-sweep.mjs` takes an `expand` arm, so `--arm none --arm expand` sweeps plain recall over

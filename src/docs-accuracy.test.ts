@@ -13,6 +13,21 @@ const root = join(dirname(new URL(import.meta.url).pathname), "..");
 const read = (f: string) => readFileSync(join(root, f), "utf8");
 
 describe("docs — the claims a reader will check", () => {
+  it("README quick start names the clients and local behavior init actually configures", () => {
+    const readme = read("README.md");
+    const quick = readme.match(/## Quick start — local MCP memory\n([\s\S]*?)\n---/)?.[1] ?? "";
+    expect(quick).toMatch(/npx -y al-buddy-memory init/);
+    for (const client of ["Claude Code", "Cursor", "Codex"]) expect(quick).toContain(client);
+    expect(quick).toMatch(/brain\.db/);
+    expect(quick).toMatch(/keyword recall/);
+    const init = read("bin/init.js");
+    expect(init).toMatch(/\.cursor", "mcp\.json"/);
+    expect(init).toMatch(/configureCli\("claude"/);
+    expect(init).toMatch(/configureCli\("codex"/);
+    expect(init).toMatch(/AL_BUDDY_MEMORY_SEMANTIC: "off"/);
+    expect(read("bin/al-buddy-memory.js")).toMatch(/if \(cmd === "init"\)/);
+    expect(JSON.parse(read("package.json")).scripts.check).toMatch(/build && npm test$/);
+  });
   /**
    * STARTER.md built a governed handle in step 2 and then handed `consolidate`
    * the RAW store in step 3, so every derived fact bypassed policy and audit.
