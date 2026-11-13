@@ -7,6 +7,7 @@
 // is called unless --embedder local is given (the on-device embedder). Writes
 // bench/results/<date>-stale-facts.json.
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -24,14 +25,32 @@ if (!existsSync(distEntry)) throw new Error("dist/ is missing: run `npm run buil
 const lib = await import(pathToFileURL(distEntry).href);
 const casesPath = join(REPO_ROOT, "bench", "stale-facts", "cases.json");
 const cases = loadCases(casesPath);
-const embedder = args.embedder === "local" ? new lib.LocalEmbedder() : undefined;
+const embedder = args.embedder === "local" ? new lib.LocalEmbedder({ cacheDir: join(homedir(), ".al-buddy-memory", "models") }) : undefined;
 
 const info = runInfo();
 const byStrategy = {};
 const rows = {};
+let attempted = 0;
+let succeeded = 0;
+let consecutiveFailures = 0;
 for (const strategy of STRATEGIES) {
-  rows[strategy] = await runStrategy(lib, cases, strategy, { k, embedder });
-  byStrategy[strategy] = summarizeStrategy(rows[strategy]);
+  attempted++;
+  try {
+    rows[strategy] = await runStrategy(lib, cases, strategy, { k, embedder });
+    byStrategy[strategy] = summarizeStrategy(rows[strategy]);
+    succeeded++;
+    consecutiveFailures = 0;
+  } catch (error) {
+    consecutiveFailures++;
+    console.error(`${strategy} failed:`, error);
+    if (consecutiveFailures >= 3) break;
+  }
+}
+console.log(`Strategies attempted: ${attempted}; succeeded: ${succeeded}`);
+if (succeeded !== STRATEGIES.length) {
+  console.log(`RESULT: Stale-facts benchmark incomplete: ${succeeded} of ${attempted} strategies succeeded.`);
+  process.exitCode = 1;
+  process.exit();
 }
 
 const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), "stale-facts");
@@ -45,7 +64,7 @@ writeJson(out, {
     retrieval: embedder ? "hybrid" : "keyword",
     embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
     store: "SqliteMemoryStore(':memory:'), a fresh one per strategy",
-    recall: "HybridRetriever.recall(question, { limit: k, validAt }); validAt is the dataset's `now`, or the instant an as-of question names",
+    recall: "HybridRetriever.recall(question, { limit: k, validAt, contentWords: true, expand: true, stateIntent: kind === 'now' }); validAt is the dataset's `now`, or the instant an as-of question names",
     strategies: {
       "append-only": "every statement an ordinary fact (addNode, validFrom = its date); nothing is closed",
       "append-only+freshness": "the same store, recalled with freshness: 1",
@@ -77,3 +96,4 @@ for (const strategy of STRATEGIES) {
     console.log(`${strategy.padEnd(24)} ${`${slice} (${r.n})`.padEnd(12)} ${pct(r.currentAt1)}  ${pct(r.staleAt1)}  ${pct(r.currentInTopK)}   ${pct(r.staleInTopK)}  ${pct(r.cleanTopK)}`);
   }
 }
+console.log(`RESULT: Stale-facts benchmark completed: ${succeeded} of ${attempted} strategies succeeded; current-state current-first now ${pct(byStrategy["current-state"].now.currentAt1).trim()}.`);

@@ -49,9 +49,9 @@ describe("stale-facts dataset", () => {
     expect(file).toBeDefined();
     const result = JSON.parse(readFileSync(join(REPO_ROOT, file!), "utf8"));
     const cases = loadCases(join(REPO_ROOT, "bench", "stale-facts", "cases.json"));
-    expect(result).toMatchObject({ dirty: false, settings: { k: 5, retrieval: "keyword" }, dataset: { version: cases.version, subjects: cases.subjects.length, distractors: cases.distractors.length } });
+    expect(result).toMatchObject({ dirty: false, settings: { k: 5, retrieval: "hybrid" }, dataset: { version: cases.version, subjects: cases.subjects.length, distractors: cases.distractors.length } });
     const { now, asOf } = result.summary["current-state"];
-    expect(readme).toContain(`${now.n} questions about now, ${asOf.n} about a past instant; keyword recall, no embedder; first 5 results`);
+    expect(readme).toContain(`${now.n} questions about now, ${asOf.n} about a past instant; local hybrid recall with current-state intent for now questions; first 5 results`);
     const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
     const row = (label: string, slice: string, metric: string) =>
       `| ${label} | ${["append-only", "append-only+freshness", "current-state"].map((s) => pct(result.summary[s][slice][metric])).join(" | ")} |`;
