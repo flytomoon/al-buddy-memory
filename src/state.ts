@@ -148,12 +148,14 @@ export async function recordState(store: MemoryStore, input: RecordStateInput): 
   const when = canonicalInstant(input.at ?? new Date().toISOString(), "at");
   const key = stateKey({ subject, ...(aspect ? { aspect } : {}) });
 
-  const live = (await statesWithKey(store, key)).filter((n) => n.validTo === null).sort(newestFirst);
-  const newest = live[0];
-  if (newest && sameText(newest.content.text, text)) return { node: newest, superseded: [], unchanged: true };
+  const states = (await statesWithKey(store, key)).sort(newestFirst);
+  const atWhen = states.find((n) => n.validFrom <= when && (n.validTo === null || n.validTo > when));
+  if (atWhen && sameText(atWhen.content.text, text)) return { node: atWhen, superseded: [], unchanged: true };
+  if (states.some((n) => n.validFrom === when)) throw new Error("recordState: conflicting states cannot begin at the same instant");
 
-  // A newer state is already recorded: this one is history on arrival.
-  const later = live.filter((n) => n.validFrom > when).sort((a, b) => -newestFirst(a, b))[0];
+  // Include closed states: a late arrival ends at the next state in valid time,
+  // even when that next state was itself superseded before we learned this one.
+  const later = states.filter((n) => n.validFrom > when).sort((a, b) => -newestFirst(a, b))[0];
   const aliases = (input.aliases ?? []).map((a) => a.trim()).filter(Boolean);
   const meta: StateMeta = { subject, ...(aspect ? { aspect } : {}), ...(aliases.length ? { aliases } : {}), key };
   const node = await store.addNode({
@@ -174,16 +176,13 @@ export async function recordState(store: MemoryStore, input: RecordStateInput): 
     validFrom: when,
     ...(later ? { validTo: later.validFrom } : {}),
   });
-  if (later) return { node, superseded: [], unchanged: false };
-
   const named: MemoryNode[] = [];
-  for (const id of new Set(input.replaces ?? [])) {
+  for (const id of new Set(later ? [] : input.replaces ?? [])) {
     const other = await store.getNode(id);
-    if (other && other.validTo === null && isStateNode(other) && other.validFrom <= when && !live.some((n) => n.nodeId === id)) named.push(other);
+    if (other && other.validTo === null && isStateNode(other) && other.validFrom <= when && !states.some((n) => n.nodeId === id)) named.push(other);
   }
   const superseded: MemoryNode[] = [];
-  for (const old of [...live, ...named]) {
-    if (old.validFrom > when) continue;
+  for (const old of [...(atWhen ? [atWhen] : []), ...named]) {
     superseded.push(await store.updateNode(old.nodeId, { validTo: when, contextualMetadata: { ...old.contextualMetadata, supersededBy: node.nodeId } }));
   }
   return { node, superseded, unchanged: false };

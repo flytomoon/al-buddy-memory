@@ -5,6 +5,7 @@ import { HybridRetriever, indexMissingEmbeddings } from "./hybrid-retriever.js";
 import { recallCount } from "./access.js";
 import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode } from "./memory-store-conformance.spec.js";
+import { recordState } from "./state.js";
 import type { MemoryNode } from "./types/memory.js";
 
 /**
@@ -96,6 +97,28 @@ describe("HybridRetriever", () => {
     const retriever = new HybridRetriever(store, embedder);
     const results = await retriever.recall("london", { limit: 5 });
     expect(results.map((n) => n.content.text)).not.toContain("lives in london");
+  });
+
+  it("filters now before the keyword and vector candidate limits and ranking", async () => {
+    const store = new InMemoryStore();
+    const embedder = new FakeEmbedder("same-direction", 2, () => [1, 0]);
+    const current = await store.addNode(makeNode({ content: { text: "Tokyo home" }, validFrom: "2025-01-01T00:00:00Z" }));
+    for (let i = 0; i < 60; i++) {
+      await store.addNode(makeNode({ content: { text: `Tokyo home old ${i}` }, validFrom: "2020-01-01T00:00:00Z", validTo: "2025-01-01T00:00:00Z" }));
+    }
+    await indexMissingEmbeddings(store, embedder);
+    const hits = await new HybridRetriever(store, embedder).recall("Tokyo home", { limit: 1, candidates: 1, validAt: "2026-01-01T00:00:00Z" });
+    expect(hits.map((n) => n.nodeId)).toEqual([current.nodeId]);
+  });
+
+  it("ranks a current state's declared aspect for current-state intent", async () => {
+    const store = new InMemoryStore();
+    const old = await recordState(store, { subject: "me", aspect: "job title", text: "I'm a designer", at: "2020-01-01T00:00:00Z" });
+    const current = await recordState(store, { subject: "me", aspect: "job title", text: "I'm Design Lead", at: "2025-01-01T00:00:00Z" });
+    await store.addNode(makeNode({ content: { text: "What is my job title? A draft question." } }));
+    const hits = await new HybridRetriever(store).recall("What is my job title?", { stateIntent: true, limit: 1 });
+    expect(hits.map((n) => n.nodeId)).toEqual([current.node.nodeId]);
+    expect(hits.map((n) => n.nodeId)).not.toContain(old.node.nodeId);
   });
 
   it("fuses keyword and vector rankings (a hit in both lists wins)", async () => {
