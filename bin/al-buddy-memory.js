@@ -47,6 +47,19 @@ const cmd = args[0];
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const has = (name) => args.includes(name);
 
+if (cmd === "init") {
+  const { init } = await import("./init.js");
+  try {
+    const result = init();
+    for (const line of result.lines) console.log(line);
+    console.log(`RESULT: ${result.succeeded}/${result.attempted} client configurations ready`);
+    process.exit(result.succeeded > 0 && result.failed === 0 ? 0 : 1);
+  } catch (err) {
+    console.error(`init: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
 if (cmd === "verify-audit") {
   const postgres = has("--postgres");
   if ((!postgres && (!args[1] || args[1].startsWith("--"))) || (postgres && !flag("--tenant"))) {
@@ -146,7 +159,7 @@ if (cmd === "export" || cmd === "import" || cmd === "context" || cmd === "status
 }
 
 if (cmd !== "conformance" && cmd !== "mcp") {
-  console.error("usage: al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory verify-audit --postgres --tenant <key> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory status [--json] [--db path]\n       al-buddy-memory mcp");
+  console.error("usage: al-buddy-memory init\n       al-buddy-memory conformance <export.json> [--format portable|blocks|records] [--json]\n       al-buddy-memory conformance --demo\n       al-buddy-memory verify-audit <memory.db | audit.jsonl> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory verify-audit --postgres --tenant <key> [--head <hash>] [--receipt <receipt.json>]\n       al-buddy-memory export [--out file.json] [--format portable|markdown] [--db path]\n       al-buddy-memory import <export.json> [--db path]\n       al-buddy-memory context [--hook] [--max-chars N] [--cwd dir] [--db path]\n       al-buddy-memory status [--json] [--db path]\n       al-buddy-memory mcp");
   process.exit(2);
 }
 

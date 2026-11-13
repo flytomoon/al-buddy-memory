@@ -12,7 +12,7 @@ Thank you. Three kinds of contribution are most useful right now, in this order:
 
 ## Ground rules
 
-- `npm run check` must be green (typecheck, tests, bundle — what CI runs).
+- `npm run check` must be green (typecheck, bundle, tests — what CI runs). The bundle is built before the README snippet tests execute it.
 - Facts are invalidated, not overwritten; raw content and provenance are immutable; erasure
   only happens through governance. A PR that weakens any of that will be declined with thanks.
 - A claim in the docs needs a test or a line in docs/policies/ENFORCEMENT.md saying it is not
