@@ -10,6 +10,18 @@
 
 A fact is invalidated, never overwritten; on a governed handle, erasure runs through policy and is audited. Raw text is the source of truth and cannot be edited. Embeddings are a disposable, model-tagged cache. Every fact and every link exports to one documented format. The memory outlives whatever model, runtime or company produced it.
 
+## Quick start — local MCP memory
+
+With Node.js 22 or later, run this once:
+
+```sh
+npx -y al-buddy-memory init
+```
+
+`init` creates `~/.al-buddy-memory/brain.db`, adds the governed MCP server to Claude Code and Codex when their CLIs are installed, and writes `~/.cursor/mcp.json` for Cursor. Existing entries are kept. Restart the clients you use. The first install needs npm network access; after that, the memory is local. This quick start uses keyword recall, so it does not download the optional embedding model. The server and all three clients use the same database. No account, API key or metered service is needed.
+
+**30-second demo.** In a configured client, say “Remember that I live in Tokyo.” Then say “I moved to Berlin; the Tokyo fact is no longer true.” Ask “Where do I live now, and why?” The client should remember Berlin, invalidate the Tokyo fact, and answer with the current fact and its provenance. If it leaves both current, ask it to invalidate Tokyo using the id returned by `recall`; `remember` suggests possible conflicts but does not retire them automatically.
+
 ---
 
 ## Why this exists
@@ -73,13 +85,26 @@ they load only if you use them, and `npm install --omit=optional` leaves them ou
 Prior art: the Letta project published the idea of a pinned memory tier and a background pass over memory (memory blocks; sleep-time agents). What is different here: every derived fact must cite the raw it rests on or it is refused, the raw is never rewritten, and a whole pass can be reviewed and undone, with the undo and its reason kept on record.
 
 ```ts
-import { SqliteMemoryStore, ProjectMemory, PinnedBlocks, exportPortable } from "al-buddy-memory";
+import { SqliteMemoryStore, PinnedBlocks, exportPortable, govern, personalDefaults, storeAudit } from "al-buddy-memory";
 
-const store = new SqliteMemoryStore("./brain.db");
-await store.addNode({ provenance: "UserInput", memoryType: "Lesson", content: { text: "Chris prefers decisions over options." }, /* …governance fields… */ });
+const inner = new SqliteMemoryStore("./brain.db");
+const store = govern(inner, {
+  policies: [personalDefaults({ owner: "chris" })],
+  context: () => ({ actor: "chris" }),
+  audit: storeAudit(inner),
+});
+await store.addNode({
+  provenance: "UserInput", encryptionKeyRef: "local", memoryType: "Lesson",
+  privacyClassification: "Private", retentionTier: "FullRetention",
+  content: { text: "Chris prefers decisions over options." },
+  contextualMetadata: {}, confidenceWeight: 1, decayRate: 0,
+  validFrom: new Date().toISOString(),
+});
 const pins = new PinnedBlocks(store);
 await pins.pin({ text: "Never present options without a recommendation.", label: "rule" });
-const snapshot = await exportPortable(/* … */);   // → docs/portable-format.schema.json
+const snapshot = await exportPortable(new Map([["default", store]]));
+console.log(snapshot.formatVersion);
+inner.close();
 ```
 
 Full contract: [docs/SPEC.md](docs/SPEC.md). Design record: [docs/DECISION-2026-07-07.md](docs/DECISION-2026-07-07.md).
@@ -110,13 +135,15 @@ import { SqliteMemoryStore, govern, personalDefaults, storeAudit } from "al-budd
 const inner = new SqliteMemoryStore("brain.db");
 const store = govern(inner, {
   policies: [personalDefaults({ owner: "chris" })],
-  context: () => ({ actor: currentActor() }),
+  context: () => ({ actor: "chris" }),
   // The trail goes in the database, hash-chained, in the same transaction as
   // the fact it describes. `new ChainedAudit("audit.jsonl")` puts it in a file
   // instead — for a store that is not SQLite, or when you want it outside the
   // file it describes. See docs/GOVERNANCE.md for what each one proves.
   audit: storeAudit(inner),
 });
+console.log((await store.listNodes()).length);
+inner.close();
 ```
 
 To make sure nothing is ever erased by accident, add `memoryLock()` to the policies: while it

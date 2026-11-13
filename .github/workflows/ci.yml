@@ -19,3 +19,29 @@ jobs:
       # One command, the same one a contributor runs locally (npm run check) —
       # a gate that differs from the local one only teaches people to skip it.
       - run: npm run check
+  fresh-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install packed package and run README quick start
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "RESULT: 0/1 fresh-install quick starts succeeded"' ERR
+          npm pack --pack-destination "$RUNNER_TEMP" >/dev/null
+          mkdir -p "$RUNNER_TEMP/consumer" "$RUNNER_TEMP/fresh-home"
+          npm install --prefix "$RUNNER_TEMP/consumer" "$RUNNER_TEMP"/al-buddy-memory-*.tgz
+          cd "$RUNNER_TEMP/consumer"
+          export HOME="$RUNNER_TEMP/fresh-home"
+          npx -y al-buddy-memory init
+          npx -y al-buddy-memory status --json > "$RUNNER_TEMP/status.json"
+          node -e 'const fs=require("fs"); const path=require("path"); const home=process.env.HOME; const config=JSON.parse(fs.readFileSync(path.join(home,".cursor/mcp.json"))); if(config.mcpServers["al-buddy-memory"]?.env?.AL_BUDDY_MEMORY_SEMANTIC!=="off") process.exit(1); if(!fs.existsSync(path.join(home,".al-buddy-memory/brain.db"))) process.exit(1); JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/status.json"));'
+          cp "$GITHUB_WORKSPACE/scripts/fresh-install-smoke.mjs" "$RUNNER_TEMP/consumer/smoke.mjs"
+          node smoke.mjs
+          echo "RESULT: 1/1 fresh-install quick starts succeeded"
