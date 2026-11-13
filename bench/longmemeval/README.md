@@ -169,6 +169,12 @@ quarter of multi-session questions without all their evidence, and 40 recover mo
 (`--recall-pool` lifts the cap; `--rerank` is what decides whether the extra candidates rise). The
 reranker could not be measured here — its model is a download away.
 
+### Flagged write-time event study
+
+`--extract-events` asks the subscription-only Claude CLI to extract events at ingest. Each event is a quoted `Experience` record with `derivedFrom` pointing to its unchanged raw turn, an observation date, and a resolved referenced date when one is stated. Recall gathers source turns by entity/aspect terms and query date windows before the usual hybrid results. Without the flag there are no extraction calls or derived event records. Extraction errors stop the affected question and are recorded by the runner.
+
+After building and downloading the pinned dataset, run `node bench/longmemeval/event-study.mjs`. It makes three complete 133-question `multi-session` runs, caches successful session extractions between them, writes individual results and a summary, and ends with a `RESULT:` sentence. It uses the Claude subscription for extraction, answering, and judging: zero metered API cost, bounded by the subscription limit. The old 83.5% used the official API judge, so scores are shown against it for context, not as a directly comparable gain. Changes within about ±3 points are noise.
+
 They need the Claude CLI and, for `--rerank`, a one-time download from huggingface.co. Each
 multi-session + knowledge-update run is 211 questions, about 420 subscription calls; each full run
 is 500 questions, about 1,000:

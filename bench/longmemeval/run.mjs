@@ -21,6 +21,7 @@ import { loadInstances, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
 import { runInstances, summarize } from "./harness.mjs";
 import { RERANK_WHEN, cachingEmbedder, fastPathOptions } from "./memory.mjs";
+import { sessionExtractor } from "./events.mjs";
 import { ANSWER_TEMPLATES, LONGMEMEVAL_COMMIT, READER_SOURCE, SCORING_SOURCE } from "./prompts.mjs";
 
 /** `--rerank` shorthands for the two cross-encoders the library documents. */
@@ -44,6 +45,8 @@ const { values: args } = parseArgs({
     "content-words": { type: "boolean", default: false },
     "aggregate-top-k": { type: "string" },
     "chain-of-note": { type: "boolean", default: false },
+    "extract-events": { type: "boolean", default: false },
+    "events-cache": { type: "string" },
     reading: { type: "string", default: "con" },
     answerer: { type: "string", default: "claude" },
     "answer-model": { type: "string", default: "sonnet" },
@@ -137,8 +140,10 @@ const fastPath = fastPathOptions({ contentWords: args["content-words"] });
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
+if (args["events-cache"] && !args["extract-events"]) fail("--events-cache requires --extract-events");
+const extractEvents = args["extract-events"] ? sessionExtractor(answererFromSpec("claude", { model: args["answer-model"], claudeCommand }), { cachePath: args["events-cache"] }) : undefined;
 let claudeVersion = null;
-if ([args.answerer, args.judge].includes("claude")) {
+if ([args.answerer, args.judge].includes("claude") || args["extract-events"]) {
   const v = await runProcess([...claudeCommand, "--version"], "", { env: subscriptionEnv(), timeoutMs: 30_000 }).catch(() => null);
   claudeVersion = v && v.code === 0 ? v.stdout.trim() : null;
   if (!claudeVersion) fail(`\`${args["claude-bin"]} --version\` failed: is the Claude Code CLI installed and logged in with a subscription?`);
@@ -150,7 +155,8 @@ const settings = {
   variant: args.variant,
   selection: { limit: args.limit === undefined ? null : Number(args.limit), types: types.length ? types.join(",") : null, stratified: args.limit !== undefined, questions: instances.length },
   store: "SqliteMemoryStore(':memory:'), a fresh one per question",
-  ingestion: "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
+  ingestion: args["extract-events"] ? "raw message plus quoted AIInferred Experience event records with derivedFrom source and observation/referenced dates" : "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
+  eventExtraction: args["extract-events"] ? { model: args["answer-model"], cache: args["events-cache"] ?? null } : null,
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
   recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""}${fastPath.text} })${reranker ? `, reranked by the cross-encoder${rerankDepth !== null ? ` (its best ${rerankDepth} candidates)` : ""}${rerankWhen === "window" ? " only when the question names a period (analyzeQuery's windows; every other question recalls with rerank: false)" : ""}` : ""}, hits grouped into rounds (a user turn and the turn after it)`,
@@ -209,7 +215,7 @@ try {
   await runInstances(
     lib,
     todo,
-    { embedder, queryEmbedder, reranker, rerankDepth, rerankWhen, topK, aggregateTopK, freshness, expand: args.expand, recallPool, recallOptions: fastPath.options, reading: args.reading, chainOfNote: args["chain-of-note"], answerer, judge },
+    { embedder, queryEmbedder, reranker, rerankDepth, rerankWhen, topK, aggregateTopK, freshness, expand: args.expand, recallPool, recallOptions: fastPath.options, reading: args.reading, chainOfNote: args["chain-of-note"], extractEvents, answerer, judge },
     { concurrency, onRow },
   );
 } catch (e) {

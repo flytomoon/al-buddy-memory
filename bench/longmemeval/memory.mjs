@@ -6,13 +6,13 @@
  *
  * Every message becomes one memory: the user's words as `UserInput`, the
  * assistant's as `AIInferred`, each a `Conversation` valid from its session's
- * date and tagged with its session. Nothing is summarised, extracted or
- * rewritten on the way in, and no model is called to build the memory: raw
- * text is the source of truth, which is the library's premise.
+ * date and tagged with its session. The optional event experiment adds
+ * separate quoted, source-linked Experience nodes; raw text is never rewritten.
  */
 import { performance } from "node:perf_hooks";
 
 import { corpusOf, parseSessionDate } from "./dataset.mjs";
+import { eventSources } from "./events.mjs";
 
 /**
  * How many memories one recall asks for: every candidate the keyword and vector
@@ -30,14 +30,18 @@ export const RECALL_POOL = 100;
  * `cachingEmbedder`'s memo, so a timed recall always pays for its embedding.
  * `store` makes the empty store (the tests pass an `InMemoryStore`).
  */
-export async function ingestHistory(lib, instance, { embedder, queryEmbedder = embedder, reranker, rerankDepth, store: newStore = () => new lib.SqliteMemoryStore(":memory:") } = {}) {
+export async function ingestHistory(lib, instance, { embedder, queryEmbedder = embedder, reranker, rerankDepth, extractEvents, store: newStore = () => new lib.SqliteMemoryStore(":memory:") } = {}) {
   const store = newStore();
   /** nodeId → where the message sits in the history. */
   const origin = new Map();
+  const events = [];
+  let rawMemories = 0;
+  try {
   for (let s = 0; s < instance.haystack_sessions.length; s += 1) {
     const sessionId = instance.haystack_session_ids[s];
     const validFrom = parseSessionDate(instance.haystack_dates[s]);
     const session = instance.haystack_sessions[s];
+    const sourceIds = new Map();
     for (let t = 0; t < session.length; t += 1) {
       const turn = session[t];
       if (turn.content.trim() === "") continue;
@@ -54,11 +58,27 @@ export async function ingestHistory(lib, instance, { embedder, queryEmbedder = e
         validFrom,
       });
       origin.set(node.nodeId, { session: s, turn: t });
+      rawMemories += 1;
+      sourceIds.set(t, node.nodeId);
+    }
+    if (extractEvents) for (const event of await extractEvents(session, instance.haystack_dates[s])) {
+      const sourceId = sourceIds.get(event.turn);
+      if (!sourceId) throw new Error(`Extracted event cites missing source turn ${s}:${event.turn}`);
+      const derived = await store.addNode({
+        provenance: "AIInferred", encryptionKeyRef: "longmemeval", memoryType: "Experience",
+        privacyClassification: "Private", retentionTier: "FullRetention",
+        content: { text: event.quote },
+        contextualMetadata: { derivedFrom: [sourceId], event: { entity: event.entity, aspect: event.aspect, observedDate: event.observedDate, referencedDate: event.referencedDate } },
+        confidenceWeight: 1, decayRate: 0, validFrom: `${event.referencedDate ?? event.observedDate}T00:00:00.000Z`,
+      });
+      events.push({ ...event, sourceId, derivedId: derived.nodeId });
+      origin.set(derived.nodeId, { session: s, turn: event.turn });
     }
   }
   if (embedder) await lib.indexMissingEmbeddings(store, embedder);
   const retriever = new lib.HybridRetriever(store, queryEmbedder, reranker ? { reranker, ...(rerankDepth ? { rerankDepth } : {}) } : {});
-  return { store, retriever, origin, memories: origin.size };
+  return { store, retriever, origin, events, lib, memories: rawMemories };
+  } catch (e) { store.close?.(); throw e; }
 }
 
 /**
@@ -99,6 +119,9 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
     ...(expand ? { expand: { now: parseSessionDate(instance.question_date) } } : {}),
     ...recallOptions,
   });
+  const eventIds = memory.events?.length ? eventSources(memory.events, instance.question, memory.lib?.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) }).windows ?? []) : [];
+  const sources = eventIds.length ? await Promise.all(eventIds.map((id) => memory.store.getNode(id))) : [];
+  const rankedHits = [...sources.filter(Boolean), ...hits];
   const ms = performance.now() - t0;
   const { user, system } = process.cpuUsage(cpu);
   const recall = { ms: Math.round(ms * 10) / 10, cpuMs: Math.round((user + system) / 100) / 10 };
@@ -106,7 +129,7 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
   const idAt = new Map(corpus.map((c) => [`${c.session}:${c.turn}`, c.id]));
   const rounds = [];
   const seen = new Set();
-  for (const node of hits) {
+  for (const node of rankedHits) {
     const at = memory.origin.get(node.nodeId);
     if (!at) continue;
     const session = instance.haystack_sessions[at.session];
