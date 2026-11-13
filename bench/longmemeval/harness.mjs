@@ -40,12 +40,12 @@ import { UsageLimitError } from "./answerers.mjs";
 export async function evaluateInstance(
   lib,
   instance,
-  { embedder, queryEmbedder = embedder, reranker = null, rerankDepth = null, rerankWhen = "always", topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, recallOptions = {}, reading = "con", chainOfNote = false, answerer = null, judge = null, exclusive = (fn) => fn() } = {},
+  { embedder, queryEmbedder = embedder, reranker = null, rerankDepth = null, rerankWhen = "always", topK = 20, aggregateTopK = null, freshness = 0, expand = false, recallPool, recallOptions = {}, reading = "con", chainOfNote = false, extractEvents, answerer = null, judge = null, exclusive = (fn) => fn() } = {},
 ) {
   const started = Date.now();
   const gate = reranker ? rerankGate(lib, instance, rerankWhen) : {};
   const { memories, rounds, memoriesRecalled, recall } = await exclusive(async () => {
-    const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder, reranker, rerankDepth });
+    const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder, reranker, rerankDepth, extractEvents });
     try {
       const recalled = await recallRounds(memory, instance, { freshness, expand, recallOptions: { ...recallOptions, ...gate }, ...(recallPool ? { recallPool } : {}) });
       return { memories: memory.memories, ...recalled, recall: { ...recalled.recall, load1: Math.round(loadavg()[0] * 100) / 100 } };
