@@ -54,9 +54,12 @@ release was measured to change it, and none of the new benchmark flags is eviden
   keyword-only run).
 - **Benchmark, prototype: write-time events** (`run.mjs --extract-events`,
   `bench/longmemeval/event-study.mjs`). A model extracts quoted event records per session; raw
-  turns are never rewritten. Behind its flag; with it off nothing changes. Unfinished: the study
-  compares unlike settings and stops on the first paraphrased quote, and no result of it is
-  committed, so it says nothing yet about recall.
+  turns are never rewritten. Behind its flag; with it off nothing changes. The study runs paired
+  arms under the published settings (multi-session and temporal reasoning, `--expand
+  --aggregate-top-k 40 --chain-of-note`), retrieval first, against the review's bar; an event
+  whose quote is not verbatim is dropped and counted rather than failing its question, and the
+  events are fused into recall's ranking by reciprocal rank instead of going ahead of it. No result
+  of it is committed yet, so it says nothing yet about recall.
 - **Maintainers: `npm run release:pin` refreshes the remote connector.** If this Mac serves the
   connector under launchd, the pin then rebuilds, restarts it and checks `/health` locally and on
   its public URL (CONTRIBUTING.md "Releasing"). With no such job it does nothing more.

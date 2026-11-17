@@ -171,9 +171,51 @@ reranker could not be measured here — its model is a download away.
 
 ### Flagged write-time event study
 
-`--extract-events` asks the subscription-only Claude CLI to extract events at ingest. Each event is a quoted `Experience` record with `derivedFrom` pointing to its unchanged raw turn, an observation date, and a resolved referenced date when one is stated. Recall gathers source turns by entity/aspect terms and query date windows before the usual hybrid results. Without the flag there are no extraction calls or derived event records. Extraction errors stop the affected question and are recorded by the runner.
+`--extract-events` asks a model (the subscription-only Claude CLI by default; `--events-model`,
+default `--answer-model`; `--events-extractor command:<shell command>` for any other) to list the
+events in each session. Each event becomes a separate `AIInferred` `Experience` record whose text
+is a verbatim quote of its source turn, with `derivedFrom` pointing at that unchanged raw turn, the
+session date, and a referenced date when the turn states one. Raw text stays the source of truth:
+an event only ranks its source turn, and the reader is only ever shown raw rounds.
 
-After building and downloading the pinned dataset, run `node bench/longmemeval/event-study.mjs`. It makes three complete 133-question `multi-session` runs, caches successful session extractions between them, writes individual results and a summary, and ends with a `RESULT:` sentence. It uses the Claude subscription for extraction, answering, and judging: zero metered API cost, bounded by the subscription limit. The old 83.5% used the official API judge, so scores are shown against it for context, not as a directly comparable gain. Changes within about ±3 points are noise.
+- **Extraction is its own pass**, before any question runs: every unique session of the selected
+  questions, `--concurrency` wide, kept in `--events-cache` (the model's raw reply, re-checked on
+  every read). A rerun with `--resume` calls the model only for sessions not yet cached. It stops
+  after 3 consecutive failed sessions or at a usage limit.
+- **One bad event is dropped and counted, never the question.** A quote that is not verbatim, a
+  turn that does not exist, a missing entity or aspect, or an impossible date drops that event,
+  with its reason. A reply with no JSON array at all is a failed session: recorded with its reason,
+  never cached, and its questions run without its events. The result's `eventExtraction` and each
+  row's `events` count all of it.
+- **Events are fused with recall, not put ahead of it.** The event channel (source turns of events
+  whose entity or aspect shares a word with the question, inside any period the question names;
+  equal overlaps share a rank) is fused with recall's hits by reciprocal rank, equal weight,
+  k = 60 as in the library. The reader's limits do not change (20 rounds, 40 when counting). The
+  records are also in the store, so recall's own keyword and vector lists can find a quote; a
+  quote found that way counts as its source round.
+
+Without the flag there are no extraction calls, no derived records and no fusion.
+
+**The study** (review 2026-11-17, § 3 item 2) is `node bench/longmemeval/event-study.mjs`. It runs
+paired arms under the published settings (`--types multi-session,temporal-reasoning --expand
+--aggregate-top-k 40 --chain-of-note`, 266 questions), differing only in `--extract-events`:
+
+1. Retrieval, no reader calls: a base arm and an events arm. The bar: of the 17 questions the
+   published run lost to recall (2026-09-30, official labels: 12 multi-session, 5 temporal), at
+   least 6 newly shown every evidence turn, and none of the questions the paired base shows every
+   evidence turn of stops being shown it (the published run had 223). It is `incomplete`, not a
+   result, if the arms are not a clean pair, any question errored, or more than 1% of sessions
+   failed extraction.
+2. Only if the bar passes (and without `--retrieval-only`): the answered pair, Claude Sonnet reading
+   and judging both arms, compared question by question. The official gpt-4o re-grade spends
+   OpenAI money and is not run.
+
+Arms run under `bench/results/.progress/event-study/`, so each records a clean tree, and are copied
+into `bench/results/<date>-lme-ms-tr-*.json` with `<date>-lme-ms-tr-event-study.json` (the bar, the
+17 one by one, per-type evidence counts, the extraction counts, and the answered pair if run). The
+same command resumes a stopped study. The last line is `RESULT: …`. Extraction is about 12,600
+sessions, one subscription call each; the answered pair adds about 1,060 more. `--limit` or
+`--retrieval` turn it into a smoke run, which says so and is not the study.
 
 They need the Claude CLI and, for `--rerank`, a one-time download from huggingface.co. Each
 multi-session + knowledge-update run is 211 questions, about 420 subscription calls; each full run
