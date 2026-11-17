@@ -36,7 +36,10 @@
 // (characters, and tokens estimated at four characters each). A question's
 // accuracy can only move when the rounds it is shown do. A `:window` arm whose arm without the cross-encoder is also
 // swept (`minilm:q8:30:window` and `none`, say) is held to its bar against it
-// (`windowGateCheck`), and the last such check is the RESULT. The last line
+// (`windowGateCheck`), and the last such check is the RESULT. With
+// `--gain-bar N`, every arm after the first is held to showing every evidence
+// turn in at least N more questions than the first arm, net of the ones it
+// stops showing (`gainBarCheck`), and that is the RESULT. The last line
 // printed is `RESULT: …`, one sentence.
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -48,7 +51,7 @@ import { parseArgs } from "node:util";
 import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { corpusOf, isAbstention, loadInstances, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
-import { armRecallSettings, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
+import { armRecallSettings, gainBarCheck, gainBarSentence, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
 import { cachingEmbedder, ingestHistory, recallRounds, rerankGate } from "./memory.mjs";
 import { retrievalMetrics, sameRounds, shownEvidence, summarizeRecallTime, summarizeRetrieval, windowGateCheck } from "./metrics.mjs";
 
@@ -64,6 +67,7 @@ const { values: args } = parseArgs({
     expand: { type: "boolean", default: false },
     arm: { type: "string", multiple: true, default: ["none"] },
     "budget-ms": { type: "string", default: "300" },
+    "gain-bar": { type: "string" },
     repeat: { type: "string", default: "1" },
     out: { type: "string" },
     resume: { type: "boolean", default: false },
@@ -138,6 +142,8 @@ for (const spec of args.arm) {
   arms.push(arm);
 }
 if (new Set(arms.map((a) => a.name)).size !== arms.length) fail("Each --arm must be different.");
+const gainBarMin = args["gain-bar"] !== undefined ? int("gain-bar", 1) : null;
+if (gainBarMin !== null && arms.length < 2) fail("--gain-bar holds every arm after the first to it: give at least two --arm.");
 const queryEmbedder = new lib.LocalEmbedder();
 const embedder = cachingEmbedder(queryEmbedder);
 try {
@@ -168,6 +174,7 @@ const settings = {
   armOrder: repeat > 1 ? "rotates by one arm per question and per repetition" : "rotates by one arm per question",
   repeat,
   budgetMs,
+  gainBar: gainBarMin,
   recallTiming: `per question and arm, the wall-clock and CPU time of the HybridRetriever.recall call alone (query embedding, keyword and vector search, fusion and any reranking), one recall at a time${repeat > 1 ? `; the median of ${repeat} recalls, each with a fresh retriever` : ""}`,
 };
 const runKey = createHash("sha256")
@@ -299,6 +306,8 @@ const gateChecks = arms
   .map((a) => ({ arm: a.name, base: a.name.split("+").filter((p) => p !== a.rerankPart).join("+") || "none" }))
   .filter(({ base }) => arms.some((b) => b.name === base))
   .map(({ arm, base }) => windowGateCheck(rows, { arm, base, budgetMs }));
+// Each arm after the first against --gain-bar: net questions newly shown every evidence turn.
+const gainBar = gainBarMin !== null ? gainBarCheck(summary, arms.map((a) => a.name), gainBarMin) : null;
 const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), "lme-recall-sweep");
 writeJson(out, {
   benchmark: "LongMemEval recall sweep",
@@ -310,6 +319,7 @@ writeJson(out, {
   wallClockSeconds: Math.round((Date.now() - started) / 1000),
   summary,
   ...(gateChecks.length > 0 ? { windowGate: gateChecks } : {}),
+  ...(gainBar ? { gainBar } : {}),
   questions: rows,
 });
 rmSync(progressPath, { force: true });
@@ -337,9 +347,13 @@ for (const g of gateChecks) console.log(`Window gate: ${gateSentence(g)}.`);
 // One sentence for whoever started this unattended: the window gate's verdict, or the best arm by evidence shown, against the first.
 const best = arms.slice(1).reduce((b, a) => (b === null || (summary[a.name].shown?.allEvidence ?? -1) > (summary[b.name].shown?.allEvidence ?? -1) ? a : b), null);
 const first = summary[arms[0].name];
+const gainText = gainBar ? gainBarSentence(gainBar, { questions: rows.length, againstMsP50: first.recall.ms.p50 }) : null;
+if (gainText) console.log(`Gain bar: ${gainText}.`);
 console.log(
   gateChecks.length > 0
     ? `RESULT: over ${rows.length} questions, ${gateSentence(gateChecks[gateChecks.length - 1])}.`
+    : gainText
+    ? `RESULT: ${gainText}.`
     : best
     ? `RESULT: over ${rows.length} questions, ${best.name} showed every evidence turn in ${pct(summary[best.name].shown?.allEvidence)} against ${pct(first.shown?.allEvidence)} for ${arms[0].name} (+${summary[best.name].allEvidenceVs.gained.length} / -${summary[best.name].allEvidenceVs.lost.length} questions), recall p50 ${summary[best.name].recall.ms.p50} ms against ${first.recall.ms.p50} ms.`
     : `RESULT: over ${rows.length} questions, ${arms[0].name} showed every evidence turn in ${pct(first.shown?.allEvidence)}, recall p50 ${first.recall.ms.p50} ms.`,

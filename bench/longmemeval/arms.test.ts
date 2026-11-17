@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 // The fixture test runs on an InMemoryStore, so this file needs no SQLite binding.
 
 import * as lib from "../../src/index.js";
-import { armRecallSettings, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
+import { armRecallSettings, gainBarCheck, gainBarSentence, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
 import { ingestHistory, recallRounds } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
@@ -72,5 +72,26 @@ describe("recall-sweep arms — the raw-retrieval baseline beside the shipped de
       approxTokens: { p50: 100, p95: 1000, mean: 370 },
     });
     expect(summarizeShownChars([])).toBeNull();
+  });
+});
+
+describe("recall-sweep --gain-bar — net questions newly shown every evidence turn", () => {
+  const arm = (gained: string[], lost: string[], p50: number) => ({ allEvidenceVs: { arm: "none", gained, lost }, recall: { ms: { p50 } } });
+  const summary = { none: arm([], [], 30), "minilm:fp32:all": arm(["a", "b", "c", "d", "e"], ["f"], 900), "bge:fp32:all": arm(["a", "b", "c", "d", "e", "g"], ["f"], 4000) };
+
+  it("holds every arm after the first to the bar, net of what it stops showing", () => {
+    const bar = gainBarCheck(summary, ["none", "minilm:fp32:all", "bge:fp32:all"], 5);
+    expect(bar.against).toBe("none");
+    expect(bar.arms["minilm:fp32:all"]).toEqual({ gained: 5, lost: 1, net: 4, pass: false, recallMsP50: 900 });
+    expect(bar.arms["bge:fp32:all"]).toEqual({ gained: 6, lost: 1, net: 5, pass: true, recallMsP50: 4000 });
+    expect(gainBarSentence(bar, { questions: 50, againstMsP50: 30 })).toBe(
+      "over 50 questions against none (recall p50 30 ms), minilm:fp32:all newly showed every evidence turn in 5 and stopped in 1 (net +4; bar +5: FAIL), recall p50 900 ms; " +
+        "bge:fp32:all newly showed every evidence turn in 6 and stopped in 1 (net +5; bar +5: PASS), recall p50 4000 ms",
+    );
+  });
+
+  it("refuses a bar with nothing to hold to it, or a bar below one", () => {
+    expect(() => gainBarCheck(summary, ["none"], 5)).toThrow(/second arm/);
+    expect(() => gainBarCheck(summary, ["none", "bge:fp32:all"], 0)).toThrow(/>= 1/);
   });
 });

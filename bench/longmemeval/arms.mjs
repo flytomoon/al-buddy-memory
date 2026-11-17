@@ -88,6 +88,35 @@ export function shownChars(rounds) {
   return chars;
 }
 
+/**
+ * The sweep's `--gain-bar N`: does each arm after the first show every
+ * evidence turn in at least N more questions than the first arm does, net of
+ * the questions where it stops showing it? A reranker that only trades one
+ * question's evidence for another's does not pass. `summary` is the sweep's
+ * per-arm summary (its `allEvidenceVs` is against the first arm).
+ */
+export function gainBarCheck(summary, armNames, min) {
+  if (!Number.isInteger(min) || min < 1) throw new Error(`gain bar must be an integer >= 1 (got ${min})`);
+  if (armNames.length < 2) throw new Error("a gain bar needs a second arm to hold to it");
+  const [against, ...others] = armNames;
+  const arms = Object.fromEntries(
+    others.map((name) => {
+      const { gained, lost } = summary[name].allEvidenceVs;
+      const net = gained.length - lost.length;
+      return [name, { gained: gained.length, lost: lost.length, net, pass: net >= min, recallMsP50: summary[name].recall?.ms?.p50 ?? null }];
+    }),
+  );
+  return { min, against, rule: "net questions newly shown every evidence turn (gained minus lost) >= min", arms };
+}
+
+/** One clause per arm of a gain bar, for the sweep's RESULT line. */
+export function gainBarSentence(bar, { questions, againstMsP50 = null } = {}) {
+  const parts = Object.entries(bar.arms).map(
+    ([name, a]) => `${name} newly showed every evidence turn in ${a.gained} and stopped in ${a.lost} (net ${a.net >= 0 ? "+" : ""}${a.net}; bar +${bar.min}: ${a.pass ? "PASS" : "FAIL"}), recall p50 ${a.recallMsP50 ?? "—"} ms`,
+  );
+  return `over ${questions} questions against ${bar.against}${againstMsP50 === null ? "" : ` (recall p50 ${againstMsP50} ms)`}, ${parts.join("; ")}`;
+}
+
 /** p50, p95 and mean of the shown characters over the rows that have them, and the same as estimated tokens (chars / 4). */
 export function summarizeShownChars(values) {
   const xs = values.filter((x) => typeof x === "number");
