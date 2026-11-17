@@ -64,7 +64,7 @@ writeJson(out, {
     retrieval: embedder ? "hybrid" : "keyword",
     embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
     store: "SqliteMemoryStore(':memory:'), a fresh one per strategy",
-    recall: "HybridRetriever.recall(question, { limit: k, validAt, contentWords: true, expand: true, stateIntent: kind === 'now' }); validAt is the dataset's `now`, or the instant an as-of question names",
+    recall: "HybridRetriever.recall(question, { limit: k, validAt, contentWords: true, expand: true, stateIntent: true }); validAt is the dataset's `now`, or the instant an as-of question names, so an as-of question's state list holds the states valid then",
     strategies: {
       "append-only": "every statement an ordinary fact (addNode, validFrom = its date); nothing is closed",
       "append-only+freshness": "the same store, recalled with freshness: 1",
@@ -96,4 +96,5 @@ for (const strategy of STRATEGIES) {
     console.log(`${strategy.padEnd(24)} ${`${slice} (${r.n})`.padEnd(12)} ${pct(r.currentAt1)}  ${pct(r.staleAt1)}  ${pct(r.currentInTopK)}   ${pct(r.staleInTopK)}  ${pct(r.cleanTopK)}`);
   }
 }
-console.log(`RESULT: Stale-facts benchmark completed: ${succeeded} of ${attempted} strategies succeeded; current-state current-first now ${pct(byStrategy["current-state"].now.currentAt1).trim()}.`);
+const firstOf = (slice) => `${rows["current-state"].filter((r) => (slice === "now" ? r.kind === "now" : r.kind === "as-of") && r.currentAt1).length} of ${byStrategy["current-state"][slice].n}`;
+console.log(`RESULT: Stale-facts benchmark completed: ${succeeded} of ${attempted} strategies succeeded; current-state put the true value first for ${firstOf("now")} now-questions and ${firstOf("asOf")} as-of questions.`);

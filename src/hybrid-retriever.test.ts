@@ -125,6 +125,28 @@ describe("HybridRetriever", () => {
     expect(hits.map((n) => n.nodeId)).not.toContain(old.node.nodeId);
   });
 
+  it("routes an as-of question through the state ranking: the state true at the instant asked comes first", async () => {
+    const store = new InMemoryStore();
+    const first = await recordState(store, { subject: "flat", aspect: "rent", text: "My rent is 1,450 euros a month.", at: "2022-03-01T00:00:00Z" });
+    const then = await recordState(store, { subject: "flat", aspect: "rent", text: "The landlord raised it to 1,560 euros a month from March.", at: "2024-03-01T00:00:00Z" });
+    const later = await recordState(store, { subject: "flat", aspect: "rent", text: "It went up again, 1,640 euros a month now.", at: "2026-03-01T00:00:00Z" });
+    const distractor = await store.addNode(makeNode({ content: { text: "How much was the deposit at the start of 2025? I asked the agent about my rent deposit." }, validFrom: "2024-12-01T00:00:00Z" }));
+    const question = "How much was my rent at the start of 2025?";
+    const validAt = "2025-01-01T00:00:00Z";
+    const retriever = new HybridRetriever(store);
+    // Without the state ranking the words of the question win, and the state true then is not first.
+    const plain = await retriever.recall(question, { validAt, limit: 3 });
+    expect(plain[0]?.nodeId).toBe(distractor.nodeId);
+    const asOf = await retriever.recall(question, { validAt, stateIntent: true, limit: 3 });
+    expect(asOf[0]?.nodeId).toBe(then.node.nodeId);
+    // Valid time decides which state: never the one after the instant, never the one it replaced.
+    expect(asOf.map((n) => n.nodeId)).not.toContain(later.node.nodeId);
+    expect(asOf.map((n) => n.nodeId)).not.toContain(first.node.nodeId);
+    // The same question about now gets the state true now.
+    const now = await retriever.recall(question, { validAt: "2026-09-01T00:00:00Z", stateIntent: true, limit: 1 });
+    expect(now.map((n) => n.nodeId)).toEqual([later.node.nodeId]);
+  });
+
   it("fuses keyword and vector rankings (a hit in both lists wins)", async () => {
     const store = new InMemoryStore();
     const embedder = conceptEmbedder();

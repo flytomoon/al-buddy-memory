@@ -20,7 +20,7 @@ describe("docs — the claims a reader will check", () => {
     expect(readme).toContain("the declared subject/aspect used for current-state intent");
     expect(read("src/hybrid-retriever.ts")).toMatch(/searchNodes\(\{ tags: \[STATE_TAG\], validAt/);
     expect(read("src/hybrid-retriever.ts")).toMatch(/if \(options\.stateIntent\)/);
-    expect(read("bench/stale-facts/stale-facts.mjs")).toMatch(/q\.kind === "now" \? \{ stateIntent: true \}/);
+    expect(read("bench/stale-facts/stale-facts.mjs")).toMatch(/validAt: q\.validAt, contentWords: true, expand: true, stateIntent: true,/);
   });
   it("README quick start names the clients and local behavior init actually configures", () => {
     const readme = read("README.md");

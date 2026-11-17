@@ -124,3 +124,71 @@ export function summarizeShownChars(values) {
   const stats = (ys) => ({ p50: Math.round(percentile(ys, 0.5)), p95: Math.round(percentile(ys, 0.95)), mean: Math.round(ys.reduce((a, b) => a + b, 0) / ys.length) });
   return { n: xs.length, chars: stats(xs), approxTokens: stats(xs.map((x) => x / 4)) };
 }
+
+/**
+ * The bar a recall option clears before it is switched on by default (review
+ * 2026-11-17, build list item 8, for `contentWords`): over the full run, the
+ * option's arm against the first arm must
+ *
+ *   - hold the gain: show every evidence turn in at least `minNet` more
+ *     questions than the first arm, net of the ones it stops showing. The
+ *     default, +2, is what the option earned on its gain set (+3 / −1,
+ *     2026-10-15 and again 2026-10-18), and those questions are inside the 500;
+ *   - lose little anywhere: in no question type stop showing every evidence
+ *     turn in more than `maxLostPerType` questions. Lost questions, not net,
+ *     so a type's losses are never hidden by its gains.
+ *
+ * Only questions both arms were scored on count (the official metric skips
+ * abstention and assistant-only evidence). `rows` are the sweep's per-question
+ * rows (`arms[name].retrieval.shown.all`).
+ */
+export const DEFAULT_BAR = { minNet: 2, maxLostPerType: 1 };
+
+export function defaultBarCheck(rows, armNames, { minNet = DEFAULT_BAR.minNet, maxLostPerType = DEFAULT_BAR.maxLostPerType } = {}) {
+  if (armNames.length !== 2) throw new Error(`the default bar holds one arm against the first: give exactly two arms (got ${armNames.length})`);
+  if (!Number.isInteger(minNet) || !Number.isInteger(maxLostPerType) || maxLostPerType < 0) throw new Error("the default bar's minNet and maxLostPerType must be integers, maxLostPerType >= 0");
+  const [against, arm] = armNames;
+  const all = (r, name) => r.arms?.[name]?.retrieval?.shown?.all;
+  const byType = {};
+  let gained = 0;
+  let lost = 0;
+  let scored = 0;
+  for (const r of rows) {
+    const a = all(r, arm);
+    const b = all(r, against);
+    if (a === undefined || b === undefined) continue;
+    scored += 1;
+    const t = (byType[r.question_type] ??= { n: 0, gained: 0, lost: 0 });
+    t.n += 1;
+    if (a === 1 && b === 0) {
+      t.gained += 1;
+      gained += 1;
+    } else if (a === 0 && b === 1) {
+      t.lost += 1;
+      lost += 1;
+    }
+  }
+  const overLimit = Object.entries(byType).filter(([, t]) => t.lost > maxLostPerType).map(([type]) => type);
+  const net = gained - lost;
+  return {
+    against,
+    arm,
+    rule: `net questions newly shown every evidence turn >= ${minNet}, and no question type losing more than ${maxLostPerType}`,
+    minNet,
+    maxLostPerType,
+    questions: scored,
+    gained,
+    lost,
+    net,
+    byType,
+    typesOverLimit: overLimit,
+    pass: scored > 0 && net >= minNet && overLimit.length === 0,
+  };
+}
+
+/** The default bar in one sentence, for the sweep's RESULT line. */
+export function defaultBarSentence(bar) {
+  const types = Object.entries(bar.byType).map(([t, v]) => `${t} +${v.gained}/-${v.lost}`).join(", ");
+  const why = bar.questions === 0 ? "no question scored on both arms" : [bar.net < bar.minNet ? `net ${bar.net >= 0 ? "+" : ""}${bar.net} is under +${bar.minNet}` : null, bar.typesOverLimit.length ? `${bar.typesOverLimit.join(", ")} lost more than ${bar.maxLostPerType}` : null].filter(Boolean).join("; ");
+  return `${bar.arm} against ${bar.against} over ${bar.questions} scored questions: +${bar.gained} / -${bar.lost} (net ${bar.net >= 0 ? "+" : ""}${bar.net}; ${types || "no types"}); default bar ${bar.pass ? "PASS: it may be switched on by default" : `FAIL (${why}): it stays opt-in`}`;
+}

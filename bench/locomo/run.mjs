@@ -246,7 +246,7 @@ if (sc.published.n) {
   console.log(`  the corrected key changed ${sc.keyChanged.questions} answers: ${sc.keyChanged.wrongToCorrect} verdicts went wrong → correct, ${sc.keyChanged.correctToWrong} correct → wrong`);
 }
 const adv = summary.adversarial;
-if (adv.keywordRule.n) console.log(`Adversarial (category 5, n=${adv.size}, not in the score): ${pct(adv.abstentionJudge.accuracy)} by the abstention judge (${adv.abstentionJudge.n} judged), ${pct(adv.keywordRule.accuracy)} by LoCoMo's keyword rule`);
+if (adv.keywordRule.n) console.log(`Adversarial (category 5, n=${adv.size}, not in the score): ${pct(adv.abstentionJudge.accuracy)} by the abstention judge (${adv.abstentionJudge.correct} of ${adv.abstentionJudge.n} judged), ${pct(adv.keywordRule.accuracy)} by LoCoMo's keyword rule (${adv.keywordRule.correct} of ${adv.keywordRule.n})`);
 const rs = summary.retrieval.scored;
 console.log(`Retrieval, scored questions (${rs.n}; ${rs.skipped} with no evidence turn skipped): every evidence turn shown in ${pct(rs.shownAllEvidence)}, ${pct(rs.shownEvidenceTurns)} of evidence turns shown, any@10 ${pct(rs.at["any@10"])}, all@10 ${pct(rs.at["all@10"])}, all@50 ${pct(rs.at["all@50"])}`);
 for (const [c, v] of Object.entries(summary.retrieval.byCategory)) console.log(`  category ${c} (n=${v.size}): all evidence shown ${pct(v.shownAllEvidence).padStart(6)}  (${v.n} counted)`);

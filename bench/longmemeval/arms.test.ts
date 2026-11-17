@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 // The fixture test runs on an InMemoryStore, so this file needs no SQLite binding.
 
 import * as lib from "../../src/index.js";
-import { armRecallSettings, gainBarCheck, gainBarSentence, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
+import { DEFAULT_BAR, armRecallSettings, defaultBarCheck, defaultBarSentence, gainBarCheck, gainBarSentence, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
 import { ingestHistory, recallRounds } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
@@ -93,5 +93,61 @@ describe("recall-sweep --gain-bar — net questions newly shown every evidence t
   it("refuses a bar with nothing to hold to it, or a bar below one", () => {
     expect(() => gainBarCheck(summary, ["none"], 5)).toThrow(/second arm/);
     expect(() => gainBarCheck(summary, ["none", "bge:fp32:all"], 0)).toThrow(/>= 1/);
+  });
+});
+
+describe("recall-sweep --default-bar — whether content words may become the default (review 2026-11-17, item 8)", () => {
+  // One row per question: did each arm show every evidence turn? undefined = not scored (abstention, assistant-only evidence).
+  const row = (id: string, type: string, none: 0 | 1 | undefined, option: 0 | 1 | undefined) => ({
+    question_id: id,
+    question_type: type,
+    arms: {
+      none: { retrieval: none === undefined ? { skipped: "abstention" } : { skipped: null, shown: { all: none } } },
+      "content-words": { retrieval: option === undefined ? { skipped: "abstention" } : { skipped: null, shown: { all: option } } },
+    },
+  });
+  const arms = ["none", "content-words"];
+
+  it("passes the gain set's own result, +3 / -1, spread so no type loses more than one", () => {
+    const rows = [
+      row("a", "multi-session", 0, 1),
+      row("b", "multi-session", 0, 1),
+      row("c", "temporal-reasoning", 0, 1),
+      row("d", "temporal-reasoning", 1, 0),
+      row("e", "knowledge-update", 1, 1),
+      row("f_abs", "multi-session", undefined, undefined),
+    ];
+    const bar = defaultBarCheck(rows, arms);
+    expect(DEFAULT_BAR).toEqual({ minNet: 2, maxLostPerType: 1 });
+    expect(bar).toMatchObject({ against: "none", arm: "content-words", questions: 5, gained: 3, lost: 1, net: 2, typesOverLimit: [], pass: true });
+    expect(bar.byType).toEqual({ "multi-session": { n: 2, gained: 2, lost: 0 }, "temporal-reasoning": { n: 2, gained: 1, lost: 1 }, "knowledge-update": { n: 1, gained: 0, lost: 0 } });
+    expect(defaultBarSentence(bar)).toBe(
+      "content-words against none over 5 scored questions: +3 / -1 (net +2; multi-session +2/-0, temporal-reasoning +1/-1, knowledge-update +0/-0); default bar PASS: it may be switched on by default",
+    );
+  });
+
+  it("fails when one type loses two, however large the net gain elsewhere", () => {
+    const rows = [...["a", "b", "c", "d", "e"].map((id) => row(id, "multi-session", 0, 1)), row("f", "knowledge-update", 1, 0), row("g", "knowledge-update", 1, 0)];
+    const bar = defaultBarCheck(rows, arms);
+    expect(bar).toMatchObject({ net: 3, typesOverLimit: ["knowledge-update"], pass: false });
+    expect(defaultBarSentence(bar)).toContain("default bar FAIL (knowledge-update lost more than 1): it stays opt-in");
+  });
+
+  it("fails when the gain does not hold, and says why", () => {
+    const bar = defaultBarCheck([row("a", "multi-session", 0, 1), row("b", "multi-session", 1, 1)], arms);
+    expect(bar).toMatchObject({ net: 1, pass: false });
+    expect(defaultBarSentence(bar)).toContain("FAIL (net +1 is under +2)");
+  });
+
+  it("never passes on nothing: no question scored on both arms is a FAIL, not a vacuous PASS", () => {
+    const bar = defaultBarCheck([row("a_abs", "multi-session", undefined, undefined)], arms, { minNet: 0 });
+    expect(bar).toMatchObject({ questions: 0, pass: false });
+    expect(defaultBarSentence(bar)).toContain("FAIL (no question scored on both arms)");
+  });
+
+  it("holds exactly one arm against the first", () => {
+    expect(() => defaultBarCheck([], ["none"])).toThrow(/exactly two arms/);
+    expect(() => defaultBarCheck([], ["none", "content-words", "expand"])).toThrow(/exactly two arms/);
+    expect(() => defaultBarCheck([], arms, { minNet: 2, maxLostPerType: -1 })).toThrow(/maxLostPerType/);
   });
 });

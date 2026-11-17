@@ -332,6 +332,24 @@ the order each time, and keeps the median time. `--gain-bar N` holds every arm a
 showing every evidence turn in at least N more questions than the first arm, net of the questions
 where it stops showing it; the verdict goes in the result file's `gainBar` and is the `RESULT:` line.
 
+`--default-bar`, with exactly two arms, holds the second to the bar for switching a recall option
+on by default (review 2026-11-17, build list item 8): over the whole run it must show every
+evidence turn in at least 2 more questions than the first arm, net (what `contentWords` earned on
+its gain set, +3 / −1, whose questions are inside the 500), and no question type may stop showing
+every evidence turn in more than 1 question; lost questions are counted per type, not net, so a
+type's losses are never hidden by its gains. The verdict, with every type's gains and losses, goes
+in the result file's `defaultBar` and is the `RESULT:` line. The run it was built for, about six
+hours on a laptop:
+
+```sh
+node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
+  --arm none --arm content-words --default-bar --out bench/results/<date>-lme500-content-words.json
+```
+
+A PASS makes the switch a candidate, not a decision: the review also asks for the answered
+`run.mjs --limit 50` pair, on both the plain and the multi-session/temporal-reasoning sets, before
+`contentWords` becomes the default.
+
 ### The two ceilings: the reader's and the reranker's
 
 `node bench/longmemeval/ceilings.mjs` runs the two checks the 2026-11-17 review puts before any

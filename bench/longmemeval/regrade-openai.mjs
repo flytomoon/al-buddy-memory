@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 
 import { prompt } from "./judge-prompts.mjs";
+import { summarizeAbstention } from "./metrics.mjs";
 
 const MODEL = "gpt-4o-2024-08-06";
 // Published gpt-4o-2024-08-06 prices, USD per 1M tokens.
@@ -88,7 +89,10 @@ for (const r of rows) {
 const typeAvg = Object.values(by).reduce((s, [c, n]) => s + c / n, 0) / Math.max(1, Object.keys(by).length);
 console.log(`\nOfficial judge (${MODEL}) over ${rows.length}/${hyps.length}: overall ${((100 * tot) / rows.length).toFixed(1)}% · task-averaged ${(100 * typeAvg).toFixed(1)}% · this run spent ~$${spent.toFixed(2)}`);
 for (const [k, [c, n]] of Object.entries(by)) console.log(`  ${k}: ${((100 * c) / n).toFixed(1)}% (${c}/${n})`);
+// The unanswerable questions as a row of their own; they stay inside their types above, as evaluate_qa.py counts them.
+const abstention = summarizeAbstention(rows);
+console.log(`  abstention (inside types): ${abstention.n ? `${((100 * abstention.correct) / abstention.n).toFixed(1)}% ` : ""}(${abstention.correct}/${abstention.n})`);
 writeFileSync(
   outPath.replace(/\.jsonl$/, ".summary.json"),
-  JSON.stringify({ model: MODEL, judgedWith: "OpenAI API, official LongMemEval judge prompts, temperature 0, max_tokens 10", n: rows.length, overall: tot / rows.length, taskAveraged: typeAvg, byType: Object.fromEntries(Object.entries(by).map(([k, [c, n]]) => [k, { correct: c, n }])) }, null, 2),
+  JSON.stringify({ model: MODEL, judgedWith: "OpenAI API, official LongMemEval judge prompts, temperature 0, max_tokens 10", n: rows.length, overall: tot / rows.length, taskAveraged: typeAvg, byType: Object.fromEntries(Object.entries(by).map(([k, [c, n]]) => [k, { correct: c, n }])), abstention: { correct: abstention.correct, n: abstention.n, byType: abstention.byType } }, null, 2),
 );

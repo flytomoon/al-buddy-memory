@@ -229,13 +229,31 @@ export function summarizeQa(rows) {
     typeMeans.push(mean(labels));
     byType[t] = { accuracy: round4(mean(labels)), n: labels.length };
   }
-  const abstention = judged.filter((r) => isAbstention(r.question_id)).map((r) => (r.label ? 1 : 0));
   return {
     questions: judged.length,
     overallAccuracy: round4(mean(judged.map((r) => (r.label ? 1 : 0)))),
     taskAveragedAccuracy: round4(mean(typeMeans)),
     typesMissing: QUESTION_TYPES.filter((t) => !byType[t]),
-    abstention: { accuracy: round4(mean(abstention)), n: abstention.length },
+    abstention: summarizeAbstention(judged),
     byType,
   };
+}
+
+/**
+ * The unanswerable questions (ids ending `_abs`; 30 in LongMemEval_S) as a
+ * row of their own. The official script prints only their accuracy, and they
+ * stay inside their types' counts as it keeps them; this adds the count right
+ * and which types they sit in, so the row can be published as "27 of 30".
+ * `rows` as for `summarizeQa`; unjudged rows are left out.
+ */
+export function summarizeAbstention(rows) {
+  const judged = rows.filter((r) => typeof r.label === "boolean" && isAbstention(r.question_id));
+  const byType = {};
+  for (const r of judged) {
+    const t = (byType[r.question_type] ??= { correct: 0, n: 0 });
+    t.n += 1;
+    if (r.label) t.correct += 1;
+  }
+  const correct = judged.filter((r) => r.label).length;
+  return { accuracy: round4(mean(judged.map((r) => (r.label ? 1 : 0)))), correct, n: judged.length, byType };
 }

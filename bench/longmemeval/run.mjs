@@ -322,8 +322,11 @@ const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed
 console.log(`\nWrote ${out}`);
 console.log(`Attempted ${summary.questions} question(s), succeeded ${summary.questions - summary.errors}.`);
 if (summary.qa.questions) {
-  console.log(`QA accuracy ${pct(summary.qa.overallAccuracy)} overall, ${pct(summary.qa.taskAveragedAccuracy)} task-averaged, abstention ${pct(summary.qa.abstention.accuracy)} (n=${summary.qa.abstention.n})`);
+  const ab = summary.qa.abstention;
+  console.log(`QA accuracy ${pct(summary.qa.overallAccuracy)} overall, ${pct(summary.qa.taskAveragedAccuracy)} task-averaged`);
   for (const [t, v] of Object.entries(summary.qa.byType)) console.log(`  ${t.padEnd(26)} ${pct(v.accuracy).padStart(6)}  (n=${v.n})`);
+  // Its own row: the unanswerable questions, also counted inside their types above, as the official script counts them.
+  console.log(`  ${"abstention (inside types)".padEnd(26)} ${pct(ab.accuracy).padStart(6)}  (${ab.correct} of ${ab.n}${ab.n ? `: ${Object.entries(ab.byType).map(([t, v]) => `${t} ${v.correct}/${v.n}`).join(", ")}` : ""})`);
 }
 const s = summary.retrieval.session;
 console.log(`Retrieval (${summary.retrieval.questions} question${summary.retrieval.questions === 1 ? "" : "s"}): session recall_any@5 ${pct(s["recall_any@5"])}, @10 ${pct(s["recall_any@10"])}; recall_all@10 ${pct(s["recall_all@10"])}; ndcg_any@10 ${pct(s["ndcg_any@10"])}`);
