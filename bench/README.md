@@ -34,8 +34,11 @@ The same statements go into the same store three ways, and the same questions ar
 - **current-state** — every statement through `recordState(subject, aspect, …)`: a newer state
   closes the one it replaces, and recall returns what is valid at the instant asked.
 
-Now questions use `stateIntent: true`, which adds a ranked list of currently valid states whose
-declared subject/aspect matches the question; all questions use content-word and query expansion.
+Every question uses `stateIntent: true`, which adds a ranked list of the states valid at the
+instant asked whose declared subject/aspect matches the question: now for a now-question, the
+named instant for an as-of one (as-of questions joined it on 2026-11-17; the committed result
+below is from before, when only now-questions used it). All questions use content-word and query
+expansion.
 The local embedder is enabled in the committed result. Scored by identity, not by matching strings: every memory carries the id of the statement it came
 from. `stale@1` is the share of questions whose first result is another statement of the same
 subject — the answer an assistant would most likely repeat. `current@k`, `stale@k` and `clean@k`

@@ -412,18 +412,20 @@ LongMemEval_S, all 500 questions, every run as committed in [bench/results/](ben
 Reader: Claude Sonnet 5.5 (`claude-sonnet-5-5`) in every row. No score in this table changed in
 0.13; the newest is the 2026-09-30 run, re-judged on 2026-10-02.
 
-| Run ([result file](bench/results/)) | Date | Recall settings | Judge | Overall | Task-averaged |
-|---|---|---|---|---|---|
-| `2026-09-30-lme-full-fast` | 2026-09-30, re-judged 2026-10-02 | `--expand --aggregate-top-k 40 --chain-of-note`, no reranker | **gpt-4o-2024-08-06**, the official judge (OpenAI API, official prompts, temperature 0) | **92.8%** | **94.4%** |
-| `2026-09-30-lme-full-fast` | 2026-09-30 | the same answers | Claude Sonnet 5.5 | 92.6% | 94.4% |
-| `2026-09-29-lme-full-all` | 2026-09-29 | the same, plus the MiniLM cross-encoder over all 100 recalled | Claude Sonnet 5.5 | 92.6% | 94.3% |
-| `2026-09-29-longmemeval-full` | 2026-09-29 | none: plain hybrid recall, top 20 rounds | Claude Sonnet 5.5 | 88.4% | 91.6% |
-| `2026-09-29-longmemeval-full` | 2026-09-29 | the same answers | gpt-6-sol through Codex, official judge prompts | 88.2% | — |
+| Run ([result file](bench/results/)) | Date | Recall settings | Judge | Overall | Task-averaged | Abstention |
+|---|---|---|---|---|---|---|
+| `2026-09-30-lme-full-fast` | 2026-09-30, re-judged 2026-10-02 | `--expand --aggregate-top-k 40 --chain-of-note`, no reranker | **gpt-4o-2024-08-06**, the official judge (OpenAI API, official prompts, temperature 0) | **92.8%** | **94.4%** | **27 of 30** |
+| `2026-09-30-lme-full-fast` | 2026-09-30 | the same answers | Claude Sonnet 5.5 | 92.6% | 94.4% | 26 of 30 |
+| `2026-09-29-lme-full-all` | 2026-09-29 | the same, plus the MiniLM cross-encoder over all 100 recalled | Claude Sonnet 5.5 | 92.6% | 94.3% | 26 of 30 |
+| `2026-09-29-longmemeval-full` | 2026-09-29 | none: plain hybrid recall, top 20 rounds | Claude Sonnet 5.5 | 88.4% | 91.6% | 25 of 30 |
+| `2026-09-29-longmemeval-full` | 2026-09-29 | the same answers | gpt-6-sol through Codex, official judge prompts | 88.2% | — | 25 of 30 |
 
 The 92.8% row is the one to compare with other systems: it is the only one graded by the
 official judge. By type, under that judge: single-session user 69 of 70, single-session
 assistant 54 of 56, preference 29 of 30, multi-session 111 of 133, temporal reasoning 125 of 133,
-knowledge update 76 of 78. In the 2026-09-30 run the recall call itself took **11.7 ms p50 /
+knowledge update 76 of 78; and as a row of its own, abstention 27 of 30: the 30 questions whose
+answer is not in the history, where the right answer is to say so. They are also counted inside
+those six types, as the official script counts them. In the 2026-09-30 run the recall call itself took **11.7 ms p50 /
 33.5 ms p95** (library 0.8.3, on a laptop). Recall in 0.13 is again a pure read, as it was
 then; the time has not been re-measured on 0.13. Other systems publish their own numbers with
 other readers and judges, so a gap of a point or two between rows of different projects is not

@@ -74,7 +74,14 @@ export interface RecallOptions extends Omit<NodeFilter, "validAt"> {
    * search is then this one, not a second list.
    */
   contentWords?: boolean;
-  /** Rank currently valid states by their declared subject/aspect when the caller knows the question asks for current state. */
+  /**
+   * The caller knows the question asks where something stands: add a list of
+   * the states (`recordState`) valid at `validAt` whose declared subject or
+   * aspect shares words with the question. With no `validAt` that is now; for
+   * an as-of question ("where did I live in 2019?") pass the instant it names
+   * as `validAt`, and the list holds the states true then, never a later or an
+   * earlier one. Off by default.
+   */
   stateIntent?: boolean;
 }
 

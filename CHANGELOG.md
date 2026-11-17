@@ -27,6 +27,28 @@ earlier were GitHub releases only.
   the larger on-device cross-encoder over twice the candidate pool, held to a bar by the sweep's new
   `--gain-bar`. Measurement only: nothing in the library changes, and no number is in yet.
 
+- **Benchmark: abstention as its own row** (`bench/longmemeval`). LongMemEval's 30 unanswerable
+  questions, still counted inside their types as the official script counts them, are now also a
+  row of their own: `summarizeQa` gives their count right and their types beside the accuracy,
+  `run.mjs` prints the row, and the official re-grade (`regrade-openai.mjs`) writes it into its
+  summary. The README's LongMemEval table gains the column: 27 of 30 under the official judge in
+  the published run, 25 to 26 of 30 in the others. LoCoMo's 446 adversarial questions were already
+  reported this way; its run now prints their counts beside the rates.
+- **Benchmark: as-of questions through the state ranking** (`bench/stale-facts`). Every question,
+  not only those about now, recalls with `stateIntent: true`, at its own instant: an as-of
+  question's state list holds the states valid at the instant it names. Measured while building it
+  (local hybrid recall, not yet a committed result): the value true then comes first for 9 of 11
+  as-of questions, against 8 of 11 before; now-questions unchanged at 23 of 24, and nothing that
+  was first before stopped being first. The two still missed share no word with their aspect
+  ("live" and "home city", "working for" and "employer"). The library is unchanged:
+  `RecallOptions.stateIntent` already ranked the states valid at `validAt`, and its documentation
+  now says so.
+- **Benchmark: a default bar for recall options** (`recall-sweep.mjs --default-bar`). With two
+  arms, the second must show every evidence turn in at least 2 more questions than the first, net,
+  and lose no more than 1 in any question type. It is the bar `contentWords` has to clear over all
+  500 questions before it is switched on by default; that run has not been made yet, and the
+  option stays off.
+
 ## 0.13.0 — 2026-11-17
 
 A one-command install, current state that follows valid time, and two extension points; recall is still a read, and no benchmark score changes.

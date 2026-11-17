@@ -118,6 +118,22 @@ describe("stale-facts strategies — the same statements, three ways", () => {
     expect(now!.staleAt1).toBe(true);
   });
 
+  it("asks every question through the state ranking at its own instant: now, or the instant an as-of question names", async () => {
+    const calls: { text: string; options: Record<string, unknown> }[] = [];
+    class Spy extends lib.HybridRetriever {
+      override recall(text: string, options: lib.RecallOptions = {}) {
+        calls.push({ text, options: { ...options } });
+        return super.recall(text, options);
+      }
+    }
+    const rows = await runStrategy({ ...lib, HybridRetriever: Spy }, tiny(), "current-state", { k: 5 });
+    expect(calls.map((c) => [c.text, c.options["validAt"], c.options["stateIntent"]])).toEqual([
+      ["Where do I live?", "2026-09-01T00:00:00.000Z", true],
+      ["Where did I live in 2022?", "2022-06-01T00:00:00.000Z", true],
+    ]);
+    expect(rows.find((r) => r.kind === "as-of")!.ranked[0]).toBe("london");
+  });
+
   it("recordState returns only the current value now, a late old fact never overturns it, and a past instant never sees the future", async () => {
     const [now, then] = await runStrategy(lib, tiny(), "current-state", { k: 5 });
     expect(now!.ranked.filter((id) => id !== "distractor-1")).toEqual(["berlin"]);
