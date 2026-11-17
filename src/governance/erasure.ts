@@ -44,7 +44,6 @@ export const RECEIPT_OUTSIDE: readonly string[] = [
   "Facts the erasing actor cannot see, or that carry the selector's labels only where a policy hides them from that actor, were not selected (a conclusion drawn from a selected fact went with it, as with any erasure, and is counted), and facts about the subject that do not carry the selector's labels were not matched.",
   "Storage the database has not reclaimed yet: SQLite free pages and WAL until compact() (VACUUM) and a checkpoint; Postgres dead rows until VACUUM.",
   "The audit trail keeps the events that name these facts' ids; it never held their content.",
-  "Promoted copies of these facts (a new fact at a team or org scope, contextualMetadata.promotion.from naming its source) are the organisation's and were not erased with their source; withdraw them, or erase them by their author label.",
 ];
 
 /** A receipt for one `eraseWhere`. Every id is hashed ({@link erasedIdHash}); lists are sorted. */

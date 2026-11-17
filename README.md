@@ -235,6 +235,8 @@ edition adds:
 - data-API query executors
 - database row-level security
 - an enterprise readiness suite
+- team memory: personal, team and company scopes in one tenant, shared by a recorded,
+  withdrawable promotion
 
 The seams these plug into are public, and so is read audit: `PostgresMemoryStore` with
 `accessAudit: { sink, reads: true }` hears every read and write of a tenant, inside the call's own
@@ -519,7 +521,7 @@ The **first** `recall` of a connection also returns the pinned tier — the pers
 rules — as a second content block, so the tier that claims to be in every prompt gets there
 without spending any of the 512-character handshake.
 
-Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `confirm_retraction`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model`, `export`, and for team memory `promote` and `withdraw` (the personal server's policy refuses them; see [docs/policies/scopes.md](docs/policies/scopes.md#promotion)). `confirm_retraction` acknowledges a transcript correction while keeping the retracted fact and raw turn in history. `mental_model` reads a standing question's pre-written answer with its freshness and evidence (the host refreshes answers on its own schedule). `explain` answers why a
+Tools: `remember`, `recall`, `history`, `explain`, `invalidate`, `confirm_retraction`, `pin`, `unpin`, `pinned`, `mental_model`, `define_mental_model`, and `export`. A host adds its own tools with `GovernanceDeps.registerTools`, after these ([docs/EXTENSION-POINTS.md](docs/EXTENSION-POINTS.md#registertools-a-hosts-own-mcp-tools)). `confirm_retraction` acknowledges a transcript correction while keeping the retracted fact and raw turn in history. `mental_model` reads a standing question's pre-written answer with its freshness and evidence (the host refreshes answers on its own schedule). `explain` answers why a
 fact is believed: who asserted it, when it was true, what ended it, and for a conclusion the exact
 words it rests on, each checked now. `remember` takes at
 most 4,000 characters and `pin` 500; a `recall` query 1,000, an `invalidate` reason 500, and

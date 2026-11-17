@@ -6,9 +6,12 @@ import { InMemoryStore } from "./in-memory-store.js";
 import { makeNode, runMemoryStoreConformance } from "./memory-store-conformance.spec.js";
 import { runDerivedConformance } from "./derived-conformance.spec.js";
 import { PostgresMemoryStore, poolExecutor, type PostgresQueryClient, type QueryExecutor, type StoreAccessEvent, type StoreAuditSink } from "./postgres-memory-store.js";
-import { govern, inProcessLock, type LockProvider } from "./governance/governed-store.js";
-import { storeAudit } from "./governance/audit.js";
-import { PolicyDenied, type GovernancePolicy } from "./governance/policy.js";
+import { exportView, govern, inProcessLock, type LockProvider } from "./governance/governed-store.js";
+import { MemoryAudit, storeAudit } from "./governance/audit.js";
+import { PolicyDenied, type GovernancePolicy, type PolicyContext } from "./governance/policy.js";
+import type { GovernedOperations } from "./governance/operations.js";
+import { createGovernanceMcpServer, TOOL_ANNOTATIONS, type GovernanceDeps } from "./mcp/governance-server.js";
+import type { MemoryNode } from "./types/memory.js";
 
 /**
  * The extension points: a QueryExecutor under the Postgres store, an access
@@ -280,5 +283,133 @@ describe("LockProvider", () => {
     await expect(g.addNode(makeNode({ content: { text: "no" } }))).rejects.toThrow(PolicyDenied);
     expect(held).toBe(0);
     await expect(g.addNode(makeNode({ content: { text: "yes" } }))).resolves.toBeDefined();
+  });
+});
+
+/**
+ * GovernedOperations (2026-11-17): the hook team memory's promote and
+ * withdraw moved behind when they left this package. A toy operation, `stamp`,
+ * labels a fact through the kit; the handle must still decide who sees what,
+ * refuse and audit, and keep its own methods its own.
+ */
+describe("GovernedOperations: methods a host adds run through the handle's queue, policies and audit", () => {
+  interface StampPolicy extends GovernancePolicy {
+    beforeStamp?(node: MemoryNode, ctx: PolicyContext): void;
+  }
+  const stamping: GovernedOperations = {
+    name: "stamping",
+    purposes: ["stamp"],
+    methods: (kit) => ({
+      async stamp(id: string, label: string): Promise<MemoryNode> {
+        const authorised = kit.authorise("stamp");
+        return kit.serialise(async () => {
+          kit.assertAuditUsable();
+          const ctx = authorised();
+          const { node } = await kit.visibleOrNotFound(id, ctx);
+          const patch = { contextualMetadata: { ...node.contextualMetadata, stamp: label } };
+          await kit.guarded(ctx, [id], async () => {
+            await kit.updatePolicies(node, patch, ctx);
+            for (const p of kit.policies as readonly StampPolicy[]) p.beforeStamp?.(node, ctx);
+          });
+          return kit.commit(ctx, () => kit.inner.updateNode(id, patch), (n) => ({ ids: [n.nodeId], reason: label }));
+        });
+      },
+    }),
+  };
+  const hidesSecret: StampPolicy = {
+    name: "hides-secret",
+    beforeRead: (node, ctx) => (node.contextualMetadata["secret"] === true && ctx.actor !== "owner" ? null : node),
+    beforeStamp: (_node, ctx) => {
+      if (ctx.actor === "intern") throw new PolicyDenied("hides-secret", "interns do not stamp");
+    },
+  };
+  const handle = (inner: InMemoryStore, actor: string, audit: MemoryAudit, operations: readonly GovernedOperations[] = [stamping]) =>
+    govern(inner, { policies: [hidesSecret], context: () => ({ actor }), audit, operations }) as ReturnType<typeof govern> & { stamp?: (id: string, label: string) => Promise<MemoryNode> };
+
+  it("writes through commit, audited under the operation's own purpose", async () => {
+    const inner = new InMemoryStore();
+    const fact = await inner.addNode(makeNode({ content: { text: "open fact" } }));
+    const audit = new MemoryAudit();
+    const stamped = await handle(inner, "owner", audit).stamp!(fact.nodeId, "checked");
+    expect(stamped.contextualMetadata["stamp"]).toBe("checked");
+    expect((await inner.getNode(fact.nodeId))!.contextualMetadata["stamp"]).toBe("checked");
+    expect(audit.events.filter((e) => e.purpose === "stamp")).toMatchObject([{ outcome: "allowed", actor: "owner", nodeIds: [fact.nodeId], reason: "checked" }]);
+  });
+
+  it("a fact the actor cannot see is not found, and a policy's refusal is audited, with nothing written", async () => {
+    const inner = new InMemoryStore();
+    const secret = await inner.addNode(makeNode({ content: { text: "secret" }, contextualMetadata: { secret: true } }));
+    const open = await inner.addNode(makeNode({ content: { text: "open" } }));
+    const audit = new MemoryAudit();
+    await expect(handle(inner, "guest", audit).stamp!(secret.nodeId, "x")).rejects.toThrow(`Memory node not found: ${secret.nodeId}`);
+    await expect(handle(inner, "intern", audit).stamp!(open.nodeId, "x")).rejects.toThrow(PolicyDenied);
+    expect(audit.events.map((e) => [e.purpose, e.outcome, e.actor])).toEqual([["stamp", "denied", "guest"], ["stamp", "denied", "intern"]]);
+    expect((await inner.getNode(secret.nodeId))!.contextualMetadata["stamp"]).toBeUndefined();
+    expect((await inner.getNode(open.nodeId))!.contextualMetadata["stamp"]).toBeUndefined();
+  });
+
+  it("refuses a core purpose, a purpose claimed twice, a method the handle has, and an undeclared purpose", async () => {
+    const inner = new InMemoryStore();
+    const audit = new MemoryAudit();
+    const named = (o: Partial<GovernedOperations>): GovernedOperations => ({ name: "o", purposes: ["o"], methods: () => ({}), ...o });
+    expect(() => handle(inner, "owner", audit, [named({ purposes: ["erase"] })])).toThrow(/core purpose "erase"/);
+    expect(() => handle(inner, "owner", audit, [named({ purposes: [] })])).toThrow(/must declare their purposes/);
+    expect(() => handle(inner, "owner", audit, [named({ name: "a" }), named({ name: "b" })])).toThrow(/claimed by both a and b/);
+    expect(() => handle(inner, "owner", audit, [named({ methods: () => ({ deleteNode: async () => undefined }) })])).toThrow(/cannot add deleteNode/);
+    expect(() => handle(inner, "owner", audit, [stamping, named({ methods: () => ({ stamp: async () => undefined }) })])).toThrow(/cannot add stamp/);
+    const sneaky = named({ methods: (kit) => ({ sneak: async () => kit.authorise("erase") }) });
+    const g = handle(inner, "owner", audit, [sneaky]) as unknown as { sneak: () => Promise<unknown> };
+    await expect(g.sneak()).rejects.toThrow(/did not declare the purpose "erase"/);
+  });
+
+  it("left out, the handle has exactly its own methods; an export view never carries them", () => {
+    const inner = new InMemoryStore();
+    const plain = Object.keys(govern(inner, { policies: [], context: () => ({ actor: "owner" }) })).sort();
+    const extended = Object.keys(handle(inner, "owner", new MemoryAudit())).sort();
+    expect(extended).toEqual([...plain, "stamp"].sort());
+    const view = exportView(inner, { policies: [], context: () => ({ actor: "owner" }), operations: [stamping] });
+    expect(Object.keys(view).sort()).not.toContain("stamp");
+  });
+});
+
+/**
+ * registerTools (2026-11-17): a host's own MCP tools, added after the core's.
+ * Team memory's MCP tools moved behind it.
+ */
+describe("registerTools: a host's own MCP tools, after the core's", () => {
+  async function toolsOf(deps: GovernanceDeps): Promise<{ names: string[]; call: (name: string, args: Record<string, unknown>) => Promise<unknown>; close: () => Promise<void> }> {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { server } = await createGovernanceMcpServer(deps);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "1" });
+    await client.connect(clientSide);
+    return { names: (await client.listTools()).tools.map((t) => t.name), call: (name, args) => client.callTool({ name, arguments: args }), close: () => client.close() };
+  }
+
+  it("adds the host's tool beside the core's; without it, exactly the core's", async () => {
+    const store = new InMemoryStore();
+    const fact = await store.addNode(makeNode({ content: { text: "a fact" } }));
+    const plain = await toolsOf({ store });
+    expect(plain.names.sort()).toEqual(Object.keys(TOOL_ANNOTATIONS).sort());
+    await plain.close();
+
+    const added = await toolsOf({
+      store,
+      registerTools: ({ server, z, json, deps }) => {
+        server.tool("count_text", "Length of a fact's text.", { id: z.string() }, async (a) => json({ length: (await deps.store.getNode(a.id))!.content.text.length }));
+      },
+    });
+    expect(added.names.sort()).toEqual([...Object.keys(TOOL_ANNOTATIONS), "count_text"].sort());
+    expect(await added.call("count_text", { id: fact.nodeId })).toMatchObject({ content: [{ type: "text", text: JSON.stringify({ length: 6 }, null, 2) }] });
+    await added.close();
+  });
+
+  it("a host's tool cannot take a core tool's name", async () => {
+    const registerTools: GovernanceDeps["registerTools"] = ({ server, json }) => {
+      server.tool("recall", "Not the core's recall.", {}, async () => json([]));
+    };
+    await expect(createGovernanceMcpServer({ store: new InMemoryStore(), registerTools })).rejects.toThrow(/Tool recall is already registered/);
   });
 });

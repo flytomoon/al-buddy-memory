@@ -112,21 +112,20 @@ describe("docs — the claims a reader will check", () => {
   });
 
   /**
-   * The README's tool list is every tool the server registers, and it says the
-   * personal server refuses promote and withdraw: its policy has no
-   * beforePromote, and without one the store promotes nothing.
+   * The README's tool list is every tool the server registers, and it says a
+   * host adds its own with `registerTools`: called once per server, after the
+   * core's tools, so a name of theirs is refused rather than replaced.
    */
-  it("the README lists exactly the server's tools, and the personal server refuses promotion", async () => {
+  it("the README lists exactly the server's tools, and a host's own come after them", async () => {
     const line = read("README.md").match(/^Tools: (.+)$/m)?.[1] ?? "";
     const named = [...line.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]!);
     const { TOOL_ANNOTATIONS } = await import("./mcp/governance-server.js");
     expect([...new Set(named)].sort()).toEqual(Object.keys(TOOL_ANNOTATIONS).sort());
     expect(line).toMatch(/`confirm_retraction` acknowledges a transcript correction while keeping the retracted fact and raw turn in history/);
     expect(read("src/mcp/governance-server.ts")).toMatch(/server\.tool\("confirm_retraction"[^\n]*Acknowledge a transcript correction/);
-    expect(line).toMatch(/the personal server's policy refuses them/);
-    const { personalDefaults } = await import("./governance/samples.js");
-    expect(personalDefaults({ owner: "o" }).beforePromote).toBeUndefined();
-    expect(read("src/governance/promotion.ts")).toMatch(/if \(!allowed\) deny\("promotion is not enabled: no policy allows it"\)/);
+    expect(line).toMatch(/A host adds its own tools with `GovernanceDeps\.registerTools`, after these/);
+    const server = read("src/mcp/governance-server.ts");
+    expect(server.indexOf("deps.registerTools({ server, z, json, deps })")).toBeGreaterThan(server.lastIndexOf('server.tool("export"'));
   });
 
   it("the README's recall audit growth claim matches read-only recall, opt-in per-hit writes and the MCP cap", () => {
@@ -183,6 +182,8 @@ describe("docs — the claims a reader will check", () => {
       { documented: /## `QueryExecutor`/, claimedAs: /\bQueryExecutor\b|executor interface/i },
       { documented: /## `LockProvider`/, claimedAs: /\bLockProvider\b|lock provider/i },
       { documented: /## `readBoundary`/, claimedAs: /\breadBoundary\b|read boundar/i },
+      { documented: /## `GovernedOperations`/, claimedAs: /\bGovernedOperations\b|governed operations/i },
+      { documented: /## `registerTools`/, claimedAs: /\bregisterTools\b/i },
     ];
     for (const { documented, claimedAs } of publicSeams) {
       expect(points).toMatch(documented);
@@ -247,25 +248,6 @@ describe("docs — the claims a reader will check", () => {
     const connector = read("src/mcp/http-server.ts");
     expect(connector).toMatch(/onSignIn: \(clientId\) => \{ deliveries\.forget\(clientId\); \}/);
     expect(connector).toMatch(/connection: auth\?\.clientId/);
-  });
-
-  /**
-   * SIGN-IN.md's team-memory section promises three things about the helper
-   * it wires in: `self` is `user:<actor>`, each group is written `team:<group>`
-   * so a group's name cannot reach anything else, and a server write is the
-   * writer's own. Over real HTTP it is `mcp/http-oidc-team-memory.test.ts`.
-   */
-  it("SIGN-IN.md's team memory: self from the actor, every group a team, and a write is the writer's own", async () => {
-    const signIn = read("docs/SIGN-IN.md");
-    expect(signIn).toMatch(/teamMemoryAttributes\(who\.actor, who\.attributes\)/);
-    expect(signIn).toMatch(/adds `self`\s+\(`user:<actor>`, from the actor claim\) and writes each group as `team:<group>`/);
-    expect(signIn).toMatch(/stamped as theirs \(`scope: "user:<actor>"`,\s+`author: "<actor>"`\)/);
-
-    const { teamMemory, teamMemoryAttributes } = await import("./governance/samples.js");
-    const attributes = teamMemoryAttributes("alice", { teams: ["blue", "org", "user:bob"], self: "user:bob" });
-    expect(attributes).toEqual({ teams: ["team:blue", "team:org", "team:user:bob"], self: "user:alice" });
-    const written = await teamMemory().beforeWrite!({ contextualMetadata: {} } as never, { actor: "alice", purpose: "write", attributes, now: new Date() });
-    expect(written.contextualMetadata).toEqual({ scope: "user:alice", author: "alice" });
   });
 
   /**

@@ -14,7 +14,7 @@ const store = govern(new SqliteMemoryStore("brain.db"), {
 });
 ```
 
-A policy is a plain object with up to six hooks:
+A policy is a plain object with up to five hooks:
 
 | Hook | Runs | Can |
 |---|---|---|
@@ -23,11 +23,11 @@ A policy is a plain object with up to six hooks:
 | `beforeRead(node, ctx)` | on the way out of `getNode`, `searchNodes`, `listNodes`, and for the endpoints of `getEdges` and the facts behind embeddings | hide it (`null`) or redact it |
 | `beforeExport(node, ctx)` | when an `exportView` is being exported; without it, that policy's `beforeRead` decides, and with it `beforeRead` does not run on export, so repeat any hiding rule | allow or refuse |
 | `beforeErase(subject, ctx)` | before `deleteNode` / `deleteEdge`, and for each fact `eraseWhere` selects | return `true` to allow, throw to refuse, return nothing to abstain; erasure needs one allow and no refusal |
-| `beforePromote(source, request, ctx)` | before `promote` writes a copy of a fact at another scope | same rule as erasure: return `true` to allow, throw to refuse, return nothing to abstain; a promotion needs one allow and no refusal. The write policies do not run on the copy; this hook is its write rule. See [policies/scopes.md](policies/scopes.md#promotion) |
 | `readBoundary` (data, not a hook) | first, on every read (export included, which `beforeExport` does not replace), and inside the store's own query for `searchNodes` | admit only facts whose labels match the actor's attributes; see [policies/boundaries.md](policies/boundaries.md) |
 
 `ctx` carries `actor`, optional `audience`, optional `attributes` (what the application knows about the actor, for boundaries), `purpose` (write / recall / invalidate / export /
-import / erase / promote / withdraw) and `now`. Policies compose in order. Refusals throw `PolicyDenied` with the
+import / erase, or one a set of [governed operations](EXTENSION-POINTS.md#governedoperations-new-methods-on-a-governed-handle)
+declares) and `now`. Policies compose in order. Refusals throw `PolicyDenied` with the
 policy's name and reason. When an audit sink is supplied, every allow, hide and refusal lands
 in it as an append-only event; embedding calls are not audited. **When** the event is written
 depends on the sink, and it is the difference between two guarantees — see below.
@@ -225,7 +225,7 @@ find them: importing over a hidden fact is refused with `PolicyDenied` (so an ac
 import and holds a candidate id learns that it exists), and `deleteEdge` is judged by the
 erase policies alone, because an edge id carries no endpoints to check.
 
-## The five samples
+## The four samples
 
 - **personalDefaults({ owner })** — the owner sees everything; anything that looks like a
   secret (API tokens, card numbers, "password: …", private keys) is written as Sensitive;
@@ -244,13 +244,6 @@ erase policies alone, because an edge id carries no endpoints to check.
 - **enterpriseAudit({ reviewers, exporters, minInferredConfidence })** — AI-inferred facts
   below the confidence floor are hidden from everyone but reviewers; nothing leaves in an
   export unless the actor is an exporter. The audit trail does the rest.
-- **teamMemory({ importers?, orgSelfServe?, approval? })** — personal, team and company memory
-  in one tenant, by a fact's `scope` label (`user:<actor>`, `team:<id>`, `org`): each actor
-  reads their own, their teams' and the company's; an unlabelled write is stamped as the
-  writer's own, with `author`; a write naming another scope or author is refused; `scope` and
-  `author` never change. Sharing is `promote`: only the author, to a team they are on, or to
-  `org` with an admin's approval (or `orgSelfServe`). Give it attributes from
-  `teamMemoryAttributes(actor, { teams, roles })`. [policies/scopes.md](policies/scopes.md).
 
 Copy one, rename it, change the rule. Governance should read like a rule a person can
 check, not a framework.
