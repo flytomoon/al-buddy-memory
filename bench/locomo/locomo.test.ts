@@ -9,7 +9,7 @@ import { UsageLimitError } from "../longmemeval/answerers.mjs";
 import { loadAuditKey, loadConversations, parseLocomoDate, readConversation, resolveEvidence, selectQuestions } from "./dataset.mjs";
 import { ensureFiles, fileUrls, localPath } from "./download.mjs";
 import { evaluateQuestion, recallConversation, runLocomo } from "./harness.mjs";
-import { summarize } from "./metrics.mjs";
+import { scoreTable, summarize } from "./metrics.mjs";
 import { JUDGE_SYSTEM, READING_TEMPLATES, adversarialJudgePrompt, answerPrompt, formatContext, judgeLabel, judgePrompt, keywordRule } from "./prompts.mjs";
 
 /** A LoCoMo-shaped sample: three sessions with turns (numbered out of order on purpose), one with a date and no turns. */
@@ -245,6 +245,19 @@ describe("LoCoMo harness — memory, recall, verdicts and a run", () => {
     expect(s.adversarial).toMatchObject({ size: 446, questions: 1, abstentionJudge: { n: 1, correct: 1 }, keywordRule: { n: 1, correct: 1 } });
     expect(s.calls).toEqual({ answer: 4, judge: 4, judgeCorrected: 1 });
     expect(s.reader.inputTokensPerQuestion).toMatchObject({ mean: 15 });
+
+    // The summary file's scoreboard: the published and corrected key side by side, category 5 on its own row, outside the four.
+    const table = scoreTable(s);
+    expect(table.map((r: { category: number | string }) => r.category)).toEqual([...[4, 1, 2, 3].filter((c) => s.scored.byCategory[c]), "1-4", 5]);
+    expect(table.find((r: { category: number | string }) => r.category === 2)).toEqual({ category: 2, size: 321, judged: 1, published: 0, corrected: 1, correctPublished: 0, correctCorrected: 1 });
+    expect(table.find((r: { category: number | string }) => r.category === "1-4")).toEqual({ category: "1-4", size: 1540, judged: 3, published: 0, corrected: 0.3333, correctPublished: 0, correctCorrected: 1 });
+    expect(table.at(-1)).toEqual({ category: 5, size: 446, inOverall: false, judged: 1, abstentionJudge: 1, keywordRule: 1, keywordRuleN: 1 });
+  });
+
+  it("a retrieval-only run's scoreboard has the rows and no accuracy, never a zero", () => {
+    const table = scoreTable(summarize([{ question_id: "q", category: 4, adversarial: false, correctedAnswer: null, retrieval: { skipped: "no-evidence" }, shownTurns: [] }]));
+    expect(table[0]).toMatchObject({ category: 4, judged: 0, published: null, corrected: null });
+    expect(table.at(-1)).toMatchObject({ category: 5, judged: 0, abstentionJudge: null, keywordRule: null });
   });
 
   it("an unreadable verdict is that question's error, in its own words; three in a row stop the run with counts", async () => {

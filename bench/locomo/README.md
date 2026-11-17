@@ -26,7 +26,7 @@ Vendors label the categories differently (the same 282 questions are "multi-hop"
 npm ci && npm run build               # the benchmark measures the built package
 node bench/locomo/download.mjs        # once: the data and the audit key, each checked by SHA-256
 node bench/locomo/run.mjs --expand --conversations 1 --answerer none   # smoke: retrieval only, no model
-node bench/locomo/run.mjs --expand    # full run: 1,986 questions, about 4,070 model calls
+node bench/locomo/run.mjs --expand --wait-on-limit 60 --resume   # full run: 1,986 questions, about 4,070 model calls
 ```
 
 Both files go to `bench/locomo/data/`, which git and the npm package leave out (the data is
@@ -44,11 +44,15 @@ against the data (same question, same golden answer, same category) before using
 The same reader and judge conventions as [`bench/longmemeval`](../longmemeval/README.md#what-it-costs):
 the Claude Code CLI in print mode on the subscription it is logged in with, `sonnet` for both by
 default, with the API-key and cloud-provider variables removed from its environment by name, no
-tools, no saved session and `--safe-mode`. No metered API spend.
+tools, no saved session, `--safe-mode` and `--strict-mcp-config`. No chat channel's variables reach
+it: `TELEGRAM_STATE_DIR` and every other `TELEGRAM_*` name are removed from its environment. No
+metered API spend.
 
 A full run is about 4,070 calls: an answer and a verdict for each of the 1,986 questions, and a
 second verdict for each of the 99 the audit corrects. A usage limit stops the run once the
-questions in flight finish; the same command with `--resume` carries on. A question that fails is
+questions in flight finish; the same command with `--resume` carries on. With `--wait-on-limit N`
+the run instead waits N minutes and carries on by itself from its progress file, up to 12 times
+(for a run nobody is watching); `--resume` on a run with no progress yet simply starts it. A question that fails is
 recorded with its error, left out of every number and counted in the summary; three failures in a
 row stop the run. The last line printed is always `RESULT: …`.
 
@@ -67,6 +71,7 @@ row stop the run. The last line printed is always `RESULT: …`.
 | `--answer-model`, `--judge-model` | `sonnet` | Passed to the CLI. |
 | `--judge claude\|command:<cmd>\|none` | `claude` | |
 | `--concurrency N` | `4` | Answers and verdicts in flight. Memory building and recall go one at a time. |
+| `--wait-on-limit N` | `0` (stop) | At a usage limit, wait N minutes and carry on, at most 12 times. |
 | `--out file.json`, `--resume`, `--fresh`, `--allow-unpinned` | | As in `bench/longmemeval`. |
 
 ## What it does
@@ -103,9 +108,14 @@ The tests in [`locomo.test.ts`](locomo.test.ts) pin each copied prompt by SHA-25
 
 ## What a result reports
 
-`bench/results/<date>-locomo.json` holds the commit, every setting, the reader and judge as the CLI
-names them, and for every question its recall, the turns shown, the answer, both verdicts and the
-tokens. Its `summary`:
+`bench/results/<date>-locomo-full.json` (every question of the ten conversations, answered and
+judged; anything less is `<date>-locomo.json`) holds the commit, every setting, the reader and
+judge as the CLI names them, and for every question its recall, the turns shown, the answer, both
+verdicts and the tokens. Beside it, the same name with `.summary.json` holds the same header and
+summary without the per-question rows, plus `table`: one row per category (4, 1, 2, 3, then the
+four together) with its size, how many were judged, and accuracy against the published key and the
+corrected one side by side; and category 5 on its own row, `inOverall: false`, by the abstention
+judge and the keyword rule. Its `summary`:
 
 - `scored`: accuracy on categories 1 to 4 against the published key and the corrected one, overall
   and per category with its size; `keyChanged` counts the verdicts the corrected key flipped, each

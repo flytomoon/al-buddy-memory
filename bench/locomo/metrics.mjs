@@ -116,6 +116,31 @@ export function readerInputTokens(usage) {
 
 const statsOf = (xs) => (xs.length === 0 ? null : { mean: Math.round(mean(xs)), p50: percentile(xs, 0.5), p95: percentile(xs, 0.95), max: Math.max(...xs) });
 
+/**
+ * The scoreboard as rows, for the summary file: categories 1-4 by number with
+ * each one's size, judged count and accuracy against the published and the
+ * corrected key; the four together; and category 5 on its own row, marked as
+ * outside the overall, by the abstention judge and the keyword rule.
+ */
+export function scoreTable(summary) {
+  const sc = summary.scored;
+  const row = (category, size, v) => ({ category, size, judged: v.published.n, published: v.published.accuracy, corrected: v.corrected.accuracy, correctPublished: v.published.correct, correctCorrected: v.corrected.correct });
+  const adv = summary.adversarial;
+  return [
+    ...SCORED_CATEGORIES.filter((c) => sc.byCategory[c]).map((c) => row(c, CATEGORY_SIZES[c], sc.byCategory[c])),
+    row("1-4", SCORED_CATEGORIES.reduce((a, c) => a + CATEGORY_SIZES[c], 0), sc),
+    {
+      category: ADVERSARIAL,
+      size: adv.size,
+      inOverall: false,
+      judged: adv.abstentionJudge.n,
+      abstentionJudge: adv.abstentionJudge.accuracy,
+      keywordRule: adv.keywordRule.accuracy,
+      keywordRuleN: adv.keywordRule.n,
+    },
+  ];
+}
+
 /** Everything a results file reports about a set of rows. */
 export function summarize(rows) {
   const ok = rows.filter((r) => !r.error);

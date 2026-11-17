@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { REPO_ROOT, isoDate, resultPath, runInfo } from "../lib/run-info.mjs";
-import { METERED_ENV, UsageLimitError, answererFromSpec, claudeCli, parseClaudeJson, shellCommand, subscriptionEnv } from "./answerers.mjs";
+import { CHANNEL_ENV, METERED_ENV, UsageLimitError, answererFromSpec, claudeCli, parseClaudeJson, shellCommand, subscriptionEnv, withoutChannelEnv } from "./answerers.mjs";
 import { downloadFile, fileUrl, pinManifest, readManifest, verifyFile } from "./download.mjs";
 
 let dir: string;
@@ -23,7 +23,7 @@ const result = (r) => process.stdout.write(JSON.stringify({ type: "result", subt
 if (mode === "fail-once" && count === 1) { process.stderr.write("boom"); process.exit(1); }
 else if (mode === "limit") { result({ is_error: true, result: "Claude AI usage limit reached|1760000000" }); process.exit(1); }
 else if (mode === "sleep") setTimeout(() => {}, 10_000);
-else result({ is_error: false, result: JSON.stringify({ argv: process.argv.slice(2), input, cwd: process.cwd(), present: ${JSON.stringify(METERED_ENV)}.filter((k) => k in process.env), keep: process.env.KEEP_ME ?? null }) });
+else result({ is_error: false, result: JSON.stringify({ argv: process.argv.slice(2), input, cwd: process.cwd(), present: ${JSON.stringify(METERED_ENV)}.filter((k) => k in process.env), channel: Object.keys(process.env).filter((k) => k.startsWith("TELEGRAM_")), keep: process.env.KEEP_ME ?? null }) });
 `;
 
 beforeAll(() => {
@@ -40,6 +40,21 @@ describe("the claude -p answerer — the subscription, never a metered key", () 
   it("drops the variables that would bill per call, by name, and keeps everything else", () => {
     const out = subscriptionEnv({ ANTHROPIC_API_KEY: "not-a-real-key", ANTHROPIC_AUTH_TOKEN: "not-a-real-token", CLAUDE_CODE_USE_BEDROCK: "1", HOME: "/h" });
     expect(out).toEqual({ HOME: "/h" });
+  });
+
+  it("never hands a chat channel's variables to a child: TELEGRAM_STATE_DIR and any TELEGRAM_*", async () => {
+    expect(subscriptionEnv({ TELEGRAM_STATE_DIR: "/channel", TELEGRAM_BOT_TOKEN: "not-a-real-token", HOME: "/h" })).toEqual({ HOME: "/h" });
+    expect(withoutChannelEnv({ TELEGRAM_STATE_DIR: "/channel", ANTHROPIC_API_KEY: "kept-for-a-command", NOT_TELEGRAM_X: "1" })).toEqual({ ANTHROPIC_API_KEY: "kept-for-a-command", NOT_TELEGRAM_X: "1" });
+    expect(CHANNEL_ENV).toContain("TELEGRAM_STATE_DIR");
+
+    const answerer = claudeCli({ command: [process.execPath, stub], env: env({ TELEGRAM_STATE_DIR: "/channel", TELEGRAM_BOT_TOKEN: "x", KEEP_ME: "kept" }), cwd: dir });
+    const seen = JSON.parse((await answerer.complete("hi")).text);
+    expect(seen.channel).toEqual([]);
+    expect(seen.argv).toContain("--strict-mcp-config");
+    expect(seen.keep).toBe("kept");
+
+    const command = shellCommand(`node -e "process.stdout.write(Object.keys(process.env).filter((k) => k.startsWith('TELEGRAM_')).join(',') || 'none')"`, { env: env({ TELEGRAM_STATE_DIR: "/channel" }), cwd: dir });
+    expect((await command.complete("")).text).toBe("none");
   });
 
   it("runs print mode with JSON out, no tools, safe mode, no saved session; the prompt goes in on stdin", async () => {

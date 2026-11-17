@@ -39,8 +39,10 @@ subscription it is logged in with. There is no metered API spend. The CLI is sta
 `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and the Bedrock, Vertex and Foundry switches removed
 from its environment, by name (their values are never read), so it cannot fall back to billing a
 key. It is also started with no tools, no saved session, a one-line system prompt in place of the
-CLI's own, and `--safe-mode`, so none of your CLAUDE.md files, hooks, MCP servers or plugins join
-the conversation.
+CLI's own, `--safe-mode` and `--strict-mcp-config`, so none of your CLAUDE.md files, hooks, MCP
+servers or plugins join the conversation. No chat channel's variables reach it either:
+`TELEGRAM_STATE_DIR` (a bot's directory, its token included) and every other `TELEGRAM_*` name are
+removed, as `env -u` would, from the CLI's environment and from a `command:` answerer's.
 
 A run does count against the subscription's usage limits: two calls per question (answer, then
 judge). When a limit is hit the run stops once the questions in flight finish, keeps its progress,

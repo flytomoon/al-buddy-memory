@@ -6,50 +6,28 @@
 // what recall shows it, and the judge grades the answer — against the
 // published key and, for the 99 answers the independent audit corrects,
 // against the corrected key too. The 446 adversarial questions are reported
-// beside the 1,540, never in them. Writes bench/results/<date>-locomo.json
-// (settings, model ids, commit, every count, every answer). The last line
-// printed is "RESULT: ...". See bench/locomo/README.md.
+// beside the 1,540, never in them. Writes bench/results/<date>-locomo-full.json
+// for every question answered and judged, <date>-locomo.json for anything less
+// (settings, model ids, commit, every count, every answer), and beside it the
+// same name with .summary.json (the scoreboard, no per-question rows). The
+// last line printed is "RESULT: ...". See bench/locomo/README.md.
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, loadavg, totalmem } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
-import { DEFAULT_SYSTEM_PROMPT, answererFromSpec, runProcess, subscriptionEnv } from "../longmemeval/answerers.mjs";
+import { DEFAULT_SYSTEM_PROMPT, UsageLimitError, answererFromSpec, runProcess, subscriptionEnv } from "../longmemeval/answerers.mjs";
 import { sha256File } from "../longmemeval/download.mjs";
 import { SCORING_SOURCE as LONGMEMEVAL_JUDGE_SOURCE } from "../longmemeval/prompts.mjs";
 import { CATEGORY_SIZES, loadAuditKey, loadConversations, selectQuestions } from "./dataset.mjs";
 import { localPath, readLocomoManifest } from "./download.mjs";
 import { runLocomo } from "./harness.mjs";
 import { RECALL_POOL } from "./memory.mjs";
-import { summarize } from "./metrics.mjs";
+import { scoreTable, summarize } from "./metrics.mjs";
 import { CONTEXT_TEMPLATE_DESCRIPTION, JUDGE_SYSTEM, KEYWORD_RULE_SOURCE, PROMPTS_SHA256, PROMPTS_SOURCE, READING_TEMPLATES } from "./prompts.mjs";
-
-const { values: args } = parseArgs({
-  options: {
-    data: { type: "string" },
-    audit: { type: "string" },
-    conversations: { type: "string" },
-    categories: { type: "string" },
-    retrieval: { type: "string", default: "hybrid" },
-    "top-k": { type: "string", default: "40" },
-    "recall-pool": { type: "string", default: String(RECALL_POOL) },
-    expand: { type: "boolean", default: false },
-    reading: { type: "string", default: "c25" },
-    answerer: { type: "string", default: "claude" },
-    "answer-model": { type: "string", default: "sonnet" },
-    judge: { type: "string", default: "claude" },
-    "judge-model": { type: "string", default: "sonnet" },
-    "claude-bin": { type: "string", default: "claude" },
-    concurrency: { type: "string", default: "4" },
-    out: { type: "string" },
-    resume: { type: "boolean", default: false },
-    fresh: { type: "boolean", default: false },
-    "allow-unpinned": { type: "boolean", default: false },
-  },
-});
 
 /** Every way out prints its outcome as the last line. */
 const fail = (message, code = 1) => {
@@ -57,6 +35,40 @@ const fail = (message, code = 1) => {
   console.log(`RESULT: the LoCoMo run did not finish: ${message.split("\n")[0]}`);
   process.exit(code);
 };
+
+let args;
+try {
+  ({ values: args } = parseArgs({
+    options: {
+      data: { type: "string" },
+      audit: { type: "string" },
+      conversations: { type: "string" },
+      categories: { type: "string" },
+      retrieval: { type: "string", default: "hybrid" },
+      "top-k": { type: "string", default: "40" },
+      "recall-pool": { type: "string", default: String(RECALL_POOL) },
+      expand: { type: "boolean", default: false },
+      reading: { type: "string", default: "c25" },
+      answerer: { type: "string", default: "claude" },
+      "answer-model": { type: "string", default: "sonnet" },
+      judge: { type: "string", default: "claude" },
+      "judge-model": { type: "string", default: "sonnet" },
+      "claude-bin": { type: "string", default: "claude" },
+      concurrency: { type: "string", default: "4" },
+      out: { type: "string" },
+      resume: { type: "boolean", default: false },
+      fresh: { type: "boolean", default: false },
+      "allow-unpinned": { type: "boolean", default: false },
+      "wait-on-limit": { type: "string", default: "0" },
+    },
+  }));
+} catch (e) {
+  fail(e.message);
+}
+
+/** How many usage-limit waits one run may take before it stops for good. */
+const MAX_LIMIT_WAITS = 12;
+
 const int = (name, min) => {
   const n = Number(args[name]);
   if (!Number.isInteger(n) || n < min) fail(`--${name} must be an integer >= ${min} (got ${args[name]})`);
@@ -106,6 +118,7 @@ if (!READING_TEMPLATES[args.reading]) fail(`--reading must be ${Object.keys(READ
 const topK = int("top-k", 1);
 const recallPool = int("recall-pool", 1);
 const concurrency = int("concurrency", 1);
+const waitOnLimitMinutes = int("wait-on-limit", 0);
 const embedder = args.retrieval === "hybrid" ? new lib.LocalEmbedder() : undefined;
 if (embedder) {
   try {
@@ -159,13 +172,32 @@ const runKey = createHash("sha256")
   .slice(0, 16);
 const progressPath = join(RESULTS_DIR, ".progress", `locomo-${runKey}.jsonl`);
 mkdirSync(join(RESULTS_DIR, ".progress"), { recursive: true });
-const done = new Map();
+/**
+ * Each question's row in the progress file: the latest one, except that an
+ * error never replaces a good row (a retried question appends a new row).
+ */
+const readProgress = () => {
+  const rows = new Map();
+  if (!existsSync(progressPath)) return rows;
+  for (const line of readFileSync(progressPath, "utf8").split("\n").filter(Boolean)) {
+    const row = JSON.parse(line);
+    const before = rows.get(row.question_id);
+    if (!before || before.error || !row.error) rows.set(row.question_id, row);
+  }
+  return rows;
+};
+/** The questions the progress file already holds a good row for. */
+const readDone = () => new Map([...readProgress()].filter(([, row]) => !row.error));
+let done = new Map();
 if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== "") {
   if (args.fresh) writeFileSync(progressPath, "");
   else if (!args.resume) fail(`A partial run with these exact settings is in ${progressPath}.\nPass --resume to continue it, or --fresh to start over.`);
-  else for (const line of readFileSync(progressPath, "utf8").split("\n").filter(Boolean)) {
-    const row = JSON.parse(line);
-    if (!row.error) done.set(row.question_id, row);
+  else {
+    try {
+      done = readDone();
+    } catch (e) {
+      fail(`${progressPath} could not be read (${e.message}); pass --fresh to start over.`);
+    }
   }
 }
 const todo = questions.filter((q) => !done.has(q.question_id));
@@ -196,21 +228,51 @@ const onRow = (row) => {
         : "retrieved";
   console.log(`[${finished}/${questions.length}] ${row.question_id} cat ${row.category}${shown ? ` evidence shown ${shown.found}/${shown.evidence}` : ""}${row.recall ? ` recall ${Math.round(row.recall.ms)}ms` : ""} ${verdict}`);
 };
-try {
-  await runLocomo(lib, selected, { embedder, expand: args.expand, recallPool, topK, reading: args.reading, answerer, judge, abstentionJudge, auditKey }, { concurrency, onRow, done: new Set(done.keys()) });
-} catch (e) {
-  console.error(`\nStopped: ${e.message}\nAttempted ${e.attempted ?? 0} question(s) this time, succeeded ${e.succeeded ?? 0}; progress is kept in ${progressPath}. Run the same command with --resume to continue.`);
-  console.log(`RESULT: the LoCoMo run stopped (${e.message}) after ${e.succeeded ?? 0} of ${e.attempted ?? 0} questions attempted this time succeeded; ${finished} of ${questions.length} are in the progress file, and --resume continues it.`);
-  process.exit(2);
+// A usage limit stops the pass once the questions in flight finish. With --wait-on-limit N the
+// run sleeps N minutes and carries on from the progress file (at most MAX_LIMIT_WAITS times);
+// without it, the same command with --resume carries on.
+let attemptedTotal = 0;
+let succeededTotal = 0;
+for (let waits = 0; ; ) {
+  try {
+    const passRows = await runLocomo(lib, selected, { embedder, expand: args.expand, recallPool, topK, reading: args.reading, answerer, judge, abstentionJudge, auditKey }, { concurrency, onRow, done: new Set(done.keys()) });
+    attemptedTotal += passRows.length;
+    succeededTotal += passRows.filter((r) => !r.error).length;
+    break;
+  } catch (e) {
+    attemptedTotal += e.attempted ?? 0;
+    succeededTotal += e.succeeded ?? 0;
+    let goodRows = null;
+    try {
+      goodRows = readDone().size;
+    } catch (readError) {
+      console.error(`The progress file could not be read back: ${readError.message}`);
+    }
+    if (e instanceof UsageLimitError && waitOnLimitMinutes > 0 && waits < MAX_LIMIT_WAITS && goodRows !== null) {
+      waits += 1;
+      console.log(`\n${e.message}\nWaiting ${waitOnLimitMinutes} min for the limit to reset (wait ${waits} of ${MAX_LIMIT_WAITS}); ${goodRows} of ${questions.length} questions are done.`);
+      await new Promise((r) => setTimeout(r, waitOnLimitMinutes * 60_000));
+      done = readDone();
+      finished = done.size;
+      continue;
+    }
+    const kept = goodRows === null ? "an unreadable number" : `${goodRows} of ${questions.length}`;
+    console.error(`\nStopped: ${e.message}\nAttempted ${attemptedTotal} question(s) in this run, succeeded ${succeededTotal}; ${kept} questions have a good row in ${progressPath}. Run the same command with --resume to continue.`);
+    console.log(`RESULT: the LoCoMo run stopped (${e.message}) after ${succeededTotal} of ${attemptedTotal} questions attempted in this run succeeded; ${kept} questions are done in the progress file, and --resume continues it.`);
+    process.exit(2);
+  }
 }
 
 // --- the result ----------------------------------------------------------------------
-const byId = new Map(readFileSync(progressPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).map((r) => [r.question_id, r]));
+const byId = readProgress();
 const rows = questions.map((q) => byId.get(q.question_id)).filter(Boolean);
 const summary = summarize(rows);
 if (summary.questions === summary.errors) fail(`Attempted ${summary.questions} question(s), succeeded 0; errors are recorded in ${progressPath}.`);
-const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), "locomo");
-writeJson(out, {
+// Every question of all ten conversations, answered and judged: `<date>-locomo-full.json`. Anything less: `<date>-locomo.json`.
+const fullRun = selected.length === conversations.length && categories.length === 0 && answerer !== null && judge !== null;
+const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), fullRun ? "locomo-full" : "locomo");
+const summaryOut = out.replace(/\.json$/, ".summary.json");
+const head = {
   benchmark: "LoCoMo",
   date: new Date().toISOString(),
   ...info,
@@ -231,13 +293,16 @@ writeJson(out, {
   judge: judgeInfo,
   abstentionJudge: abstentionJudgeInfo,
   wallClockSeconds: Math.round((Date.now() - started) / 1000),
-  summary,
-  questions: rows,
-});
+  fullRun,
+};
+writeJson(out, { ...head, summary, questions: rows });
+// The same run without its per-question rows: the scoreboard (published and corrected key side
+// by side, category 5 on its own row) and the summary, small enough to read and diff.
+writeJson(summaryOut, { ...head, resultFile: basename(out), table: scoreTable(summary), summary });
 if (summary.errors === 0) rmSync(progressPath, { force: true });
 
 const pct = (x) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed(1)}%`);
-console.log(`\nWrote ${out}`);
+console.log(`\nWrote ${out} and ${summaryOut}`);
 console.log(`Attempted ${summary.questions} question(s), succeeded ${summary.questions - summary.errors}.`);
 const sc = summary.scored;
 if (sc.published.n) {
@@ -261,4 +326,4 @@ const headline = sc.published.n
   : summary.answered
     ? `${summary.answered} questions answered and not judged; ${retrievalLine}`
     : `retrieval only, ${retrievalLine}`;
-console.log(`RESULT: LoCoMo ${headline}; ${summary.questions - summary.errors} of ${summary.questions} questions succeeded; written to ${out}.`);
+console.log(`RESULT: LoCoMo ${headline}; ${summary.questions - summary.errors} of ${summary.questions} questions succeeded; written to ${out}, summary in ${basename(summaryOut)}.`);

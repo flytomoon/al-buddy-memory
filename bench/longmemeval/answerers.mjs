@@ -29,8 +29,25 @@ export const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 /** The subscription stopped answering (usage limit). Retrying burns nothing but time; the run stops and can resume. */
 export class UsageLimitError extends Error {}
 
-export function subscriptionEnv(env = process.env) {
+/**
+ * A chat channel's state: TELEGRAM_STATE_DIR points at a bot's directory, token
+ * included. A CLI child that inherited it could pick the channel up, so no
+ * child the benchmarks start ever gets it, nor any other TELEGRAM_* variable.
+ * Removed by name; the values are never read.
+ */
+export const CHANNEL_ENV = ["TELEGRAM_STATE_DIR"];
+const CHANNEL_PREFIX = "TELEGRAM_";
+
+/** `env` without any chat channel's variables (CHANNEL_ENV, and every name starting TELEGRAM_). */
+export function withoutChannelEnv(env = process.env) {
   const out = { ...env };
+  for (const name of Object.keys(out)) if (CHANNEL_ENV.includes(name) || name.startsWith(CHANNEL_PREFIX)) delete out[name];
+  return out;
+}
+
+/** The CLI child's environment: no metered-billing switch and no chat channel. */
+export function subscriptionEnv(env = process.env) {
+  const out = withoutChannelEnv(env);
   for (const name of METERED_ENV) delete out[name];
   return out;
 }
@@ -133,7 +150,7 @@ export function claudeCli({
       command: [...command, ...args.map((a) => (a === system ? "<system prompt>" : a === "" ? '""' : a))].join(" "),
       systemPrompt: system,
       ...(effort ? { effort } : {}),
-      billing: "Claude subscription; the child environment has no API key, auth token or cloud-provider switch",
+      billing: "Claude subscription; the child environment has no API key, auth token or cloud-provider switch, and no chat channel's variables (TELEGRAM_STATE_DIR, TELEGRAM_*)",
     }),
     async complete(prompt) {
       return withRetries(
@@ -150,7 +167,9 @@ export function claudeCli({
 }
 
 /** Any shell command as an answerer: the prompt on stdin, the answer on stdout. */
-export function shellCommand(cmd, { timeoutMs = 300_000, retries = 1, retryDelayMs = 5_000, env = process.env, cwd = tmpdir() } = {}) {
+export function shellCommand(cmd, { timeoutMs = 300_000, retries = 1, retryDelayMs = 5_000, env: callerEnv = process.env, cwd = tmpdir() } = {}) {
+  // A command may itself start `claude -p`; it never gets a chat channel either.
+  const env = withoutChannelEnv(callerEnv);
   return {
     kind: "command",
     describe: () => ({ kind: "command", command: cmd }),
