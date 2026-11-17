@@ -9,6 +9,19 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
+## Unreleased
+
+### Added
+
+- **Benchmark: LoCoMo** (`bench/locomo/`). The ten conversations of `snap-research/locomo` and the
+  independent audit's corrections, each pinned by commit and SHA-256; one memory per turn, every
+  question of a conversation recalled against the same store. All 1,540 scored questions are judged
+  against the published key and, for the 99 the audit corrects, against the corrected key too; the
+  446 adversarial questions are reported beside them, never in them. Reader and judge prompts are
+  the pinned evaluation pipeline's, verbatim; reader and judge run on the Claude subscription, as in
+  `bench/longmemeval`. Measurement only: no answer score yet (the full run is about 4,070 calls),
+  and nothing in the library changes.
+
 ## 0.13.0 — 2026-11-17
 
 Team memory with consent on record, a one-command install, and current state that follows valid time; recall is still a read, and no benchmark score changes.

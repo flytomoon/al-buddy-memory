@@ -169,12 +169,13 @@ export function shellCommand(cmd, { timeoutMs = 300_000, retries = 1, retryDelay
 }
 
 /**
- * `claude` (the default), `command:<shell command>`, or `none`. `model` only
- * applies to `claude`.
+ * `claude` (the default), `command:<shell command>`, or `none`. `model`,
+ * `effort` and `system` (the system prompt; default DEFAULT_SYSTEM_PROMPT)
+ * only apply to `claude`.
  */
-export function answererFromSpec(spec, { model, effort, claudeCommand } = {}) {
+export function answererFromSpec(spec, { model, effort, system, claudeCommand } = {}) {
   if (spec === "none") return null;
-  if (spec === "claude") return claudeCli({ model, effort, ...(claudeCommand ? { command: claudeCommand } : {}) });
+  if (spec === "claude") return claudeCli({ model, effort, ...(system ? { system } : {}), ...(claudeCommand ? { command: claudeCommand } : {}) });
   if (spec.startsWith("command:")) return shellCommand(spec.slice("command:".length));
   throw new Error(`Unknown answerer "${spec}" (use claude, command:<shell command>, or none)`);
 }

@@ -1,0 +1,21 @@
+{
+  "name": "LoCoMo (locomo10, the ten conversations)",
+  "paper": "Maharana et al. 2024, Evaluating Very Long-Term Conversational Memory of LLM Agents, arXiv 2402.17753",
+  "license": "CC BY-NC 4.0 (never committed here; downloaded into bench/locomo/data/)",
+  "files": {
+    "data": {
+      "repo": "snap-research/locomo",
+      "commit": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376",
+      "path": "data/locomo10.json",
+      "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+      "bytes": 2805274
+    },
+    "audit": {
+      "repo": "dial481/locomo-audit",
+      "commit": "9493fb4b4af4256ed17a18e8fd0b3cfdeec29539",
+      "path": "errors.json",
+      "sha256": "f298ef46263fada20688a1d672be37d4f488c6da3b19343eea55ae5c1b5fe55e",
+      "bytes": 150552
+    }
+  }
+}
