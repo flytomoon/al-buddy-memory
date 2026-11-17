@@ -129,10 +129,41 @@ describe("docs — the claims a reader will check", () => {
     expect(read("src/governance/promotion.ts")).toMatch(/if \(!allowed\) deny\("promotion is not enabled: no policy allows it"\)/);
   });
 
-  it("the README's recall audit growth claim matches per-hit writes and the MCP cap", () => {
-    expect(read("README.md")).toMatch(/A governed `recall` adds an audited access write for each returned hit \(at most 50 through MCP\), plus read audit events/);
-    expect(read("src/access.ts")).toMatch(/for \(const hit of hits\)/);
+  it("the README's recall audit growth claim matches read-only recall, opt-in per-hit writes and the MCP cap", () => {
+    expect(read("README.md")).toMatch(/A governed `recall` adds read audit events; with `recordAccess` on, also an audited access write for each returned hit \(at most 50 through MCP\)/);
+    expect(read("src/hybrid-retriever.ts")).toContain("this.opts.recordAccess === true ? recordRecallHits(this.store, hits) : hits");
+    expect(read("src/mcp/governance-server.ts")).toContain("deps.recordAccess === true ? recordRecallHits(deps.store, hits) : hits");
+    expect(read("src/access.ts")).toMatch(/store\.recordRecalls\(hits\.map/);
     expect(read("src/mcp/governance-server.ts")).toMatch(/Math\.max\(1, Math\.min\(50, input\.limit \?\? 8\)\)/);
+  });
+
+  /**
+   * The README's LongMemEval table is read from the committed result files: each
+   * score, its judge and its reader must be what the file holds (0.13 release prep).
+   */
+  it("the README's LongMemEval table matches the committed result files", () => {
+    const readme = read("README.md");
+    const pct = (x: number) => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
+    const row = (file: string) => readme.split("\n").filter((l) => l.startsWith(`| \`${file}\``));
+    for (const file of ["2026-09-30-lme-full-fast", "2026-09-29-lme-full-all", "2026-09-29-longmemeval-full"]) {
+      const result = JSON.parse(read(`bench/results/${file}.json`));
+      expect(result.summary.qa.questions).toBe(500);
+      expect(Object.keys(result.summary.models.answer)).toEqual(["claude-sonnet-5-5"]);
+      expect(Object.keys(result.summary.models.judge)).toEqual(["claude-sonnet-5-5"]);
+      const claudeRow = row(file).find((l) => l.includes("| Claude Sonnet 5.5 |"));
+      expect(claudeRow, file).toContain(`| ${pct(result.summary.qa.overallAccuracy)} | ${pct(result.summary.qa.taskAveragedAccuracy)} |`);
+    }
+    const official = JSON.parse(read("bench/results/2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.summary.json"));
+    expect(official.model).toBe("gpt-4o-2024-08-06");
+    expect(row("2026-09-30-lme-full-fast").find((l) => l.includes(official.model))).toContain(`| **${pct(official.overall)}** | **${pct(official.taskAveraged)}** |`);
+    const t = official.byType;
+    expect(readme).toContain(
+      `single-session user ${t["single-session-user"].correct} of ${t["single-session-user"].n}, single-session\nassistant ${t["single-session-assistant"].correct} of ${t["single-session-assistant"].n}, preference ${t["single-session-preference"].correct} of ${t["single-session-preference"].n}, multi-session ${t["multi-session"].correct} of ${t["multi-session"].n}, temporal reasoning ${t["temporal-reasoning"].correct} of ${t["temporal-reasoning"].n},\nknowledge update ${t["knowledge-update"].correct} of ${t["knowledge-update"].n}`,
+    );
+    const codex = JSON.parse(read("bench/results/2026-09-29-longmemeval-full.hypotheses.eval-codex-gpt-6-sol.summary.json"));
+    expect(row("2026-09-29-longmemeval-full").find((l) => l.includes(codex.model))).toContain(`| ${pct(codex.overall)} |`);
+    const timed = JSON.parse(read("bench/results/2026-09-30-lme-full-fast.json")).summary.recall.ms;
+    expect(readme).toContain(`**${timed.p50} ms p50 /\n${timed.p95} ms p95** (library 0.8.3`);
   });
 
   /**

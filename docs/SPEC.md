@@ -116,8 +116,9 @@ be shown beside what it was drawn from. Raw text is immutable, so evidence that 
 holds while the source exists; `verifyDerived()` re-checks it for what arrived by import or from
 an older library, and retracts — never deletes — a conclusion whose evidence no longer holds.
 
-Recall returns append a `recalled` anchor to each returned node. This slows confidence decay, which
-still floors at half. A nightly caller can pass `crossCheck` to `verifyDerived()`; the library checks
+Recall is a read by default. A host that sets `recordAccess` (on `HybridRetriever`, `ProjectMemory`
+or the MCP server) has recall append a `recalled` anchor to each returned node, as one write per
+recall; that slows the node's confidence decay, which still floors at half. A nightly caller can pass `crossCheck` to `verifyDerived()`; the library checks
 the most read and volatile state conclusions first, showing at most 50 newer raw conversation turns
 per conclusion. A proposed contradiction needs an exact quote from one of those turns before the
 conclusion is retracted. Retractions await acknowledgement in session context; call the

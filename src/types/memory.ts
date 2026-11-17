@@ -403,7 +403,9 @@ export interface MemoryStore {
   /**
    * Optional: append one "recalled" anchor to each fact as a single write.
    * Returns the updated facts in order, stopping before the first id that does
-   * not exist; what came before it stays recorded.
+   * not exist; what came before it stays recorded. A governed handle checks
+   * every id first and throws, writing nothing, when one is not visible or a
+   * policy refuses it.
    */
   recordRecalls?(nodeIds: readonly string[]): Promise<MemoryNode[]>;
   deleteNode(nodeId: string): Promise<void>;

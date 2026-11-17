@@ -38,6 +38,8 @@ export interface CaptureInput {
 export interface ProjectMemoryOptions {
   /** Directory that holds the per-project DB files. Default `~/.al-buddy-memory/projects`. */
   baseDir?: string;
+  /** Record each fact `recall` returns as recalled (default false: recall is a read). See `HybridRetrieverOptions.recordAccess`. */
+  recordAccess?: boolean;
 }
 
 /** Default directory for per-project memory databases. */
@@ -121,9 +123,11 @@ export class ProjectMemory {
   /** The file this project's facts are in — resolved once, at construction. */
   readonly dbPath: string;
   private readonly store: SqliteMemoryStore;
+  private readonly recordAccess: boolean;
 
   constructor(project: string, options: ProjectMemoryOptions = {}) {
     this.project = project;
+    this.recordAccess = options.recordAccess === true;
     this.dbPath = projectDbPath(project, options.baseDir);
     // The scope goes inside the file as well as into its name: a filename is a
     // label, and a store opened under the wrong project must fail, not merge.
@@ -150,7 +154,8 @@ export class ProjectMemory {
 
   /** Full-text recall across this project's memories. */
   async recall(query: string, limit = 10): Promise<MemoryNode[]> {
-    return recordRecallHits(this.store, await this.store.searchNodes({ query, limit }));
+    const hits = await this.store.searchNodes({ query, limit });
+    return this.recordAccess ? recordRecallHits(this.store, hits) : hits;
   }
 
   /** Currently-valid memories (validAt=now), ranked — for iterating, e.g. to

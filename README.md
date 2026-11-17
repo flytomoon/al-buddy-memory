@@ -259,7 +259,7 @@ facts (`bench/bench.mjs`, better-sqlite3, WAL):
 | File size | 69 MB for the 100,000 facts; each recorded change adds ~738 bytes (140 MB after one update to every fact) |
 | Audit event into `audit_events`, in the fact's own transaction | +0.04 ms per governed write, +0.5 ms per governed read (a read is audited too, so it takes the write lock briefly) |
 | Checking the chain — `verify-audit <db>` | linear, ~3 µs/event: 83 ms at 20,000 events, 325 ms at 100,000, 1.5 s at 500,000. Each process pays it once, before its first governed write and **outside** the write transaction, so it delays that process and blocks no other. Constant memory (the walk streams) |
-| How fast the trail grows | A governed `recall` adds an audited access write for each returned hit (at most 50 through MCP), plus read audit events. Nothing prunes the trail. At 500,000 audit events it is ~128 MB, which can exceed the facts it describes; if you drive a store that hard, keep an eye on it |
+| How fast the trail grows | A governed `recall` adds read audit events; with `recordAccess` on, also an audited access write for each returned hit (at most 50 through MCP). Nothing prunes the trail. At 500,000 audit events it is ~128 MB, which can exceed the facts it describes; if you drive a store that hard, keep an eye on it |
 
 Ranges are three runs of the same script on 0.4.0. Paging is exact: a page of ten is the
 first ten of the full ordered read. When facts have genuinely decayed, the store may have to
@@ -397,19 +397,35 @@ settings in [bench/results/](bench/results/):
   chat histories of about 50 sessions each. Every question gets a fresh store holding its history,
   one memory per message through the public API, nothing extracted or summarised; recall chooses
   what the reader sees. The reader and judge prompts, the yes/no rule and the retrieval metrics are
-  the official ones, held to the official code by tests. The reader and judge are Claude, run
-  through the Claude Code CLI on a subscription, so a run spends no metered API money — and the
-  judge is therefore not the official gpt-4o, which is why every result ships its answers in the
-  official format for anyone to re-judge. `node bench/longmemeval/run.mjs --limit 50` is a smoke run.
-  Latest full run (2026-09-30, all 500 questions, no reranker): **92.6% overall, 94.4% task-averaged**,
-  with the recall call itself at **11.7 ms p50 / 33.5 ms p95** on a laptop — side by side with the
-  all-levers run in [bench/results/README.md](bench/results/README.md). Re-graded with the **official judge
-  (gpt-4o-2024-08-06, the official prompts, temperature 0): 92.8% overall, 94.4% task-averaged** — the
-  number to compare with other systems; the Claude judge gave 92.6% / 94.4%.
+  the official ones, held to the official code by tests. Our runs read and judge with Claude, through
+  the Claude Code CLI on a subscription, so a run spends no metered API money; every result ships
+  its answers in the official format so anyone can re-judge them, and the table below names the
+  judge of every number. `node bench/longmemeval/run.mjs --limit 50` is a smoke run.
 - **[Stale facts](bench/README.md#stale-facts)**, our own: things about a person that change over
   time, told to the same store three ways — append-only, append-only recalled with freshness, and
   through `recordState`, where a newer state closes the old one. It asks whether recall returns the
   value true now, and the value true at a past instant. No model is called; it is deterministic.
+
+LongMemEval_S, all 500 questions, every run as committed in [bench/results/](bench/results/).
+Reader: Claude Sonnet 5.5 (`claude-sonnet-5-5`) in every row. No score in this table changed in
+0.13; the newest is the 2026-09-30 run, re-judged on 2026-10-02.
+
+| Run ([result file](bench/results/)) | Date | Recall settings | Judge | Overall | Task-averaged |
+|---|---|---|---|---|---|
+| `2026-09-30-lme-full-fast` | 2026-09-30, re-judged 2026-10-02 | `--expand --aggregate-top-k 40 --chain-of-note`, no reranker | **gpt-4o-2024-08-06**, the official judge (OpenAI API, official prompts, temperature 0) | **92.8%** | **94.4%** |
+| `2026-09-30-lme-full-fast` | 2026-09-30 | the same answers | Claude Sonnet 5.5 | 92.6% | 94.4% |
+| `2026-09-29-lme-full-all` | 2026-09-29 | the same, plus the MiniLM cross-encoder over all 100 recalled | Claude Sonnet 5.5 | 92.6% | 94.3% |
+| `2026-09-29-longmemeval-full` | 2026-09-29 | none: plain hybrid recall, top 20 rounds | Claude Sonnet 5.5 | 88.4% | 91.6% |
+| `2026-09-29-longmemeval-full` | 2026-09-29 | the same answers | gpt-6-sol through Codex, official judge prompts | 88.2% | — |
+
+The 92.8% row is the one to compare with other systems: it is the only one graded by the
+official judge. By type, under that judge: single-session user 69 of 70, single-session
+assistant 54 of 56, preference 29 of 30, multi-session 111 of 133, temporal reasoning 125 of 133,
+knowledge update 76 of 78. In the 2026-09-30 run the recall call itself took **11.7 ms p50 /
+33.5 ms p95** (library 0.8.3, on a laptop). Recall in 0.13 is again a pure read, as it was
+then; the time has not been re-measured on 0.13. Other systems publish their own numbers with
+other readers and judges, so a gap of a point or two between rows of different projects is not
+a measured difference.
 
 Stale facts, as measured ([result](bench/results/2026-11-12-stale-facts.json); 24 questions about
 now, 11 about a past instant; local hybrid recall with current-state intent for now questions; first 5 results):

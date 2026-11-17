@@ -9,10 +9,57 @@ Every version from 0.3.0 on is on npm unless it is marked "never published":
 those were staged and superseded before anyone could install them. 0.2.0 and
 earlier were GitHub releases only.
 
-## Unreleased
+## 0.13.0 — 2026-11-17
+
+Team memory with consent on record, a one-command install, and current state that follows valid time; recall is still a read, and no benchmark score changes.
+
+In plain words: personal, team and company memory can now live in one store, and a fact is
+shared from one to another only by a recorded promotion that can be withdrawn (`promote`,
+`withdraw`). A new
+`init` command sets up local memory for Claude Code, Codex and Cursor in one step. `recordState`
+now gets the order right when a change is learned late. Keyword search is faster with the same
+results. Recall still writes nothing unless a host asks it to (`recordAccess`). The published
+LongMemEval score is still the 2026-09-30 run (92.8% under the official judge); nothing in this
+release was measured to change it, and none of the new benchmark flags is evidence of a gain yet.
 
 ### Added
 
+- **Recall can record what it returned, when a host asks** (`recordAccess`, off by default).
+  `HybridRetrieverOptions.recordAccess`, `ProjectMemoryOptions.recordAccess` and the MCP server's
+  `recordAccess` make recall append a `recalled` anchor to each fact it returns, as one write per
+  recall: the optional `MemoryStore.recordRecalls(ids)` (SQLite, Postgres, in-memory and governed
+  stores; `exportView` refuses it), or one `updateNode(…, "recalled")` per hit on a store without
+  it. Exported: `recordRecallHits`, `recallCount`, `RecallRecordingError`. A recall that cannot
+  record throws `RecallRecordingError` (attempted and succeeded counts, with the cause) and returns
+  nothing, so turn it on only where a failed write should fail the read. With it on, the MCP
+  `recall` tool is announced with `readOnlyHint: false`. Off, recall writes nothing, as in 0.12.0.
+  Recording grows the store with every read (about 8 KB per recall measured on 2026-11-17) and makes
+  later recalls slower; the design for counting reads without that cost is still open.
+- **Transcript cross-check in `verifyDerived`**, off unless a host passes `crossCheck`. The host's
+  callback reads a live conclusion beside at most 50 newer raw conversation turns and returns a
+  contradiction or `null`; the library makes no model call. A contradiction must quote a newer
+  turn exactly, or the pass throws; the conclusion is then retracted (never deleted) with
+  `retraction.by = "transcript cross-check"` and a `pendingRetractionConfirmation` receipt. States
+  and the most recalled conclusions are checked first, at most `maxCrossChecks` (default 50) per
+  pass; states and often-read conclusions are re-checked daily, the rest weekly. A conclusion that
+  passes gets a `verified` anchor. New exports: `confirmTranscriptRetraction`, `VerifyOptions`,
+  `TranscriptContradiction`.
+- **A third new MCP tool, `confirm_retraction`**: acknowledges a transcript correction, clearing
+  only its review flag; the retracted fact and the raw turn stay in history. Retractions awaiting
+  it are listed in `al-buddy-memory context`, as stored data, not instructions.
+- **`RecallOptions.stateIntent`**: when the caller knows a question asks what is true now, recall
+  adds a list of current states whose declared subject or aspect shares words with the question.
+  Off by default. On the stale-facts benchmark with local hybrid recall it puts the current value
+  first on 95.8% of now-questions (`bench/results/2026-11-12-stale-facts.json`; 33.3% in the earlier
+  keyword-only run).
+- **Benchmark, prototype: write-time events** (`run.mjs --extract-events`,
+  `bench/longmemeval/event-study.mjs`). A model extracts quoted event records per session; raw
+  turns are never rewritten. Behind its flag; with it off nothing changes. Unfinished: the study
+  compares unlike settings and stops on the first paraphrased quote, and no result of it is
+  committed, so it says nothing yet about recall.
+- **Maintainers: `npm run release:pin` refreshes the remote connector.** If this Mac serves the
+  connector under launchd, the pin then rebuilds, restarts it and checks `/health` locally and on
+  its public URL (CONTRIBUTING.md "Releasing"). With no such job it does nothing more.
 - **One-command local MCP setup.** `npx -y al-buddy-memory init` creates the local SQLite
   memory and configures Claude Code and Codex when their CLIs are installed, plus Cursor's
   user MCP file. It keeps existing entries and starts with keyword recall, so no model
@@ -92,13 +139,43 @@ earlier were GitHub releases only.
   as `contentWords` above, the batched candidate lookups included), recall shows the same rounds
   as 0.12.0 in 50 of 50 questions on both sets, at a median 5–8 ms less wall-clock and 18 ms less
   CPU per recall.
+- **`recordState` closes states in valid-time order.** A state learned late (its `at` before a
+  state already recorded) now ends at the next state in valid time, even when that next state was
+  itself superseded before this one arrived; it used to look only at states still open. Only the
+  state that held at `at` (and any the call `replaces`) is closed by the new one; "unchanged" now means the same text as the
+  state that held at `at`, not the newest one.
+- **The npm package no longer carries `docs/research/` or `docs/reviews/`.** They are internal
+  analysis, and stay on GitHub.
 
 ### Behaviour change
 
+- **`recordState` refuses two different states for one subject and aspect at the same instant**
+  (`recordState: conflicting states cannot begin at the same instant`); it used to record the new
+  one and close the other at that same instant, leaving it valid for no time at all.
+  The same text at that instant is still "unchanged". A late state may now close earlier than
+  before (above), so a past-instant read can return a different state than 0.12.0 did for the
+  same history.
+- **Decay reads the recall count.** A fact's decay is now `rate / (1 + log2(1 + recalls))`, still
+  floored at half its confidence, so a fact carrying `recalled` anchors slides more slowly than in
+  0.12.0. With `recordAccess` off (the default) recall adds none; anchors already stored, or
+  written by a host that turns it on, count.
+- **`VerifyReport` gains a required `crossChecked` count.** A caller that builds or compares whole
+  reports sees the new field; it is 0 unless `crossCheck` is passed.
+- **The MCP server lists a third new tool, `confirm_retraction`**, on stdio and HTTP alike, beside
+  `promote` and `withdraw`.
+- **Portable exports may hold a `verified` anchor, and the format version stays 1.1.0.** The
+  anchor is written only when a host runs `verifyDerived` with `crossCheck`, and the schema in
+  `docs/portable-format.schema.json` lists it. 0.12.x's import, and a validator using the schema
+  shipped with 0.12.x, refuse an export holding one: load such an export with 0.13.0 or later.
+- **A governed `recordRecalls` checks every id before it writes**, and throws the first failure
+  as it came: "Memory node not found" for a fact the reader cannot see, or whatever a policy threw.
+  It used to record the ids before that one, return them, and let the failure be reported as a
+  missing fact whatever its cause. Only hosts that turned `recordAccess` on reach it.
+
 - **Two new audit purposes, `promote` and `withdraw`.** A policy or a trail reader that switches
   on `Purpose` exhaustively sees values it did not before; `context(purpose)` is called with them.
-- **The MCP server lists two more tools, `promote` and `withdraw`**, on stdio and HTTP alike. The
-  shipped personal server's policy has no `beforePromote`, so both are refused there.
+- **The MCP server lists `promote` and `withdraw`**, on stdio and HTTP alike. The shipped
+  personal server's policy has no `beforePromote`, so both are refused there.
 - **An erasure receipt's `outside` gains a line**: promoted copies of the erased facts are the
   organisation's and were not erased with their source. Receipts sealed before keep their own
   text and still verify.
@@ -114,6 +191,13 @@ earlier were GitHub releases only.
   whose provenance, key reference or content differs, is still refused before anything is written.
   `ImportSummary` gains the `skipped` field, so a caller comparing the whole summary sees it, and
   the CLI line ends "skipped N fact(s) already held in a newer state here" when any were.
+
+### Security
+
+- **Dependency advisories cleared.** The optional `express` is now `^5.3.0` and `zod` `^4.6.6`;
+  the lockfile resolves `body-parser` 2.4.0 and `undici` 7.30.1, clearing three high advisories
+  `npm audit` reported against 0.12.0's tree. A development-only override holds `vite` at
+  `^8.3.5`, so a regenerated lockfile cannot fall back to the vulnerable 8.3.0.
 
 ## 0.12.0 — 2026-10-16
 

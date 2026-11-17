@@ -554,14 +554,13 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
         return exclusive(async () => {
           assertAuditUsable(opts);
           const ctx = authorisedRead();
+          // Every id is checked before anything is written, and the first that
+          // fails throws its own error: "not found" for a fact this actor cannot
+          // see, or whatever a policy threw. It used to `break` and return the
+          // prefix, which the caller then reported as "not found" whatever the
+          // cause was (review 2026-11-17 § 4.2, item 3).
           const visible: { nodeId: string; seen: MemoryNode }[] = [];
-          for (const nodeId of nodeIds) {
-            try {
-              visible.push({ nodeId, seen: (await visibleOrNotFound(nodeId, ctx)).seen });
-            } catch {
-              break;
-            }
-          }
+          for (const nodeId of nodeIds) visible.push({ nodeId, seen: (await visibleOrNotFound(nodeId, ctx)).seen });
           if (visible.length === 0) return [];
           const ids = visible.map((v) => v.nodeId);
           const updated = await commitAudited(opts, inner, ctx, () => inner.recordRecalls!(ids), () => ({ ids }));
