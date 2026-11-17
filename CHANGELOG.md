@@ -21,6 +21,11 @@ earlier were GitHub releases only.
   the pinned evaluation pipeline's, verbatim; reader and judge run on the Claude subscription, as in
   `bench/longmemeval`. Measurement only: no answer score yet (the full run is about 4,070 calls),
   and nothing in the library changes.
+- **Benchmark: the reader's and the reranker's ceilings** (`bench/longmemeval/ceilings.mjs`). The
+  oracle run on multi-session and temporal reasoning, every evidence session in front of the reader,
+  split against the published run's losses to recall and to the reader; and one recall sweep with
+  the larger on-device cross-encoder over twice the candidate pool, held to a bar by the sweep's new
+  `--gain-bar`. Measurement only: nothing in the library changes, and no number is in yet.
 
 ## 0.13.0 — 2026-11-17
 

@@ -328,7 +328,41 @@ copy of the memory — the same ids, anchors and vectors — so a change meant t
 can be held to "the same rounds in every question" in one run. Per arm it also lists the questions
 that newly see, or no longer see, every evidence turn against the first arm, and its last line is
 `RESULT: …`. On a busy machine, `--repeat N` (odd) recalls N times per arm and question, rotating
-the order each time, and keeps the median time.
+the order each time, and keeps the median time. `--gain-bar N` holds every arm after the first to
+showing every evidence turn in at least N more questions than the first arm, net of the questions
+where it stops showing it; the verdict goes in the result file's `gainBar` and is the `RESULT:` line.
+
+### The two ceilings: the reader's and the reranker's
+
+`node bench/longmemeval/ceilings.mjs` runs the two checks the 2026-11-17 review puts before any
+spending on recall or the reader (§ 3 items 5 and 7), one after the other:
+
+1. **The reader's ceiling.** The 266 multi-session and temporal-reasoning questions on the oracle
+   variant (only the evidence sessions), with the published reader settings (`--expand
+   --aggregate-top-k 40 --chain-of-note`) and room for the whole history (`--top-k 40
+   --recall-pool 200`: no oracle history of these types has more than 36 rounds or 72 messages, so
+   recall returns every message and the reader is shown every round). Claude Sonnet answers and
+   judges, about 530 subscription calls. It then splits the published run's losses (2026-09-30,
+   official labels): of the 17 lost to recall, how many the reader gets right once it has every
+   evidence session (the most a recall change could win back); of the 11 lost with every evidence
+   turn shown, how many it gets right without the filler and how many it still misses. The same
+   split under the published run's own Claude labels is beside it. It is `incomplete`, and
+   concludes nothing, if a question errored or a scored question was not shown every evidence turn
+   or its whole history.
+2. **The reranker's ceiling.** `recall-sweep.mjs --limit 50 --types
+   multi-session,temporal-reasoning --expand --aggregate-top-k 40 --recall-pool 200 --gain-bar 5`
+   with the arms `none`, `minilm:fp32:all` and `bge:fp32:all` (Xenova/bge-reranker-base, 278 M
+   parameters, on-device). No model answers; no text leaves the machine. The bar: +5 net
+   questions shown every evidence turn. Its recall time will fail the 300 ms budget; it asks only
+   whether the gain exists.
+
+It fetches the oracle file if it is missing; the cross-encoders download on first use. Steps run
+under `bench/results/.progress/ceilings/` and are copied into `bench/results/` as
+`<date>-lme-ms-tr-oracle.json` (with its hypotheses) and `<date>-lme50-gain-bge.json`, beside
+`<date>-lme-ceilings.json` (the split and the bar). The same command (same `--prefix`, by default
+today's date) reuses what finished and resumes what did not; `--only reader|rerank` runs one.
+`--limit`, `--answerer`, `--judge`, `--oracle-data`, `--allow-unpinned` or `--sweep-arm` make it a
+smoke run, which says so. The last line is `RESULT: …`.
 
 ### Reranking only the top 20 changes almost nothing the reader sees
 

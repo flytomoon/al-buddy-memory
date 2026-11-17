@@ -109,6 +109,23 @@ function roundOf(session, turn) {
 }
 
 /**
+ * How many rounds a reader could ever be shown from this history: the
+ * distinct rounds of its stored (non-empty) messages, as `recallRounds` groups
+ * them. A run that shows this many has shown the whole history.
+ */
+export function historyRoundCount(instance) {
+  const rounds = new Set();
+  instance.haystack_sessions.forEach((session, s) => {
+    session.forEach((turn, t) => {
+      if (turn.content.trim() === "") return;
+      const u = roundOf(session, t);
+      if (u !== null) rounds.add(`${s}:${u}`);
+    });
+  });
+  return rounds.size;
+}
+
+/**
  * Ask the memory the question and turn what comes back into ranked rounds.
  * Each round carries its official corpus id (for the retrieval metrics), its
  * session date, and the turns the reader will see. With `expand`, recall reads
