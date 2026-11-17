@@ -46,12 +46,15 @@ export function digest(result, name = "result") {
   const labels = new Map(result.questions.filter((q) => typeof q.label === "boolean").map((q) => [q.question_id, { type: q.question_type, label: q.label }]));
   // The reader prompt lists the rounds by date, so which rounds, not their order, is what it saw.
   const shownRounds = new Map(result.questions.filter((q) => Array.isArray(q.shownRounds)).map((q) => [q.question_id, [...q.shownRounds].sort().join("\n")]));
+  // Whether the reader was shown every evidence turn, per question the retrieval metric scores.
+  const evidence = new Map(result.questions.filter((q) => !q.error && q.retrieval?.shown).map((q) => [q.question_id, { type: q.question_type, ...q.retrieval.shown }]));
   return {
     name,
     settings: result.settings,
     judge: result.judge?.requestedModel ?? null,
     labels,
     shownRounds,
+    evidence,
     qa: result.summary.qa,
     shown: result.summary.retrieval.shown ?? null,
     recall: result.summary.recall ?? null,
@@ -81,12 +84,36 @@ export function pairwise(base, other) {
   return { both, fixed, broken, byType, sameShown, bothShown };
 }
 
+/**
+ * Over the questions both runs scored for retrieval: how many the other run
+ * newly showed every evidence turn (`gained`), how many it stopped showing
+ * every evidence turn (`lost`), and how many it showed fewer evidence turns
+ * of without changing that (`fewer`), with their ids, overall and per type.
+ */
+export function evidencePairs(base, other) {
+  const blank = () => ({ n: 0, gained: [], lost: [], fewer: [] });
+  const all = blank();
+  const byType = {};
+  for (const [id, b] of base.evidence ?? []) {
+    const o = other.evidence?.get(id);
+    if (!o) continue;
+    const t = (byType[b.type] ??= blank());
+    for (const x of [all, t]) {
+      x.n += 1;
+      if (!b.all && o.all) x.gained.push(id);
+      else if (b.all && !o.all) x.lost.push(id);
+      else if (o.found < b.found) x.fewer.push(id);
+    }
+  }
+  return { ...all, byType };
+}
+
 const pct = (x) => (x === null || x === undefined || Number.isNaN(x) ? "—" : `${(x * 100).toFixed(1)}%`);
 
 export function report(digests) {
   const lines = [];
   const [base] = digests;
-  const types = QUESTION_TYPES.filter((t) => digests.some((d) => d.qa.byType[t]));
+  const types = QUESTION_TYPES.filter((t) => digests.some((d) => d.qa.byType?.[t] || d.shown?.byType?.[t]));
   const w = Math.max(10, ...digests.map((d) => d.name.length));
   lines.push(`${"".padEnd(28)}${digests.map((d) => d.name.padStart(w + 2)).join("")}`);
   lines.push(`${"overall".padEnd(28)}${digests.map((d) => `${pct(d.qa.overallAccuracy)} (${d.qa.questions})`.padStart(w + 2)).join("")}`);
@@ -111,6 +138,12 @@ export function report(digests) {
     lines.push(`\n${d.name} vs ${base.name}: fixed ${p.fixed}, broke ${p.broken}, net ${p.fixed - p.broken >= 0 ? "+" : ""}${p.fixed - p.broken} of ${p.both}${warn.length ? `  [${warn.join("; ")}]` : ""}`);
     for (const t of types) if (p.byType[t]) lines.push(`  ${t.padEnd(26)} fixed ${p.byType[t].fixed}, broke ${p.byType[t].broken} (of ${p.byType[t].n})`);
     if (p.bothShown) lines.push(`  the reader was shown the same rounds in ${p.sameShown} of ${p.bothShown} questions`);
+    const e = evidencePairs(base, d);
+    if (e.n) {
+      lines.push(`  every evidence turn shown: newly in ${e.gained.length}, no longer in ${e.lost.length}, fewer turns in ${e.fewer.length} more (of ${e.n} scored in both)`);
+      for (const t of types) if (e.byType[t]) lines.push(`    ${t.padEnd(24)} newly ${e.byType[t].gained.length}, no longer ${e.byType[t].lost.length}, fewer ${e.byType[t].fewer.length} (of ${e.byType[t].n})`);
+      if (e.lost.length) lines.push(`    no longer shown every evidence turn: ${e.lost.join(" ")}`);
+    }
   }
   return lines.join("\n");
 }

@@ -21,7 +21,7 @@ import { loadInstances, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
 import { runInstances, summarize } from "./harness.mjs";
 import { RERANK_WHEN, cachingEmbedder, fastPathOptions } from "./memory.mjs";
-import { sessionExtractor } from "./events.mjs";
+import { EVENT_RRF_K, EVENT_SCHEMA, sessionExtractor } from "./events.mjs";
 import { ANSWER_TEMPLATES, LONGMEMEVAL_COMMIT, READER_SOURCE, SCORING_SOURCE } from "./prompts.mjs";
 
 /** `--rerank` shorthands for the two cross-encoders the library documents. */
@@ -47,6 +47,8 @@ const { values: args } = parseArgs({
     "chain-of-note": { type: "boolean", default: false },
     "extract-events": { type: "boolean", default: false },
     "events-cache": { type: "string" },
+    "events-model": { type: "string" },
+    "events-extractor": { type: "string", default: "claude" },
     reading: { type: "string", default: "con" },
     answerer: { type: "string", default: "claude" },
     "answer-model": { type: "string", default: "sonnet" },
@@ -140,10 +142,20 @@ const fastPath = fastPathOptions({ contentWords: args["content-words"] });
 const claudeCommand = [args["claude-bin"]];
 const answerer = answererFromSpec(args.answerer, { model: args["answer-model"], claudeCommand });
 const judge = answerer ? answererFromSpec(args.judge, { model: args["judge-model"], claudeCommand }) : null;
-if (args["events-cache"] && !args["extract-events"]) fail("--events-cache requires --extract-events");
-const extractEvents = args["extract-events"] ? sessionExtractor(answererFromSpec("claude", { model: args["answer-model"], claudeCommand }), { cachePath: args["events-cache"] }) : undefined;
+for (const flag of ["events-cache", "events-model"]) if (args[flag] !== undefined && !args["extract-events"]) fail(`--${flag} requires --extract-events`);
+if (args["events-extractor"] !== "claude" && !args["extract-events"]) fail("--events-extractor requires --extract-events");
+if (args["events-extractor"] === "none") fail("--events-extractor must be claude or command:<shell command>");
+const eventsModel = args["events-model"] ?? args["answer-model"];
+let extractor = null;
+try {
+  extractor = args["extract-events"] ? sessionExtractor(answererFromSpec(args["events-extractor"], { model: eventsModel, claudeCommand }), { cachePath: args["events-cache"] }) : null;
+} catch (e) {
+  fail(`--events-extractor: ${e.message}`);
+}
+// After the extraction pass every session is in the cache (or recorded as failed), so ingest makes no model call.
+const extractEvents = extractor ? async (session, date) => extractor.lookup(session, date) : undefined;
 let claudeVersion = null;
-if ([args.answerer, args.judge].includes("claude") || args["extract-events"]) {
+if ([args.answerer, args.judge].includes("claude") || (extractor && args["events-extractor"] === "claude")) {
   const v = await runProcess([...claudeCommand, "--version"], "", { env: subscriptionEnv(), timeoutMs: 30_000 }).catch(() => null);
   claudeVersion = v && v.code === 0 ? v.stdout.trim() : null;
   if (!claudeVersion) fail(`\`${args["claude-bin"]} --version\` failed: is the Claude Code CLI installed and logged in with a subscription?`);
@@ -155,8 +167,19 @@ const settings = {
   variant: args.variant,
   selection: { limit: args.limit === undefined ? null : Number(args.limit), types: types.length ? types.join(",") : null, stratified: args.limit !== undefined, questions: instances.length },
   store: "SqliteMemoryStore(':memory:'), a fresh one per question",
-  ingestion: args["extract-events"] ? "raw message plus quoted AIInferred Experience event records with derivedFrom source and observation/referenced dates" : "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
-  eventExtraction: args["extract-events"] ? { model: args["answer-model"], cache: args["events-cache"] ?? null } : null,
+  ingestion: args["extract-events"]
+    ? "one memory per message as without events, plus one AIInferred Experience record per extracted event: its text a verbatim quote of its source turn, derivedFrom that turn, dated by its referenced date or else the session date; an event that fails a check is dropped and counted, never the question"
+    : "one memory per message: user turns UserInput, assistant turns AIInferred, memoryType Conversation, validFrom = session date, decayRate 0; nothing extracted or summarised",
+  eventExtraction: args["extract-events"]
+    ? {
+        extractor: args["events-extractor"] === "claude" ? "claude" : "command",
+        model: args["events-extractor"] === "claude" ? eventsModel : null,
+        command: args["events-extractor"] === "claude" ? null : args["events-extractor"].slice("command:".length),
+        schema: EVENT_SCHEMA,
+        cache: args["events-cache"] ?? null,
+        fusion: `the event channel (source turns of events whose entity or aspect shares a word with the question, inside any period it names; equal overlaps share a rank) fused with recall's hits by reciprocal rank, equal weight, k = ${EVENT_RRF_K}`,
+      }
+    : null,
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
   recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== 100 ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: question_date }" : ""}${fastPath.text} })${reranker ? `, reranked by the cross-encoder${rerankDepth !== null ? ` (its best ${rerankDepth} candidates)` : ""}${rerankWhen === "window" ? " only when the question names a period (analyzeQuery's windows; every other question recalls with rerank: false)" : ""}` : ""}, hits grouped into rounds (a user turn and the turn after it)`,
@@ -211,6 +234,28 @@ const onRow = (row) => {
   console.log(`[${finished}/${instances.length}] ${row.question_id} ${row.question_type}${t === undefined ? "" : ` session recall@10=${t}`}${row.recall ? ` recall ${Math.round(row.recall.ms)}ms` : ""} ${verdict}${row.ms ? ` (${(row.ms / 1000).toFixed(1)}s)` : ""}`);
 };
 let stopped = null;
+if (extractor) {
+  // Every session of every selected question, extracted once, `--concurrency` wide. Sessions already in
+  // the cache cost nothing and are counted, so the stats describe the whole run, resumed or not.
+  let lastLogged = 0;
+  try {
+    const stats = await extractor.prepare(instances, {
+      concurrency,
+      onSession: (s) => {
+        if (!s.ok) console.log(`[events ${s.done}/${s.of}] session ${s.sessionId} FAILED: ${s.reason}`);
+        else if (s.done - lastLogged >= 100 || s.done === s.of) {
+          lastLogged = s.done;
+          console.log(`[events ${s.done}/${s.of}] extracted`);
+        }
+      },
+    });
+    console.log(`Event extraction: ${stats.sessions} sessions (${stats.cachedBefore} from the cache), called ${stats.called}, extracted ${stats.extracted}, failed ${stats.failed.length}; ${stats.events} events kept, ${stats.dropped} dropped.`);
+    if (stats.sessions > 0 && stats.extracted === 0) fail(`Event extraction: attempted ${stats.called} session(s), succeeded 0; nothing to measure.`);
+  } catch (e) {
+    console.error(`\nStopped during event extraction: ${e.message}\nAttempted ${e.attempted ?? 0} session(s), succeeded ${e.succeeded ?? 0}; extracted sessions are kept in ${args["events-cache"] ?? "(no --events-cache: nothing kept)"}. Run the same command with --resume to continue.`);
+    process.exit(2);
+  }
+}
 try {
   await runInstances(
     lib,
@@ -256,6 +301,8 @@ writeJson(out, {
   answerer: answererInfo,
   judge: judgeInfo,
   wallClockSeconds: Math.round((Date.now() - started) / 1000),
+  // The extraction pass over every session of the selected questions.
+  ...(extractor ? { eventExtraction: extractor.stats } : {}),
   summary,
   hypothesesFile: answerer ? basename(out).replace(/\.json$/, ".hypotheses.jsonl") : null,
   questions: rows,

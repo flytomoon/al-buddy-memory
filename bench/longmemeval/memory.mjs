@@ -6,13 +6,14 @@
  *
  * Every message becomes one memory: the user's words as `UserInput`, the
  * assistant's as `AIInferred`, each a `Conversation` valid from its session's
- * date and tagged with its session. The optional event experiment adds
- * separate quoted, source-linked Experience nodes; raw text is never rewritten.
+ * date and tagged with its session. The optional event study adds separate
+ * quoted, source-linked Experience nodes; raw text is never rewritten, and an
+ * event only ever ranks its source turn (see events.mjs).
  */
 import { performance } from "node:perf_hooks";
 
 import { corpusOf, parseSessionDate } from "./dataset.mjs";
-import { eventSources } from "./events.mjs";
+import { eventSources, fuseEventSources } from "./events.mjs";
 
 /**
  * How many memories one recall asks for: every candidate the keyword and vector
@@ -35,6 +36,12 @@ export async function ingestHistory(lib, instance, { embedder, queryEmbedder = e
   /** nodeId → where the message sits in the history. */
   const origin = new Map();
   const events = [];
+  /** What the event study did to this history: events stored, events dropped (and why), sessions with no events because their extraction failed. */
+  const eventStats = extractEvents ? { stored: 0, dropped: 0, droppedByReason: {}, sessionsFailed: 0 } : null;
+  const drop = (reason) => {
+    eventStats.dropped += 1;
+    eventStats.droppedByReason[reason] = (eventStats.droppedByReason[reason] ?? 0) + 1;
+  };
   let rawMemories = 0;
   try {
   for (let s = 0; s < instance.haystack_sessions.length; s += 1) {
@@ -61,9 +68,16 @@ export async function ingestHistory(lib, instance, { embedder, queryEmbedder = e
       rawMemories += 1;
       sourceIds.set(t, node.nodeId);
     }
-    if (extractEvents) for (const event of await extractEvents(session, instance.haystack_dates[s])) {
+    const extracted = extractEvents ? await extractEvents(session, instance.haystack_dates[s]) : null;
+    if (extracted?.failed) eventStats.sessionsFailed += 1;
+    for (const d of extracted?.dropped ?? []) drop(d.reason);
+    for (const event of extracted?.events ?? []) {
       const sourceId = sourceIds.get(event.turn);
-      if (!sourceId) throw new Error(`Extracted event cites missing source turn ${s}:${event.turn}`);
+      // An empty turn is not stored, so an event quoting it has nothing to cite: drop it and count it.
+      if (!sourceId) {
+        drop("source-not-stored");
+        continue;
+      }
       const derived = await store.addNode({
         provenance: "AIInferred", encryptionKeyRef: "longmemeval", memoryType: "Experience",
         privacyClassification: "Private", retentionTier: "FullRetention",
@@ -72,12 +86,13 @@ export async function ingestHistory(lib, instance, { embedder, queryEmbedder = e
         confidenceWeight: 1, decayRate: 0, validFrom: `${event.referencedDate ?? event.observedDate}T00:00:00.000Z`,
       });
       events.push({ ...event, sourceId, derivedId: derived.nodeId });
+      eventStats.stored += 1;
       origin.set(derived.nodeId, { session: s, turn: event.turn });
     }
   }
   if (embedder) await lib.indexMissingEmbeddings(store, embedder);
   const retriever = new lib.HybridRetriever(store, queryEmbedder, reranker ? { reranker, ...(rerankDepth ? { rerankDepth } : {}) } : {});
-  return { store, retriever, origin, events, lib, memories: rawMemories };
+  return { store, retriever, origin, events, eventStats, lib, memories: rawMemories };
   } catch (e) { store.close?.(); throw e; }
 }
 
@@ -119,9 +134,20 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
     ...(expand ? { expand: { now: parseSessionDate(instance.question_date) } } : {}),
     ...recallOptions,
   });
-  const eventIds = memory.events?.length ? eventSources(memory.events, instance.question, memory.lib?.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) }).windows ?? []) : [];
-  const sources = eventIds.length ? await Promise.all(eventIds.map((id) => memory.store.getNode(id))) : [];
-  const rankedHits = [...sources.filter(Boolean), ...hits];
+  // The event channel is fused with recall's own order (reciprocal-rank fusion), never put ahead of it.
+  let rankedHits = hits;
+  let eventChannel = null;
+  if (memory.events?.length) {
+    const windows = memory.lib?.analyzeQuery(instance.question, { now: parseSessionDate(instance.question_date) }).windows ?? [];
+    const sources = eventSources(memory.events, instance.question, windows, recallPool);
+    const inHits = new Set(hits.map((h) => h.nodeId));
+    const missing = sources.filter((x) => !inHits.has(x.sourceId));
+    const fetched = await Promise.all(missing.map((x) => memory.store.getNode(x.sourceId)));
+    const nodes = new Map(missing.map((x, i) => [x.sourceId, fetched[i]]).filter(([, n]) => n));
+    if (nodes.size !== missing.length) throw new Error(`${missing.length - nodes.size} event source turn(s) are not in the store`);
+    rankedHits = fuseEventSources(hits, sources, nodes);
+    eventChannel = { sources: sources.length, notInRecall: missing.length };
+  }
   const ms = performance.now() - t0;
   const { user, system } = process.cpuUsage(cpu);
   const recall = { ms: Math.round(ms * 10) / 10, cpuMs: Math.round((user + system) / 100) / 10 };
@@ -144,7 +170,7 @@ export async function recallRounds(memory, instance, { freshness = 0, expand = f
       turns: session.slice(userTurn, userTurn + 2).map(({ role, content }) => ({ role, content })),
     });
   }
-  return { rounds, memoriesRecalled: hits.length, recall };
+  return { rounds, memoriesRecalled: hits.length, recall, ...(eventChannel ? { eventChannel } : {}) };
 }
 
 /**

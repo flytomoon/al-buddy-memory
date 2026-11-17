@@ -44,11 +44,11 @@ export async function evaluateInstance(
 ) {
   const started = Date.now();
   const gate = reranker ? rerankGate(lib, instance, rerankWhen) : {};
-  const { memories, rounds, memoriesRecalled, recall } = await exclusive(async () => {
+  const { memories, rounds, memoriesRecalled, recall, eventStats, eventChannel } = await exclusive(async () => {
     const memory = await ingestHistory(lib, instance, { embedder, queryEmbedder, reranker, rerankDepth, extractEvents });
     try {
       const recalled = await recallRounds(memory, instance, { freshness, expand, recallOptions: { ...recallOptions, ...gate }, ...(recallPool ? { recallPool } : {}) });
-      return { memories: memory.memories, ...recalled, recall: { ...recalled.recall, load1: Math.round(loadavg()[0] * 100) / 100 } };
+      return { memories: memory.memories, eventStats: memory.eventStats, ...recalled, recall: { ...recalled.recall, load1: Math.round(loadavg()[0] * 100) / 100 } };
     } finally {
       memory.store.close();
     }
@@ -64,6 +64,7 @@ export async function evaluateInstance(
     abstention: isAbstention(instance.question_id),
     memories,
     memoriesRecalled,
+    ...(eventStats ? { events: { ...eventStats, channel: eventChannel ?? { sources: 0, notInRecall: 0 } } } : {}),
     recall,
     ...(reranker ? { reranked: gate.rerank !== false } : {}),
     cues: { aggregation: cues.aggregation, order: cues.order, windows: cues.windows.map((w) => w.phrase), parts: cues.parts.length },
