@@ -11,11 +11,9 @@ earlier were GitHub releases only.
 
 ## 0.13.0 — 2026-11-17
 
-Team memory with consent on record, a one-command install, and current state that follows valid time; recall is still a read, and no benchmark score changes.
+A one-command install, current state that follows valid time, and two extension points; recall is still a read, and no benchmark score changes.
 
-In plain words: personal, team and company memory can now live in one store, and a fact is
-shared from one to another only by a recorded promotion that can be withdrawn (`promote`,
-`withdraw`). A new
+In plain words: a new
 `init` command sets up local memory for Claude Code, Codex and Cursor in one step. `recordState`
 now gets the order right when a change is learned late. Keyword search is faster with the same
 results. Recall still writes nothing unless a host asks it to (`recordAccess`). The published
@@ -44,7 +42,7 @@ release was measured to change it, and none of the new benchmark flags is eviden
   pass; states and often-read conclusions are re-checked daily, the rest weekly. A conclusion that
   passes gets a `verified` anchor. New exports: `confirmTranscriptRetraction`, `VerifyOptions`,
   `TranscriptContradiction`.
-- **A third new MCP tool, `confirm_retraction`**: acknowledges a transcript correction, clearing
+- **A new MCP tool, `confirm_retraction`**: acknowledges a transcript correction, clearing
   only its review flag; the retracted fact and the raw turn stay in history. Retractions awaiting
   it are listed in `al-buddy-memory context`, as stored data, not instructions.
 - **`RecallOptions.stateIntent`**: when the caller knows a question asks what is true now, recall
@@ -78,31 +76,13 @@ release was measured to change it, and none of the new benchmark flags is eviden
   prints what a question cost beside its accuracy: answer and judge tokens, and notional dollars,
   per question. Measurement only: recall is unchanged.
 
-- **Scopes, and the `teamMemory` sample policy** (`docs/policies/scopes.md`). Personal, team and
-  company memory in one tenant, by a fact's `contextualMetadata.scope` (`user:<actor>`,
-  `team:<id>`, `org`, or a list of these) and `author`. `teamMemory()` reads each actor their
-  own facts, their teams' and the company's, inside the query on SQLite, Postgres and in-memory
-  alike; stamps an unlabelled write as the writer's own; refuses a write naming another scope or
-  author; and refuses any change of `scope` or `author`. `teamMemoryAttributes(actor, attributes)`
-  makes the attributes it reads (`self`, and each team as `team:<id>`), so the HTTP server signed
-  in by an identity provider feeds it the groups claim it already maps (`docs/SIGN-IN.md`). New
-  exports only: nothing changes for a caller that does not install it.
-- **`promote` and `withdraw`, governed** (`docs/policies/scopes.md#promotion`). On every
-  `govern()` handle, `promote(sourceId, { to, text?, fields?, basis, approvedBy? })` writes a new
-  fact at the target scope holding the approved raw text, with the source's provenance and
-  author, classification at most Private, and `contextualMetadata.promotion = { from, by,
-  approvedBy, at, basis, edited }`; the source is untouched. It is audited as one event, purpose
-  `promote`, naming `[source, copy]`: the consent record. `withdraw(copyId, reason)` closes the
-  copy's `validTo` with `retraction.by = "withdrawal"` (purpose `withdraw`); nothing is deleted.
-  `verifyPromotion(copyId, trail)` finds the event in a trail that verifies. A new policy hook,
-  `beforePromote`, decides like `beforeErase` (one allow, no refusal). The store itself refuses a
-  fact the promoter sees redacted, a Sensitive or Sealed one, one in Recently deleted or no
-  longer current, and a second live copy at the same scope. `teamMemory` gains the rules: the
-  author promotes to a team they are on; `org` needs an admin's approval on record
-  (`approval`) or `orgSelfServe`; an admin cannot complete someone else's promotion; secret-like
-  text is refused; a copy is withdrawn or closed only by its author, its promoter or an admin.
-  MCP tools `promote` and `withdraw`. Tested on SQLite, Postgres and in-memory. The portable
-  format is unchanged (no schema bump).
+- **Two extension points** (`docs/EXTENSION-POINTS.md`). `GovernOptions.operations` adds a
+  package's own methods to a `govern()` handle, run through that handle's queue, policies and audit
+  under purposes the package declares (`GovernedOperations`, `GovernedKit`, `CORE_PURPOSES`,
+  `CorePurpose`); `govern` refuses a core purpose, a purpose claimed twice and a method the handle
+  already has, and an `exportView` never carries them. `GovernanceDeps.registerTools` adds a
+  host's own MCP tools after the core's, on stdio and HTTP alike; a core tool's name is refused.
+  Without them a handle and a server are exactly as before.
 - **`MemoryStore.getNodes(ids)`**, optional: several nodes in one read, each as `getNode` returns
   it. `SqliteMemoryStore` and `InMemoryStore` have it; recall looks its vector candidates up with
   it (one statement per batch, not one per candidate) and falls back to `getNode` on a store
@@ -164,8 +144,7 @@ release was measured to change it, and none of the new benchmark flags is eviden
   written by a host that turns it on, count.
 - **`VerifyReport` gains a required `crossChecked` count.** A caller that builds or compares whole
   reports sees the new field; it is 0 unless `crossCheck` is passed.
-- **The MCP server lists a third new tool, `confirm_retraction`**, on stdio and HTTP alike, beside
-  `promote` and `withdraw`.
+- **The MCP server lists a new tool, `confirm_retraction`**, on stdio and HTTP alike.
 - **Portable exports may hold a `verified` anchor, and the format version stays 1.1.0.** The
   anchor is written only when a host runs `verifyDerived` with `crossCheck`, and the schema in
   `docs/portable-format.schema.json` lists it. 0.12.x's import, and a validator using the schema
@@ -175,16 +154,11 @@ release was measured to change it, and none of the new benchmark flags is eviden
   It used to record the ids before that one, return them, and let the failure be reported as a
   missing fact whatever its cause. Only hosts that turned `recordAccess` on reach it.
 
-- **Two new audit purposes, `promote` and `withdraw`.** A policy or a trail reader that switches
-  on `Purpose` exhaustively sees values it did not before; `context(purpose)` is called with them.
-- **The MCP server lists `promote` and `withdraw`**, on stdio and HTTP alike. The shipped
-  personal server's policy has no `beforePromote`, so both are refused there.
-- **An erasure receipt's `outside` gains a line**: promoted copies of the erased facts are the
-  organisation's and were not erased with their source. Receipts sealed before keep their own
-  text and still verify.
-- **`teamMemory` refuses a write carrying a `promotion` label** (importers excepted), refuses
-  changes to a copy's `promotion` record, and lets only a copy's author, promoter or an admin
-  close it. Facts that are not promoted copies are judged as before.
+- **`Purpose` admits a governed operation's own purposes.** It is the core's six
+  (`CorePurpose`) or a purpose a set of `GovernOptions.operations` declares, so a policy or a
+  trail reader that switches on it exhaustively no longer compiles as exhaustive, and sees those
+  purposes (in `ctx`, in audit events, in `context(purpose)`) when a host installs operations.
+  With none installed, only the core's six occur.
 - **Importing an older backup no longer refuses the whole file.** Once any fact had changed since
   the export (invalidated, re-weighted, recalled), `importPortable` and `al-buddy-memory import`
   refused the artifact, because the stored history is longer than the backup's and history is never

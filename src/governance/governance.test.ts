@@ -242,7 +242,6 @@ describe("the governed handle exposes nothing but governed methods", () => {
     "addEdge", "getEdges", "deleteEdge", "setEmbedding", "getEmbeddings", "listEmbeddings", "deleteEmbeddings",
     "history", "getNodeAsOf", "snapshotAsOf", "historySnapshot", "restoreVersion",
     "eraseWhere", // erasure by label with a receipt (2026-10-07): governed like deleteNode, through the same path
-    "promote", "withdraw", // promotion (2026-10-18): through the same queue, policies and audit (promotion.ts)
     "recordRecalls", // access recording for one recall as one audited write: same read authority as updateNode's "recalled" path
   ].sort();
 

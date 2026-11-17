@@ -25,7 +25,7 @@ import { DAY_MS, DELETION_REQUEST, deletionRequest, recentlyDeletedMethods, type
 export { DELETION_REQUEST, isRecentlyDeletedCapable, type DeletedFact, type RecentlyDeletedCapable } from "./recently-deleted.js";
 import { RECEIPT_FORMAT, RECEIPT_ID_HASH, RECEIPT_OUTSIDE, assertErasureSelector, erasedIdHash, receiptEvent, sealReceipt, selectorFilter, type ErasureReceipt, type ErasureSelector, type SubjectErasureCapable } from "./erasure.js";
 import { PolicyDenied, type ErasureSubject, type GovernancePolicy, type NodePatch, type PolicyContext, type Purpose } from "./policy.js";
-import { promotionMethods, type PromotionCapable } from "./promotion.js";
+import { assertOperations, type GovernedKit, type GovernedOperations } from "./operations.js";
 
 export interface GovernOptions {
   policies: GovernancePolicy[];
@@ -47,6 +47,12 @@ export interface GovernOptions {
   recentlyDeleted?: { days: number } | undefined;
   /** What serialises this handle's mutations; {@link inProcessLock} when left out. See {@link LockProvider}. */
   lock?: LockProvider | undefined;
+  /**
+   * Methods a package outside this one adds to the handle, run through its
+   * queue, policies and audit (docs/EXTENSION-POINTS.md). None by default; an
+   * export view never carries them.
+   */
+  operations?: readonly GovernedOperations[] | undefined;
 }
 
 
@@ -404,9 +410,10 @@ const snapshot = <T>(value: T): T => (value === undefined ? value : (JSON.parse(
 const snapshotOptions = <T extends object>(options: T): T =>
   Object.fromEntries(Object.entries(options).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v])) as T;
 
-export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable & SubjectErasureCapable & PromotionCapable : MemoryStore & SubjectErasureCapable & PromotionCapable;
-export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore & SubjectErasureCapable & PromotionCapable {
+export function govern<T extends MemoryStore>(inner: T, options: GovernOptions): T extends HistoryCapable ? MemoryStore & HistoryCapable & SubjectErasureCapable : MemoryStore & SubjectErasureCapable;
+export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore & SubjectErasureCapable {
   for (const p of options.policies) if (p.readBoundary !== undefined) assertReadBoundary(p.readBoundary, p.name);
+  assertOperations(options.operations ?? []);
   // Resolved once, here, because it is the only place `inner` and the sink are
   // both in scope; everything below reads it off `opts`.
   const opts = activate(inner, options);
@@ -510,22 +517,7 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
   // `governed.db` (SQLite) and `governed.nodes` (in-memory) handed a stranger
   // the raw data (Fable re-review, 2026-09-15). Whoever should close or tune the
   // store holds the inner one.
-  const governed: MemoryStore & SubjectErasureCapable & PromotionCapable & Partial<HistoryCapable> = {
-    // promote / withdraw (promotion.ts), through this handle's queue, policies and audit.
-    ...promotionMethods({
-      inner,
-      policies: opts.policies,
-      authorise: (purpose) => authorise(opts, purpose),
-      serialise: exclusive,
-      assertAuditUsable: () => assertAuditUsable(opts),
-      visibleOrNotFound,
-      guarded: (ctx, ids, step) => guarded(opts, ctx, ids, step),
-      commit: (ctx, mutate, describe) => commitAudited(opts, inner, ctx, mutate, describe),
-      allowedEvent: (ctx, ids, reason) => auditEvent(ctx, "allowed", ids, { reason }),
-      view: (node, ctx) => view(opts, node, ctx),
-      updatePolicies,
-    }),
-
+  const governed: MemoryStore & SubjectErasureCapable & Partial<HistoryCapable> = {
     async addNode(input: NewMemoryNode): Promise<MemoryNode> {
       const node = snapshot(input);
       const authorised = authorise(opts, "write");
@@ -1060,6 +1052,35 @@ export function govern(inner: MemoryStore, options: GovernOptions): MemoryStore 
     );
   }
 
+  // Governed operations (operations.ts): added last, and never over a method
+  // the handle already has, so none can replace a governed one.
+  for (const op of opts.operations ?? []) {
+    const own = new Set(op.purposes);
+    const kit: GovernedKit = Object.freeze({
+      inner,
+      policies: Object.freeze([...opts.policies]),
+      authorise: (purpose: Purpose) => {
+        if (!own.has(purpose)) throw new Error(`govern: operations ${op.name} did not declare the purpose "${purpose}"`);
+        return authorise(opts, purpose);
+      },
+      serialise: exclusive,
+      assertAuditUsable: () => assertAuditUsable(opts),
+      visibleOrNotFound,
+      guarded: <T>(ctx: PolicyContext, ids: string[], step: () => Promise<T>) => guarded(opts, ctx, ids, step),
+      commit: <T>(ctx: PolicyContext, mutate: () => Promise<T>, describe: (result: T) => { ids: string[]; reason?: string }) => commitAudited(opts, inner, ctx, mutate, describe),
+      allowedEvent: (ctx: PolicyContext, ids: string[], reason?: string) => auditEvent(ctx, "allowed", ids, reason === undefined ? {} : { reason }),
+      view: (node: MemoryNode, ctx: PolicyContext) => view(opts, node, ctx),
+      updatePolicies,
+      invalidationCascade: (existing: MemoryNode, patch: NodePatch, ctx: PolicyContext) => judgeInvalidation(inner, existing, patch, ctx, updatePolicies, canSee(ctx)),
+    });
+    const methods = op.methods(kit);
+    for (const [name, method] of Object.entries(methods)) {
+      if (Object.hasOwn(governed, name)) throw new Error(`govern: operations ${op.name} cannot add ${name}: the handle already has it`);
+      if (typeof method !== "function") throw new Error(`govern: operations ${op.name}: ${name} is not a function`);
+      Object.defineProperty(governed, name, { value: method, enumerable: true });
+    }
+  }
+
   return Object.freeze(governed);
 }
 
@@ -1072,7 +1093,8 @@ export function exportView<T extends MemoryStore>(inner: T, opts: GovernOptions)
 export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore {
   // No Recently deleted on an export view: it is read-only, and purgeDeleted and
   // restoreDeleted are writes (release review 2026-09-21).
-  const view = govern(inner, { ...opts, readAs: "export", recentlyDeleted: undefined });
+  // Nor governed operations: they are the host's additions, and this view only reads.
+  const view = govern(inner, { ...opts, readAs: "export", recentlyDeleted: undefined, operations: undefined });
   const refuse = async (): Promise<never> => {
     throw new Error("exportView is read-only");
   };
@@ -1083,8 +1105,6 @@ export function exportView(inner: MemoryStore, opts: GovernOptions): MemoryStore
     recordRecalls: refuse,
     deleteNode: refuse,
     eraseWhere: refuse,
-    promote: refuse,
-    withdraw: refuse,
     restoreNode: refuse,
     restoreEdge: refuse,
     addEdge: refuse,
