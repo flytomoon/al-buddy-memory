@@ -8,6 +8,7 @@ was clean, and every setting.
 |---|---|---|
 | [`bench.mjs`](bench.mjs), [`bench-vectors.mjs`](bench-vectors.mjs) | Speed and size at 20,000–100,000 facts (the README's "Limits, measured") | none |
 | [`longmemeval/`](longmemeval/) | Recall on the public LongMemEval benchmark, scored with its official prompts and metrics | answer + judge per question, on the Claude subscription |
+| [`locomo/`](locomo/) | Recall on LoCoMo: the 1,540 scored questions against the published key and the audit-corrected one, the 446 adversarial ones beside them | answer + judge per question (a second verdict for the 99 corrected), on the Claude subscription |
 | [`postgres-writes/`](postgres-writes/run.mjs) | What one write costs on the Postgres store as a tenant grows (in-process PGlite); numbers in [docs/POSTGRES.md](../docs/POSTGRES.md#what-a-write-costs) | none |
 | [`stale-facts/`](stale-facts/) | When a fact changes, whether recall returns the value true now — and the value true then | none |
 | [`memderive/`](memderive/) | Derived state (counts, totals, sets, histories) over facts that change: whether recall returns every event the answer needs, beside plain and stemmed BM25 | none (on-device embedder) |

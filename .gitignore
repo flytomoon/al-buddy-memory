@@ -5,6 +5,8 @@ dist/
 docs/demo/conformance.js
 # The LongMemEval data is downloaded (bench/longmemeval/download.mjs), never committed.
 bench/longmemeval/data/
+# The LoCoMo data and audit key (CC BY-NC; bench/locomo/download.mjs), never committed.
+bench/locomo/data/
 # A benchmark run's partial progress; the finished result goes in bench/results/.
 bench/results/.progress/
 # The Claude Desktop extension build (npm run build:mcpb).
