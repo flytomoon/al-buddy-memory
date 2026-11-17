@@ -89,7 +89,13 @@ export interface HybridRetrieverOptions {
   reranker?: Reranker;
   /** How many fused candidates the reranker reads: default the larger of the limit and 50. */
   rerankDepth?: number;
-  /** Record returned facts as recalled (default true). False makes recall a pure read. */
+  /**
+   * Record each returned fact as recalled: one `recalled` anchor per hit, which
+   * slows its decay and orders `verifyDerived`'s cross-check. Default false, so
+   * recall is a pure read. On, every recall is also a write: it can fail as one
+   * (`RecallRecordingError`), it grows the store with every read, and it makes
+   * later recalls slower (review 2026-11-17 § 4.2).
+   */
   recordAccess?: boolean;
 }
 
@@ -266,7 +272,7 @@ export class HybridRetriever {
     const hits = rankFused(scores)
       .slice(0, limit)
       .map((e) => e.node);
-    return this.opts.recordAccess === false ? hits : recordRecallHits(this.store, hits);
+    return this.opts.recordAccess === true ? recordRecallHits(this.store, hits) : hits;
   }
 
   /**

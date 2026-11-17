@@ -81,8 +81,12 @@ describe("HybridRetriever", () => {
     const retriever = new HybridRetriever(store);
     const results = await retriever.recall("london", { limit: 3 });
     expect(results[0]?.content.text).toContain("london");
+    // Recall is a read by default: nothing is recorded on the fact.
+    expect(recallCount((await store.getNode(results[0]!.nodeId))!)).toBe(0);
+    const recording = new HybridRetriever(store, undefined, { recordAccess: true });
+    await recording.recall("london", { limit: 3 });
     expect(recallCount((await store.getNode(results[0]!.nodeId))!)).toBe(1);
-    await retriever.recall("london", { limit: 3 });
+    await recording.recall("london", { limit: 3 });
     expect(recallCount((await store.getNode(results[0]!.nodeId))!)).toBe(2);
   });
 

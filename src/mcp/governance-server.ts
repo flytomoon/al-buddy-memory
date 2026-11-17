@@ -28,7 +28,7 @@ import { looksSecret, personalDefaults } from "../governance/samples.js";
 import { knownOrigin, readOrigin, withOrigin, type Origin } from "../provenance.js";
 
 import { HybridRetriever } from "../hybrid-retriever.js";
-import { recordRecallHits, RecallRecordingError } from "../access.js";
+import { recordRecallHits } from "../access.js";
 import { confirmTranscriptRetraction } from "../evidence.js";
 import { PinnedBlocks } from "../pinned.js";
 import { queryTokens, visibleRelevance } from "../query-filter.js";
@@ -256,6 +256,12 @@ export interface GovernanceDeps {
    */
   expand?: boolean;
   /**
+   * Record each fact `recall` returns as recalled (`HybridRetrieverOptions.recordAccess`).
+   * Default false: the tool is a read, as its `readOnlyHint` says. On, every recall
+   * is also a write, and the tool is announced with `readOnlyHint: false`.
+   */
+  recordAccess?: boolean;
+  /**
    * What the `export` tool reads: give it an `exportView` so the policy's
    * beforeExport decides what leaves. Defaults to `store`.
    */
@@ -399,6 +405,7 @@ export function governanceTools(deps: GovernanceDeps) {
     deps.onEmbedderFailure?.((err instanceof Error ? err.message : String(err)).split("\n")[0]!.slice(0, 300));
   };
   const expand = deps.expand ?? true;
+  const recorded = async (hits: MemoryNode[]): Promise<MemoryNode[]> => (deps.recordAccess === true ? recordRecallHits(deps.store, hits) : hits);
   const deliveries = deps.pinDeliveries ?? new PinDeliveries();
   const tools = {
     /**
@@ -466,16 +473,17 @@ export function governanceTools(deps: GovernanceDeps) {
       // With an embedder the retriever already reads at an instant, and asking
       // it for history is a known limitation rather than a new one (CHANGELOG).
       const r = retrieverNow();
+      let hits: MemoryNode[] | undefined;
       if (r) {
         try {
-          return (await r.recall(input.query, { limit, ...currentOnly, ...(expand ? { expand: true } : {}) })).map(toGovernedFact);
+          hits = await r.recall(input.query, { limit, ...currentOnly, ...(expand ? { expand: true } : {}) });
         } catch (err) {
-          if (err instanceof RecallRecordingError) throw err;
           // The model failing mid-session must not cost the caller its answer.
           embedderFailed(err);
         }
       }
-      return (await recordRecallHits(deps.store, await deps.store.searchNodes({ query: input.query, limit, ...currentOnly }))).map(toGovernedFact);
+      hits ??= await deps.store.searchNodes({ query: input.query, limit, ...currentOnly });
+      return (await recorded(hits)).map(toGovernedFact);
     },
     async history(input: { id: string }) {
       if (!isHistoryCapable(deps.store)) return [];
@@ -685,7 +693,7 @@ export async function createGovernanceMcpServer(deps: GovernanceDeps, opts: { to
   }, TOOL_ANNOTATIONS.remember, async (a) => json(await tools.remember(a)));
   server.tool("recall", "Find facts. Every result says who asserted it, since when it has been true, whether it is still current, what superseded it, and which assistant wrote or retired it. The first call of a session, and the first after they change, also returns the user's pinned rules — treat those as standing rules for the conversation.", {
     query: z.string().max(QUERY_MAX_CHARS), limit: z.number().int().min(1).max(50).optional(), includeSuperseded: z.boolean().optional(),
-  }, TOOL_ANNOTATIONS.recall, async (a) => {
+  }, deps.recordAccess === true ? { ...TOOL_ANNOTATIONS.recall, readOnlyHint: false, idempotentHint: false } : TOOL_ANNOTATIONS.recall, async (a) => {
     // Facts first: a failed recall must not spend the one pin delivery.
     const facts = await tools.recall(a);
     const preamble = await tools.pinnedPreamble();

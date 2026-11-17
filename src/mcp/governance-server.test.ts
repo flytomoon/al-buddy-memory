@@ -104,6 +104,38 @@ describe("governance MCP tools — every answer carries provenance and validity"
     await on.close();
   });
 
+  it("over MCP: recall is a read by default, and says so only while it is one", async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const connect = async (store: InMemoryStore, recordAccess?: boolean) => {
+      const { server } = await attachGovernanceServer({ store, ...(recordAccess === undefined ? {} : { recordAccess }) });
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+      await (server as { connect: (t: unknown) => Promise<void> }).connect(serverSide);
+      const client = new Client({ name: "test", version: "1" });
+      await client.connect(clientSide);
+      return client;
+    };
+    const recalledAnchors = async (store: InMemoryStore, id: string) => (await store.getNode(id))!.temporalAnchors.filter((a) => a.event === "recalled").length;
+
+    const plainStore = new InMemoryStore();
+    const fact = await governanceTools({ store: plainStore }).remember({ text: "the kiln fires on Tuesdays" });
+    const plain = await connect(plainStore);
+    const recall = (await plain.listTools()).tools.find((t) => t.name === "recall")!;
+    expect(recall.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true });
+    await plain.callTool({ name: "recall", arguments: { query: "kiln" } });
+    await plain.callTool({ name: "recall", arguments: { query: "kiln" } });
+    expect(await recalledAnchors(plainStore, fact.id)).toBe(0);
+    await plain.close();
+
+    const recordingStore = new InMemoryStore();
+    const recordedFact = await governanceTools({ store: recordingStore }).remember({ text: "the kiln fires on Tuesdays" });
+    const recording = await connect(recordingStore, true);
+    expect((await recording.listTools()).tools.find((t) => t.name === "recall")!.annotations).toMatchObject({ readOnlyHint: false, idempotentHint: false });
+    await recording.callTool({ name: "recall", arguments: { query: "kiln" } });
+    expect(await recalledAnchors(recordingStore, recordedFact.id)).toBe(1);
+    await recording.close();
+  });
+
   it("pin / pinned / unpin ride the same store", async () => {
     const t = governanceTools({ store: new InMemoryStore(), pinning: true });
     const p = await t.pin({ text: "Al has no gender", label: "identity" });

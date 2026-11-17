@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ProjectMemory, projectDbPath } from "./project-memory.js";
+import { SqliteMemoryStore } from "./sqlite-memory-store.js";
 
 describe("projectDbPath", () => {
   // The filename is a readable stub, a dot, then a digest of the whole scope.
@@ -48,6 +49,27 @@ describe("ProjectMemory", () => {
     } finally {
       mem.close();
     }
+  });
+
+  it("recall records nothing unless recordAccess is on", async () => {
+    const recalls = async (recordAccess: boolean | undefined) => {
+      const mem = new ProjectMemory(`recording-${String(recordAccess)}`, { baseDir, ...(recordAccess === undefined ? {} : { recordAccess }) });
+      try {
+        const saved = await mem.capture({ text: "the kiln fires on Tuesdays" });
+        await mem.recall("kiln");
+        const store = new SqliteMemoryStore(mem.dbPath, { scope: mem.project });
+        try {
+          return (await store.getNode(saved.nodeId))!.temporalAnchors.filter((a) => a.event === "recalled").length;
+        } finally {
+          store.close();
+        }
+      } finally {
+        mem.close();
+      }
+    };
+    expect(await recalls(undefined)).toBe(0);
+    expect(await recalls(false)).toBe(0);
+    expect(await recalls(true)).toBe(1);
   });
 
   it("persists memories across separate instances (survives restart)", async () => {

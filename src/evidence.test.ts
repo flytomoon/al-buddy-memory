@@ -19,9 +19,9 @@ const since = "2000-01-01T00:00:00.000Z";
 
 it("the access-aware transcript claim in SPEC stays pinned to code", () => {
   const spec = readFileSync(new URL("../docs/SPEC.md", import.meta.url), "utf8");
-  expect(spec).toContain("Recall returns append a `recalled` anchor");
+  expect(spec).toContain("Recall is a read by default. A host that sets `recordAccess`");
   expect(spec).toContain("call the\n`confirm_retraction` MCP tool");
-  expect(readFileSync(new URL("./hybrid-retriever.ts", import.meta.url), "utf8")).toContain("recordRecallHits(this.store, hits)");
+  expect(readFileSync(new URL("./hybrid-retriever.ts", import.meta.url), "utf8")).toContain("this.opts.recordAccess === true ? recordRecallHits(this.store, hits) : hits");
   expect(readFileSync(new URL("./mcp/governance-server.ts", import.meta.url), "utf8")).toContain('server.tool("confirm_retraction"');
 });
 

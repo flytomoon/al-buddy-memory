@@ -294,12 +294,16 @@ The reader is shown at least 20 rounds, **listed by date** (the official reader 
 A cross-encoder that reorders only the best 20 recalled messages reorders messages whose rounds the
 reader sees anyway, in an order the prompt then discards; every message after the 20th keeps its
 place. So the rounds shown can only change through `expand`'s time lists, which are laid over the
-reranked order and can move a round across the cut. ‹SWEEP20›
+reranked order and can move a round across the cut. No sweep of depth 20 against `none` is
+committed yet, so this paragraph is the argument, not a measurement.
 
 To change what the reader sees, the cross-encoder has to read deeper than the reader's window and
 pull something up from below it: depth 40 and up. That is where its time goes.
 
-‹SWEEPTABLE›
+What is committed is a timing of that deeper read: `bench/results/2026-10-15-lme-window-gate-standin.json`,
+a stand-in of the cross-encoder's architecture at depth 30, took 1.5 s per recall at p50 and
+2.9–4.0 s at p95 against a 300 ms budget (2026-10-15; the window gate above). No cross-encoder is on
+by default, and none of the published scores uses one.
 
 ## The result file
 
