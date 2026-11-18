@@ -26,8 +26,9 @@ import { CATEGORY_SIZES, loadAuditKey, loadConversations, selectQuestions } from
 import { localPath, readLocomoManifest } from "./download.mjs";
 import { runLocomo } from "./harness.mjs";
 import { RECALL_POOL } from "./memory.mjs";
-import { scoreTable, summarize } from "./metrics.mjs";
+import { REGRESSION_POINTS, compareToBaseline, scoreTable, summarize } from "./metrics.mjs";
 import { CONTEXT_TEMPLATE_DESCRIPTION, JUDGE_SYSTEM, KEYWORD_RULE_SOURCE, PROMPTS_SHA256, PROMPTS_SOURCE, READING_TEMPLATES } from "./prompts.mjs";
+import { SUPPORT_CHECK_DESCRIPTION } from "./support.mjs";
 
 /** Every way out prints its outcome as the last line. */
 const fail = (message, code = 1) => {
@@ -48,6 +49,11 @@ try {
       "top-k": { type: "string", default: "40" },
       "recall-pool": { type: "string", default: String(RECALL_POOL) },
       expand: { type: "boolean", default: false },
+      "strip-speakers": { type: "boolean", default: false },
+      "content-words": { type: "boolean", default: false },
+      neighbours: { type: "string", default: "0" },
+      "support-check": { type: "boolean", default: false },
+      baseline: { type: "string" },
       reading: { type: "string", default: "c25" },
       answerer: { type: "string", default: "claude" },
       "answer-model": { type: "string", default: "sonnet" },
@@ -116,7 +122,20 @@ if (questions.length === 0) fail("No questions selected.");
 if (!["hybrid", "keyword"].includes(args.retrieval)) fail(`--retrieval must be hybrid or keyword (got ${args.retrieval})`);
 if (!READING_TEMPLATES[args.reading]) fail(`--reading must be ${Object.keys(READING_TEMPLATES).join(" or ")} (got ${args.reading})`);
 const topK = int("top-k", 1);
+const neighbours = int("neighbours", 0);
+if (neighbours > topK) fail(`--neighbours must be at most --top-k (${topK}); got ${neighbours}`);
 const recallPool = int("recall-pool", 1);
+// An earlier run's summary to set this one beside, category by category; read before anything runs, so a bad path costs nothing.
+let baseline = null;
+if (args.baseline !== undefined) {
+  try {
+    const file = JSON.parse(readFileSync(args.baseline, "utf8"));
+    if (!file?.summary?.scored || !file.summary.adversarial) throw new Error("it holds no LoCoMo summary");
+    baseline = { path: args.baseline, commit: file.commit ?? null, settings: file.settings ?? null, summary: file.summary };
+  } catch (e) {
+    fail(`--baseline ${args.baseline}: ${e.message}`);
+  }
+}
 const concurrency = int("concurrency", 1);
 const waitOnLimitMinutes = int("wait-on-limit", 0);
 const embedder = args.retrieval === "hybrid" ? new lib.LocalEmbedder() : undefined;
@@ -154,11 +173,20 @@ const settings = {
   ingestion: "one memory per turn, its text \"<speaker>: <text>\" plus \" [shares <caption>]\" for a shared photo; both speakers UserInput, memoryType Conversation, validFrom = the session's date, decayRate 0; nothing extracted or summarised",
   retrieval: args.retrieval,
   embedder: embedder ? { model: embedder.model, modelVersion: embedder.modelVersion, dimensions: embedder.dimensions } : null,
-  recall: `HybridRetriever.recall(question, { limit: ${recallPool}${recallPool !== RECALL_POOL ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: the date of the conversation's last session }" : ""} })`,
+  recall: `HybridRetriever.recall(${args["strip-speakers"] ? "the question without the speakers' names" : "question"}, { limit: ${recallPool}${recallPool !== RECALL_POOL ? `, candidates: ${Math.ceil(recallPool / 2)}` : ""}${args.expand ? ", expand: { now: the date of the conversation's last session }" : ""}${args["content-words"] ? ", contentWords: true" : ""} })`,
   expand: args.expand,
+  ...(args["strip-speakers"]
+    ? { query: "bench/locomo/memory.mjs recallQuery: the question with both speakers' names (and any possessive 's) taken out, as asked when two or more words are left; every stored turn begins with its speaker's name, so the name says whose memory to search, not what to search for; the row's recallQuery holds it when it differs" }
+    : {}),
+  contentWords: args["content-words"],
   topK,
+  neighbours,
+  shown: neighbours
+    ? `the first ${neighbours} recalled turns, then the turn after and the turn before each of them in its session (best-ranked first), then the rest of what recall returned, until ${topK} (bench/locomo/memory.mjs showTurns)`
+    : `the first ${topK} recalled turns`,
+  supportCheck: args["support-check"] ? SUPPORT_CHECK_DESCRIPTION : null,
   reading: args.reading,
-  context: CONTEXT_TEMPLATE_DESCRIPTION,
+  context: args["support-check"] ? `${CONTEXT_TEMPLATE_DESCRIPTION}; when the support check fires, then a blank line and its note` : CONTEXT_TEMPLATE_DESCRIPTION,
   concurrency,
   recallTiming: "per question, the wall-clock and CPU time of the HybridRetriever.recall call alone, recalls run one at a time with nothing else in this process",
 };
@@ -235,7 +263,7 @@ let attemptedTotal = 0;
 let succeededTotal = 0;
 for (let waits = 0; ; ) {
   try {
-    const passRows = await runLocomo(lib, selected, { embedder, expand: args.expand, recallPool, topK, reading: args.reading, answerer, judge, abstentionJudge, auditKey }, { concurrency, onRow, done: new Set(done.keys()) });
+    const passRows = await runLocomo(lib, selected, { embedder, expand: args.expand, stripSpeakers: args["strip-speakers"], contentWords: args["content-words"], neighbours, support: args["support-check"], recallPool, topK, reading: args.reading, answerer, judge, abstentionJudge, auditKey }, { concurrency, onRow, done: new Set(done.keys()) });
     attemptedTotal += passRows.length;
     succeededTotal += passRows.filter((r) => !r.error).length;
     break;
@@ -268,6 +296,7 @@ const byId = readProgress();
 const rows = questions.map((q) => byId.get(q.question_id)).filter(Boolean);
 const summary = summarize(rows);
 if (summary.questions === summary.errors) fail(`Attempted ${summary.questions} question(s), succeeded 0; errors are recorded in ${progressPath}.`);
+const comparison = baseline ? compareToBaseline(summary, baseline.summary) : null;
 // Every question of all ten conversations, answered and judged: `<date>-locomo-full.json`. Anything less: `<date>-locomo.json`.
 const fullRun = selected.length === conversations.length && categories.length === 0 && answerer !== null && judge !== null;
 const out = args.out ?? resultPath(RESULTS_DIR, isoDate(), fullRun ? "locomo-full" : "locomo");
@@ -294,6 +323,7 @@ const head = {
   abstentionJudge: abstentionJudgeInfo,
   wallClockSeconds: Math.round((Date.now() - started) / 1000),
   fullRun,
+  ...(baseline ? { baseline: { file: baseline.path, commit: baseline.commit, regressionPoints: REGRESSION_POINTS, ...comparison } } : {}),
 };
 writeJson(out, { ...head, summary, questions: rows });
 // The same run without its per-question rows: the scoreboard (published and corrected key side
@@ -319,6 +349,29 @@ if (summary.recall) console.log(`Recall time (the recall call alone, ${summary.r
 const rt = summary.reader.inputTokensPerQuestion;
 if (rt) console.log(`Reader input tokens per question: mean ${rt.mean}, p50 ${rt.p50}, p95 ${rt.p95} (${summary.reader.inputTokensReported} answers reported usage)`);
 console.log(`Model calls: ${summary.calls.answer} answers, ${summary.calls.judge} verdicts, ${summary.calls.judgeCorrected} against the corrected key.`);
+if (summary.supportCheck) {
+  const by = Object.entries(summary.supportCheck.byCategory).map(([c, v]) => `category ${c} ${v.fired} of ${v.questions}`).join(", ");
+  console.log(`Support check fired on ${summary.supportCheck.fired} of ${summary.supportCheck.questions} questions: ${by}.`);
+}
+const signedPts = (x) => (x === null ? "" : ` (${x > 0 ? "+" : ""}${x.toFixed(1)} pts)`);
+/** One category's before → after, for the comparison lines and the RESULT line. */
+const compareLine = (r) => {
+  const head = r.category === 5 ? "abstaining" : "correct";
+  const acc = `${pct(r.before?.accuracy)} → ${pct(r.after.accuracy)} ${head}${signedPts(r.change.accuracy)}`;
+  const cor = r.category === 5 ? "" : `, ${pct(r.before?.corrected)} → ${pct(r.after.corrected)} by the corrected key${signedPts(r.change.corrected)}`;
+  return `category ${r.category}: ${acc}${cor}, every evidence turn shown ${pct(r.before?.shownAllEvidence)} → ${pct(r.after.shownAllEvidence)}`;
+};
+let comparisonLine = "";
+if (comparison) {
+  console.log(`\nBeside ${baseline.path} (commit ${baseline.commit ?? "unknown"}):`);
+  for (const r of comparison.categories) console.log(`  ${compareLine(r)}${r.regressed ? `  REGRESSION (more than ${REGRESSION_POINTS} point)` : ""}`);
+  console.log(`  recall p50: ${comparison.recallP50Ms.before ?? "—"} ms → ${comparison.recallP50Ms.after ?? "—"} ms (each over the questions its run asked)`);
+  const ran = new Set(comparison.categories.map((r) => r.category));
+  const unrun = [2, 4].filter((c) => !ran.has(c));
+  const regressed = comparison.categories.filter((r) => r.regressed && r.after.judged > 0).map((r) => r.category);
+  const guard = !comparison.categories.some((r) => r.after.judged > 0) ? "no answer judged, so no accuracy compared" : regressed.length ?`categories ${regressed.join(", ")} fell by more than ${REGRESSION_POINTS} point` : `no category run fell by more than ${REGRESSION_POINTS} point`;
+  comparisonLine = `${comparison.categories.filter((r) => r.after.judged > 0 || r.after.shownAllEvidence !== null).map(compareLine).join("; ")}; recall p50 ${comparison.recallP50Ms.before ?? "—"} → ${comparison.recallP50Ms.after ?? "—"} ms; ${guard}${unrun.length ? ` (categories ${unrun.join(" and ")} not run)` : ""}`;
+}
 if (summary.errors) console.log(`${summary.errors} question(s) failed and are not in any number; see "error" in the result file. Run the same command with --resume to retry just those (progress: ${progressPath}).`);
 const retrievalLine = `every evidence turn shown for ${pct(rs.shownAllEvidence)} of ${rs.n} scored questions`;
 const headline = sc.published.n
@@ -326,4 +379,5 @@ const headline = sc.published.n
   : summary.answered
     ? `${summary.answered} questions answered and not judged; ${retrievalLine}`
     : `retrieval only, ${retrievalLine}`;
-console.log(`RESULT: LoCoMo ${headline}; ${summary.questions - summary.errors} of ${summary.questions} questions succeeded; written to ${out}, summary in ${basename(summaryOut)}.`);
+const vs = comparison ? ` Beside ${basename(baseline.path)}: ${comparisonLine}.` : "";
+console.log(`RESULT: LoCoMo ${headline}; ${summary.questions - summary.errors} of ${summary.questions} questions succeeded; written to ${out}, summary in ${basename(summaryOut)}.${vs}`);

@@ -21,6 +21,14 @@ earlier were GitHub releases only.
   the pinned evaluation pipeline's, verbatim; reader and judge run on the Claude subscription, as in
   `bench/longmemeval`. Measurement only: no answer score yet (the full run is about 4,070 calls),
   and nothing in the library changes.
+- **Benchmark: LoCoMo multi-hop and adversarial options** (`bench/locomo/`, all off by default).
+  `--strip-speakers` asks recall the question without the two speakers' names (every stored turn
+  begins with one, so a name matched half the conversation); `--neighbours N` fills the 40 shown
+  turns with the turns beside the first N hits; `--support-check` ends the reader's context with a
+  note when the shown turns say the thing asked only of the other speaker (no model call); and
+  `--baseline` prints a run beside an earlier one, category by category. Retrieval only, no model:
+  every evidence turn shown for category 1 goes from 24.8% to 39.7% of 282, and category 5's from
+  81.2% to 95.3%, at the same recall time. No answer score yet, and nothing in the library changes.
 - **Benchmark: the reader's and the reranker's ceilings** (`bench/longmemeval/ceilings.mjs`). The
   oracle run on multi-session and temporal reasoning, every evidence session in front of the reader,
   split against the published run's losses to recall and to the reader; and one recall sweep with

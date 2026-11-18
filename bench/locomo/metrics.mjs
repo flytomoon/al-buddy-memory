@@ -141,6 +141,59 @@ export function scoreTable(summary) {
   ];
 }
 
+/**
+ * The support check (`--support-check`), per category: how many questions it
+ * applied to (they name one speaker) and how many it fired on. Null when no
+ * row ran it.
+ */
+export function summarizeSupportCheck(rows) {
+  const ran = rows.filter((r) => r.supportCheck);
+  if (ran.length === 0) return null;
+  const byCategory = {};
+  for (const c of [...SCORED_CATEGORIES, ADVERSARIAL]) {
+    const xs = ran.filter((r) => r.category === c);
+    if (xs.length) byCategory[c] = { questions: xs.length, checked: xs.filter((r) => r.supportCheck.checked).length, fired: xs.filter((r) => r.supportCheck.fired).length };
+  }
+  return { questions: ran.length, fired: ran.filter((r) => r.supportCheck.fired).length, byCategory };
+}
+
+/** The headline number of one category in a summary: accuracy against the published and the corrected key (1-4) or the abstention judge's (5); every evidence turn shown; how many judged. */
+function categoryNumbers(summary, c) {
+  const retrieval = summary.retrieval?.byCategory?.[c] ?? null;
+  const shownAllEvidence = retrieval?.shownAllEvidence ?? null;
+  if (Number(c) === ADVERSARIAL) {
+    const a = summary.adversarial?.abstentionJudge;
+    return a && a.n ? { judged: a.n, accuracy: a.accuracy, corrected: null, shownAllEvidence } : retrieval ? { judged: 0, accuracy: null, corrected: null, shownAllEvidence } : null;
+  }
+  const s = summary.scored?.byCategory?.[c];
+  if (!s && !retrieval) return null;
+  return { judged: s?.published.n ?? 0, accuracy: s?.published.accuracy ?? null, corrected: s?.corrected.accuracy ?? null, shownAllEvidence };
+}
+
+/** How many points a category may fall before `compareToBaseline` calls it a regression. */
+export const REGRESSION_POINTS = 1;
+
+/**
+ * This run beside an earlier one (its `summary`), category by category, for
+ * the categories this run has: accuracy (5: the abstention judge's), the
+ * corrected key's, every evidence turn shown, each with the change in points;
+ * `regressed` when accuracy or the corrected key fell by more than
+ * REGRESSION_POINTS. And recall p50, this run's and the earlier one's (over
+ * whatever questions each ran).
+ */
+export function compareToBaseline(summary, baseline) {
+  const pts = (a, b) => (typeof a === "number" && typeof b === "number" ? Math.round((a - b) * 1000) / 10 : null);
+  const categories = [];
+  for (const c of [...SCORED_CATEGORIES, ADVERSARIAL].sort((a, b) => a - b)) {
+    const after = categoryNumbers(summary, c);
+    if (!after) continue;
+    const before = categoryNumbers(baseline, c);
+    const change = { accuracy: pts(after.accuracy, before?.accuracy), corrected: pts(after.corrected, before?.corrected), shownAllEvidence: pts(after.shownAllEvidence, before?.shownAllEvidence) };
+    categories.push({ category: c, before, after, change, regressed: [change.accuracy, change.corrected].some((x) => x !== null && x < -REGRESSION_POINTS) });
+  }
+  return { categories, recallP50Ms: { before: baseline.recall?.ms?.p50 ?? null, after: summary.recall?.ms?.p50 ?? null } };
+}
+
 /** Everything a results file reports about a set of rows. */
 export function summarize(rows) {
   const ok = rows.filter((r) => !r.error);
@@ -159,6 +212,7 @@ export function summarize(rows) {
     ...summarizeAnswers(ok),
     retrieval: { scored: retrievalSummary(ok.filter((r) => !r.adversarial)), adversarial: retrievalSummary(ok.filter((r) => r.adversarial)), byCategory: retrievalBy },
     recall: summarizeRecallTime(ok),
+    ...(ok.some((r) => r.supportCheck) ? { supportCheck: summarizeSupportCheck(ok) } : {}),
     reader: {
       inputTokensPerQuestion: statsOf(tokens),
       inputTokensReported: tokens.length,

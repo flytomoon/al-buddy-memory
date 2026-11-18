@@ -65,6 +65,11 @@ row stop the run. The last line printed is always `RESULT: …`.
 | `--retrieval hybrid\|keyword` | `hybrid` | `hybrid` is the library's recall: keywords and on-device vectors, fused. `keyword` needs no model. |
 | `--expand` | off | Recall reads the question's time and counting cues. LoCoMo's questions carry no date, so "now" is the date of the conversation's last session. |
 | `--top-k N` | `40` | How many recalled turns the reader sees (about what 20 LongMemEval rounds of two turns are). Not tuned. |
+| `--strip-speakers` | off | Recall is asked the question without the two speakers' names ([below](#multi-hop-and-adversarial-options)). |
+| `--content-words` | off | The library's `RecallOptions.contentWords`: the keyword list searches the question's content words. |
+| `--neighbours N` | `0` (off) | Show the first N recalled turns, then the turn after and before each in its session, then the rest of recall, up to `--top-k`. |
+| `--support-check` | off | Before the reader answers, check the shown turns say the thing of the person asked about; when they don't, the context ends with a note ([below](#multi-hop-and-adversarial-options)). No model call. |
+| `--baseline file.summary.json` | | Print this run beside an earlier one, category by category, with recall p50, in the last lines and the `RESULT:` line; a fall of more than 1 point is called a regression. |
 | `--recall-pool N` | `100` | How many memories one recall returns, half from each list. |
 | `--reading c25\|memos` | `c25` | The answer prompt (below). |
 | `--answerer claude\|command:<cmd>\|none` | `claude` | `none` runs retrieval only. |
@@ -139,6 +144,64 @@ was among the 40 shown for 70.6% of the 1,536 scored questions that cite one; by
 category 4 (841) 85.9%, category 2 (321) 79.4%, category 3 (96; 92 cite a turn) 40.2%, category 1 (282) 24.8%. The 446 adversarial: the turn each one is built on was shown for 81.2%. The low one is category 1 (282), whose questions
 cite several turns each: the reader gets all of them for one question in four. Recall took 7.9 ms at p50 and 27.6 ms at p95 (on the sandbox's `node:sqlite` stand-in, not the release build). It says what the
 reader will be shown, not what it will answer; that is the full run's job.
+
+## Multi-hop and adversarial options
+
+The first full run ([`2026-11-17-locomo-full.summary.json`](../results/2026-11-17-locomo-full.summary.json),
+80.6% on the corrected key) was weakest on category 1 (282, 58.2% corrected), where the reader got
+every evidence turn for one question in four, and on category 5 (446), where it abstained on 30.9%.
+Four options, all off by default so that run still reproduces:
+
+**`--strip-speakers`.** Every stored turn begins with its speaker's name, so a name in the question
+matches half the conversation, and the short turns that are little more than that name ("Caroline:
+Cool! What did it look like?") come first. For "What did Caroline research?" the turn that answers
+it was 44th. The name says whose memory to search (as "I" does in a LongMemEval question), not what
+to search for, so recall is asked the question without both speakers' names. The turns are stored
+and shown as they are; only the text recall is asked changes, and each row records it as
+`recallQuery`.
+
+**`--neighbours N`.** The reader still sees `--top-k` turns: the first N recalled, then the turn
+after and before each of them in its session, then the rest of recall. A LoCoMo answer is often the
+reply to the turn that matches the question.
+
+**`--support-check`.** Three in four adversarial questions take a thing one speaker said and ask
+it of the other; 39 of the 1,540 scored questions look like that. When the question names one
+speaker and the shown turn that best matches its words is the other speaker's own, and nothing said
+by or to the named one matches as well, the context ends with a note saying so and asking the
+reader to answer that it is not mentioned if nothing shown says it of the named one. The memories
+are shown word for word either way, and no model is called. Details and the rule:
+[`support.mjs`](support.mjs).
+
+Retrieval only, all 1,986 questions, no model (2026-11-18, the sandbox's `node:sqlite` stand-in);
+"every evidence turn shown" out of the 40 turns the reader sees:
+
+| | category 1 (282) | 2 (321) | 3 (92 cite a turn) | 4 (841) | 5 (446) | recall p50 |
+|---|---|---|---|---|---|---|
+| first full run's settings (`--expand`) | 24.8% | 79.4% | 40.2% | 85.9% | 81.2% | 7.1 ms |
+| `--strip-speakers` | 36.2% | 82.6% | 50.0% | 89.1% | 91.3% | |
+| `--strip-speakers --content-words` | 39.7% | 84.1% | 53.3% | 89.4% | 91.5% | |
+| … `--neighbours 34` | **39.7%** | **86.0%** | **53.3%** | **93.8%** | **95.3%** | 4.1 to 8.4 ms (three runs, with the machine's load) |
+
+The support check fires on 90 of the 446 adversarial questions (69 of them ones the first run's
+reader did not abstain on), and on 3, 1, 0 and 10 of categories 1, 2, 3 and 4.
+
+Tried and not kept, same measure: a second recall from the names and dates in the top five hits,
+fused with the first (category 1: 36.2% → 35.5% on top of `--strip-speakers`); a second recall from
+the text of each of the top three hits (category 1 +6 questions, but categories 2, 4 and 5 -3 each,
+at about seven times the recall time); merging the plain and the stripped question's recalls
+(category 1 28.4%).
+
+One thing to watch in the answered run: in the first run the reader abstained on 25% of the
+adversarial questions whose trap turn it was shown (90 of 362) and 57% of the rest (48 of 84). Better
+recall shows that turn more often (81.2% → 95.3%), which on its own costs abstention; the support
+check is what has to make that up.
+
+To measure the answers (categories 1 and 5, about 1,460 model calls; categories 2 and 4 are the
+ones to check after, for a fall of more than a point):
+
+```sh
+node bench/locomo/run.mjs --expand --strip-speakers --content-words --neighbours 34 --support-check --categories 1,5 --baseline bench/results/2026-11-17-locomo-full.summary.json --wait-on-limit 60 --resume
+```
 
 ## What it does not show
 
