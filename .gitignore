@@ -9,6 +9,11 @@ bench/longmemeval/data/
 bench/locomo/data/
 # A benchmark run's partial progress; the finished result goes in bench/results/.
 bench/results/.progress/
+# OmniMemEval: the paid run's OpenAI key (never committed), and the harness checkout,
+# its data, results, venv and our stores (bench/omnimemeval/run.mjs makes them).
+bench/.env.omnimemeval
+bench/omnimemeval/.harness/
+bench/omnimemeval/.harness.lock
 # The Claude Desktop extension build (npm run build:mcpb).
 build/
 .gstack/

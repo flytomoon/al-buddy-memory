@@ -43,6 +43,7 @@
     "bench",
     "!bench/longmemeval/data",
     "!bench/locomo/data",
+    "!bench/omnimemeval/.harness",
     "!bench/results/.progress",
     "!bench/**/*.test.ts",
     "!bench/**/fixture*",
