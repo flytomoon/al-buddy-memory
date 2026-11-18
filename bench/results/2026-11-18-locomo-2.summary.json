@@ -1,0 +1,509 @@
+{
+  "benchmark": "LoCoMo",
+  "date": "2026-11-18T12:29:51.141Z",
+  "commit": "c22a1360c2d0e97ead2fd30fb6e356ce4b855ec7",
+  "branch": "HEAD",
+  "dirty": false,
+  "library": {
+    "name": "al-buddy-memory",
+    "version": "0.13.0"
+  },
+  "node": "v25.2.1",
+  "platform": "darwin-arm64",
+  "dataset": {
+    "name": "LoCoMo (locomo10, the ten conversations)",
+    "paper": "Maharana et al. 2024, Evaluating Very Long-Term Conversational Memory of LLM Agents, arXiv 2402.17753",
+    "repo": "snap-research/locomo",
+    "commit": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376",
+    "path": "data/locomo10.json",
+    "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+    "verifiedAgainstManifest": true,
+    "categorySizes": {
+      "1": 282,
+      "2": 321,
+      "3": 96,
+      "4": 841,
+      "5": 446
+    }
+  },
+  "auditKey": {
+    "repo": "dial481/locomo-audit",
+    "commit": "9493fb4b4af4256ed17a18e8fd0b3cfdeec29539",
+    "path": "errors.json",
+    "sha256": "f298ef46263fada20688a1d672be37d4f488c6da3b19343eea55ae5c1b5fe55e",
+    "verifiedAgainstManifest": true,
+    "corrections": 99,
+    "rule": "the audit's correct_answer for every entry whose error_type is not WRONG_CITATION; every other question keeps its published answer"
+  },
+  "scoring": {
+    "readerPrompt": "https://github.com/dial481/locomo-audit/blob/9493fb4b4af4256ed17a18e8fd0b3cfdeec29539/evaluation/config/prompts.yaml (online_api.default, the \"c25\" answer prompt; file SHA-256 ba4f668e72c3fba74a58b8ee56064568fb9c6aae1441e4f0f7a8f5edba498ee9)",
+    "judgePrompt": "https://github.com/dial481/locomo-audit/blob/9493fb4b4af4256ed17a18e8fd0b3cfdeec29539/evaluation/config/prompts.yaml (llm_judge.system_prompt and user_prompt)",
+    "label": "the last {\"label\": ...} object in the judge's response; with none, the one of CORRECT / WRONG it holds (bench/locomo/prompts.mjs judgeLabel)",
+    "scored": "categories 1-4 (1,540 questions); accuracy = judged CORRECT / judged",
+    "corrected": "the same answer judged again against the audit's correct_answer where the audit changes it; every other question keeps its first verdict",
+    "adversarial": "category 5, reported beside the scored ones and never in them. abstentionJudge: LongMemEval's official abstention judge prompt (https://github.com/xiaowu0162/LongMemEval/blob/9e0b455f4ef0e2ab8f2e582289761153549043fc/src/evaluation/evaluate_qa.py), with the explanation in bench/locomo/prompts.mjs adversarialExplanation, the CLI's neutral system prompt (\"You are a helpful assistant.\") and LongMemEval's yes/no rule; not an official LoCoMo grader, none exists. keywordRule: LoCoMo's own (https://github.com/snap-research/locomo/blob/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/task_eval/evaluation.py#L216-L221)",
+    "note": "The judge model is the one named under `judge`, not the gpt-4o-mini most published LoCoMo numbers use."
+  },
+  "settings": {
+    "selection": {
+      "conversations": 10,
+      "categories": [
+        2,
+        3,
+        4
+      ],
+      "questions": 1258
+    },
+    "store": "SqliteMemoryStore(':memory:'), a fresh one per conversation, every question of it asked of the same store",
+    "ingestion": "one memory per turn, its text \"<speaker>: <text>\" plus \" [shares <caption>]\" for a shared photo; both speakers UserInput, memoryType Conversation, validFrom = the session's date, decayRate 0; nothing extracted or summarised",
+    "retrieval": "hybrid",
+    "embedder": {
+      "model": "xenova/all-MiniLM-L6-v2",
+      "modelVersion": "1",
+      "dimensions": 384
+    },
+    "recall": "HybridRetriever.recall(the question without the speakers' names, { limit: 100, expand: { now: the date of the conversation's last session }, contentWords: true })",
+    "expand": true,
+    "query": "bench/locomo/memory.mjs recallQuery: the question with both speakers' names (and any possessive 's) taken out, as asked when two or more words are left; every stored turn begins with its speaker's name, so the name says whose memory to search, not what to search for; the row's recallQuery holds it when it differs",
+    "contentWords": true,
+    "topK": 40,
+    "neighbours": 34,
+    "shown": "the first 34 recalled turns, then the turn after and the turn before each of them in its session (best-ranked first), then the rest of what recall returned, until 40 (bench/locomo/memory.mjs showTurns)",
+    "supportCheck": "bench/locomo/support.mjs supportCheck, no model call: when the question names one speaker (or a capitalised word of 3+ letters that begins that speaker's name), and the shown turn of the other speaker's own (no \"you\", \"your\" or the named one's name) that shares the most of the question's content words shares at least two and more than any turn said by or to the named one, the context ends with supportNote: \"Note: of the memories above, the ones that share the most words with this question were said by <other>, not by or to <named>. Answer only from what is said by or about <named>; if nothing above says it of <named>, answer that it is not mentioned in the conversation.\"",
+    "reading": "c25",
+    "context": "\"Memories from the conversation between <speaker a> and <speaker b>, oldest first; each line is one message, led by the date of the session it was said in:\" then one line per shown turn, \"[<session date as the dataset writes it>] <speaker>: <text>[ [shares <photo caption>]]\", sorted by session and turn; when the support check fires, then a blank line and its note",
+    "concurrency": 4,
+    "recallTiming": "per question, the wall-clock and CPU time of the HybridRetriever.recall call alone, recalls run one at a time with nothing else in this process"
+  },
+  "machine": {
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memoryGb": 32,
+    "loadAverage": {
+      "atStart": [
+        26.21,
+        34.18,
+        37.31
+      ],
+      "atEnd": [
+        31.46,
+        35.13,
+        33.93
+      ]
+    }
+  },
+  "answerer": {
+    "kind": "claude-cli",
+    "requestedModel": "sonnet",
+    "command": "claude -p --output-format json --tools \"\" --safe-mode --strict-mcp-config --no-session-persistence --system-prompt <system prompt> --model sonnet",
+    "systemPrompt": "You are a helpful assistant.",
+    "billing": "Claude subscription; the child environment has no API key, auth token or cloud-provider switch, and no chat channel's variables (TELEGRAM_STATE_DIR, TELEGRAM_*)",
+    "cliVersion": "2.1.325 (Claude Code)"
+  },
+  "judge": {
+    "kind": "claude-cli",
+    "requestedModel": "sonnet",
+    "command": "claude -p --output-format json --tools \"\" --safe-mode --strict-mcp-config --no-session-persistence --system-prompt <system prompt> --model sonnet",
+    "systemPrompt": "You are an expert grader that determines if answers to questions match a gold standard answer\n",
+    "billing": "Claude subscription; the child environment has no API key, auth token or cloud-provider switch, and no chat channel's variables (TELEGRAM_STATE_DIR, TELEGRAM_*)",
+    "cliVersion": "2.1.325 (Claude Code)"
+  },
+  "abstentionJudge": {
+    "kind": "claude-cli",
+    "requestedModel": "sonnet",
+    "command": "claude -p --output-format json --tools \"\" --safe-mode --strict-mcp-config --no-session-persistence --system-prompt <system prompt> --model sonnet",
+    "systemPrompt": "You are a helpful assistant.",
+    "billing": "Claude subscription; the child environment has no API key, auth token or cloud-provider switch, and no chat channel's variables (TELEGRAM_STATE_DIR, TELEGRAM_*)",
+    "cliVersion": "2.1.325 (Claude Code)"
+  },
+  "wallClockSeconds": 5427,
+  "fullRun": false,
+  "baseline": {
+    "file": "bench/results/2026-11-17-locomo-full.summary.json",
+    "commit": "1e25944fadc915ec00c7dee5c78dabce9ed9e73d",
+    "regressionPoints": 1,
+    "categories": [
+      {
+        "category": 2,
+        "before": {
+          "judged": 321,
+          "accuracy": 0.8411,
+          "corrected": 0.8723,
+          "shownAllEvidence": 0.7944
+        },
+        "after": {
+          "judged": 321,
+          "accuracy": 0.866,
+          "corrected": 0.9097,
+          "shownAllEvidence": 0.8598
+        },
+        "change": {
+          "accuracy": 2.5,
+          "corrected": 3.7,
+          "shownAllEvidence": 6.5
+        },
+        "regressed": false
+      },
+      {
+        "category": 3,
+        "before": {
+          "judged": 96,
+          "accuracy": 0.6146,
+          "corrected": 0.6146,
+          "shownAllEvidence": 0.4022
+        },
+        "after": {
+          "judged": 96,
+          "accuracy": 0.6354,
+          "corrected": 0.6354,
+          "shownAllEvidence": 0.5326
+        },
+        "change": {
+          "accuracy": 2.1,
+          "corrected": 2.1,
+          "shownAllEvidence": 13
+        },
+        "regressed": false
+      },
+      {
+        "category": 4,
+        "before": {
+          "judged": 841,
+          "accuracy": 0.8704,
+          "corrected": 0.8775,
+          "shownAllEvidence": 0.8585
+        },
+        "after": {
+          "judged": 841,
+          "accuracy": 0.9287,
+          "corrected": 0.9322,
+          "shownAllEvidence": 0.9382
+        },
+        "change": {
+          "accuracy": 5.8,
+          "corrected": 5.5,
+          "shownAllEvidence": 8
+        },
+        "regressed": false
+      }
+    ],
+    "recallP50Ms": {
+      "before": 7.8,
+      "after": 6.2
+    }
+  },
+  "resultFile": "2026-11-18-locomo-2.json",
+  "table": [
+    {
+      "category": 4,
+      "size": 841,
+      "judged": 841,
+      "published": 0.9287,
+      "corrected": 0.9322,
+      "correctPublished": 781,
+      "correctCorrected": 784
+    },
+    {
+      "category": 2,
+      "size": 321,
+      "judged": 321,
+      "published": 0.866,
+      "corrected": 0.9097,
+      "correctPublished": 278,
+      "correctCorrected": 292
+    },
+    {
+      "category": 3,
+      "size": 96,
+      "judged": 96,
+      "published": 0.6354,
+      "corrected": 0.6354,
+      "correctPublished": 61,
+      "correctCorrected": 61
+    },
+    {
+      "category": "1-4",
+      "size": 1540,
+      "judged": 1258,
+      "published": 0.8903,
+      "corrected": 0.9038,
+      "correctPublished": 1120,
+      "correctCorrected": 1137
+    },
+    {
+      "category": 5,
+      "size": 446,
+      "inOverall": false,
+      "judged": 0,
+      "abstentionJudge": null,
+      "keywordRule": null,
+      "keywordRuleN": 0
+    }
+  ],
+  "summary": {
+    "questions": 1258,
+    "errors": 0,
+    "answered": 1258,
+    "scored": {
+      "questions": 1258,
+      "published": {
+        "n": 1258,
+        "correct": 1120,
+        "accuracy": 0.8903
+      },
+      "corrected": {
+        "n": 1258,
+        "correct": 1137,
+        "accuracy": 0.9038
+      },
+      "byCategory": {
+        "2": {
+          "size": 321,
+          "published": {
+            "n": 321,
+            "correct": 278,
+            "accuracy": 0.866
+          },
+          "corrected": {
+            "n": 321,
+            "correct": 292,
+            "accuracy": 0.9097
+          }
+        },
+        "3": {
+          "size": 96,
+          "published": {
+            "n": 96,
+            "correct": 61,
+            "accuracy": 0.6354
+          },
+          "corrected": {
+            "n": 96,
+            "correct": 61,
+            "accuracy": 0.6354
+          }
+        },
+        "4": {
+          "size": 841,
+          "published": {
+            "n": 841,
+            "correct": 781,
+            "accuracy": 0.9287
+          },
+          "corrected": {
+            "n": 841,
+            "correct": 784,
+            "accuracy": 0.9322
+          }
+        }
+      },
+      "keyChanged": {
+        "questions": 71,
+        "wrongToCorrect": 24,
+        "correctToWrong": 7
+      }
+    },
+    "adversarial": {
+      "category": 5,
+      "size": 446,
+      "questions": 0,
+      "abstentionJudge": {
+        "n": 0,
+        "correct": 0,
+        "accuracy": null
+      },
+      "keywordRule": {
+        "n": 0,
+        "correct": 0,
+        "accuracy": null
+      }
+    },
+    "retrieval": {
+      "scored": {
+        "n": 1254,
+        "skipped": 4,
+        "at": {
+          "any@5": 0.6523,
+          "all@5": 0.6045,
+          "any@10": 0.752,
+          "all@10": 0.7033,
+          "any@20": 0.8349,
+          "all@20": 0.7935,
+          "any@50": 0.9131,
+          "all@50": 0.8748
+        },
+        "shownAllEvidence": 0.8884,
+        "shownEvidenceTurns": 0.8559,
+        "meanShownTurns": 40
+      },
+      "adversarial": {
+        "n": 0,
+        "skipped": 0,
+        "at": {
+          "any@5": null,
+          "all@5": null,
+          "any@10": null,
+          "all@10": null,
+          "any@20": null,
+          "all@20": null,
+          "any@50": null,
+          "all@50": null
+        },
+        "shownAllEvidence": null,
+        "shownEvidenceTurns": null,
+        "meanShownTurns": null
+      },
+      "byCategory": {
+        "2": {
+          "size": 321,
+          "n": 321,
+          "skipped": 0,
+          "at": {
+            "any@5": 0.6885,
+            "all@5": 0.6293,
+            "any@10": 0.7757,
+            "all@10": 0.7072,
+            "any@20": 0.8411,
+            "all@20": 0.7882,
+            "any@50": 0.9065,
+            "all@50": 0.8567
+          },
+          "shownAllEvidence": 0.8598,
+          "shownEvidenceTurns": 0.8613,
+          "meanShownTurns": 40
+        },
+        "3": {
+          "size": 96,
+          "n": 92,
+          "skipped": 4,
+          "at": {
+            "any@5": 0.4565,
+            "all@5": 0.25,
+            "any@10": 0.5652,
+            "all@10": 0.3152,
+            "any@20": 0.663,
+            "all@20": 0.4565,
+            "any@50": 0.7717,
+            "all@50": 0.5652
+          },
+          "shownAllEvidence": 0.5326,
+          "shownEvidenceTurns": 0.4904,
+          "meanShownTurns": 40
+        },
+        "4": {
+          "size": 841,
+          "n": 841,
+          "skipped": 0,
+          "at": {
+            "any@5": 0.6599,
+            "all@5": 0.6338,
+            "any@10": 0.7634,
+            "all@10": 0.7444,
+            "any@20": 0.8514,
+            "all@20": 0.8323,
+            "any@50": 0.931,
+            "all@50": 0.9156
+          },
+          "shownAllEvidence": 0.9382,
+          "shownEvidenceTurns": 0.9385,
+          "meanShownTurns": 40
+        }
+      }
+    },
+    "recall": {
+      "n": 1258,
+      "ms": {
+        "p50": 6.2,
+        "p95": 20.2,
+        "max": 198.1,
+        "mean": 8.3
+      },
+      "cpuMs": {
+        "p50": 29.3,
+        "p95": 63.4,
+        "max": 265.7,
+        "mean": 31.3
+      },
+      "load1": {
+        "mean": 36.9,
+        "max": 72.7
+      }
+    },
+    "supportCheck": {
+      "questions": 1258,
+      "fired": 11,
+      "byCategory": {
+        "2": {
+          "questions": 321,
+          "checked": 308,
+          "fired": 1
+        },
+        "3": {
+          "questions": 96,
+          "checked": 75,
+          "fired": 0
+        },
+        "4": {
+          "questions": 841,
+          "checked": 742,
+          "fired": 10
+        }
+      }
+    },
+    "reader": {
+      "inputTokensPerQuestion": {
+        "mean": 4144,
+        "p50": 4152,
+        "p95": 4669,
+        "max": 4967
+      },
+      "inputTokensReported": 1258,
+      "promptCharsPerQuestion": {
+        "mean": 9815,
+        "p50": 9803,
+        "p95": 11361,
+        "max": 12728
+      },
+      "shownTurnsPerQuestion": {
+        "mean": 40,
+        "p50": 40,
+        "p95": 40,
+        "max": 40
+      }
+    },
+    "calls": {
+      "answer": 1258,
+      "judge": 1258,
+      "judgeCorrected": 71
+    },
+    "models": {
+      "answer": {
+        "claude-sonnet-5-5": 1258
+      },
+      "judge": {
+        "claude-sonnet-5-5": 1329
+      }
+    },
+    "usage": {
+      "answer": {
+        "input_tokens": 2516,
+        "cache_creation_input_tokens": 5168473,
+        "cache_read_input_tokens": 42024,
+        "output_tokens": 62703
+      },
+      "judge": {
+        "input_tokens": 2516,
+        "cache_creation_input_tokens": 1454008,
+        "cache_read_input_tokens": 9311,
+        "output_tokens": 77392
+      },
+      "judgeCorrected": {
+        "input_tokens": 142,
+        "cache_creation_input_tokens": 85077,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 6117
+      }
+    },
+    "notionalCostUsd": 28.31
+  }
+}
