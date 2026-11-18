@@ -1,18 +1,19 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // The recall test runs on an InMemoryStore, so this file needs no SQLite binding.
 
 import * as lib from "../../src/index.js";
-import { RESULTS_DIR } from "../lib/run-info.mjs";
+import { findResult } from "../lib/run-info.mjs";
 import { CEILING_TYPES, ORACLE_FLAGS, SWEEP_FLAGS, lossOf, modelName, readerSplit, readerSentence } from "./ceilings.mjs";
-import { PUBLISHED } from "./event-study.mjs";
+import { PUBLISHED, readPublished } from "./event-study.mjs";
 import { historyRoundCount, ingestHistory, recallRounds } from "./memory.mjs";
 import { instance } from "./fixture.js";
 
 type Row = { question_id: string; question_type: string; abstention?: boolean; label?: boolean; error?: string; retrieval?: unknown; shownRounds?: string[] };
 const shown = (all: boolean) => ({ skipped: null, shown: { rounds: 20, evidence: 2, found: all ? 2 : 1, all: all ? 1 : 0 } });
 const result = (questions: Row[]) => ({ questions });
+const labelsAt = findResult(PUBLISHED.labels).path;
+/** The official labels live in the private results history; without it (or BENCH_RESULTS_DIR) these tests skip. */
+const withLabels = it.skipIf(labelsAt === null);
 
 describe("the reader's ceiling: where a published question was lost", () => {
   it("follows the review's rule: abstention, not scored, shown every evidence turn (reader), or not (recall)", () => {
@@ -79,9 +80,8 @@ describe("the reader's ceiling: where a published question was lost", () => {
     expect(s.official.unlabeled).toEqual(["a", "b"]);
   });
 
-  it("reproduces the review's loss table on the committed published run, and says it in one clause", () => {
-    const published = JSON.parse(readFileSync(join(RESULTS_DIR, PUBLISHED.result), "utf8"));
-    const official = readFileSync(join(RESULTS_DIR, PUBLISHED.labels), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  withLabels("reproduces the review's loss table on the published run (official labels from the private history), and says it in one clause", () => {
+    const { result: published, labels: official } = readPublished();
     // An oracle run that got every question right, shown every evidence turn.
     const oracle = result(
       published.questions

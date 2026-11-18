@@ -64,6 +64,15 @@ earlier were GitHub releases only.
   500 questions before it is switched on by default; that run has not been made yet, and the
   option stays off.
 
+### Changed
+
+- **Benchmark results: headline runs only.** `bench/results/` keeps one result file per number in
+  the README's Benchmarks table, which is now one row per benchmark with the command that
+  reproduces it. The runners write to `$BENCH_RESULTS_DIR` when it is set, else to a private
+  results history beside the checkout when there is one, else to `bench/results/` as before
+  (`bench/README.md`, "Where results go"). A run in flight still keeps its progress in
+  `bench/results/.progress/`.
+
 ## 0.13.0 — 2026-11-17
 
 A one-command install, current state that follows valid time, and two extension points; recall is still a read, and no benchmark score changes.

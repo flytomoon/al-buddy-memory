@@ -18,7 +18,8 @@
 //    The official gpt-4o re-grade spends OpenAI money and is not run here.
 //
 // Arms are written under bench/results/.progress/event-study/ while they run,
-// so each arm records a clean tree, and are copied into bench/results/ with the
+// so each arm records a clean tree, and are copied into the results folder
+// (RESULTS_DIR, see bench/README.md) with the
 // study's summary at the end. Rerunning the same command reuses finished arms,
 // resumes a partial one and the extraction cache, and retries failed sessions.
 // The last line is `RESULT: …`.
@@ -28,7 +29,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { REPO_ROOT, RESULTS_DIR, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
+import { PROGRESS_DIR, REPO_ROOT, RESULTS_DIR, findResult, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { digest, evidencePairs, pairwise, report } from "./compare.mjs";
 
 export const STUDY_TYPES = ["multi-session", "temporal-reasoning"];
@@ -38,6 +39,24 @@ export const PUBLISHED = {
   result: "2026-09-30-lme-full-fast.json",
   labels: "2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.jsonl",
 };
+/**
+ * The published run and its official labels. The labels are in the private
+ * results history, not in bench/results here; set BENCH_RESULTS_DIR to a copy
+ * when that repo is not beside this one. Throws, naming where it looked, when
+ * either file is missing.
+ */
+export function readPublished() {
+  const files = {};
+  for (const [key, name] of Object.entries(PUBLISHED)) {
+    const { path, searched } = findResult(name);
+    if (!path) throw new Error(`${name} is not in ${searched.join(", ")}; set BENCH_RESULTS_DIR to the folder that holds it`);
+    files[key] = path;
+  }
+  return {
+    result: JSON.parse(readFileSync(files.result, "utf8")),
+    labels: readFileSync(files.labels, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)),
+  };
+}
 export const BAR = { minGained: 6, maxLost: 0 };
 /** More failed session extractions than this share makes the study incomplete, not a result. */
 export const MAX_FAILED_SESSION_SHARE = 0.01;
@@ -170,9 +189,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   // --limit and --retrieval are for checking the plumbing: the result says it is a smoke run.
   const smoke = args.limit !== undefined || args.retrieval !== undefined;
   const prefix = args.prefix ?? `${isoDate()}-lme-ms-tr${smoke ? "-smoke" : ""}`;
-  const workDir = join(RESULTS_DIR, ".progress", "event-study");
+  const workDir = join(PROGRESS_DIR, "event-study");
   mkdirSync(workDir, { recursive: true });
-  const cache = join(RESULTS_DIR, ".progress", "events.cache.jsonl");
+  const cache = join(PROGRESS_DIR, "events.cache.jsonl");
   const common = [
     ...STUDY_FLAGS,
     "--concurrency", args.concurrency,
@@ -211,13 +230,18 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   };
 
   const info = runInfo();
-  const published = publishedSets(
-    JSON.parse(readFileSync(join(RESULTS_DIR, PUBLISHED.result), "utf8")),
-    readFileSync(join(RESULTS_DIR, PUBLISHED.labels), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)),
-  );
-  const base = arm("base", ["--answerer", "none", "--judge", "none"]);
+  let published = null;
+  let missing = null;
+  try {
+    const p = readPublished();
+    published = publishedSets(p.result, p.labels);
+  } catch (err) {
+    missing = err.message;
+  }
+  const base = published && arm("base", ["--answerer", "none", "--judge", "none"]);
   const events = base && arm("events", ["--answerer", "none", "--judge", "none", ...eventFlags]);
-  if (!base || !events) finish(`RESULT: The event study stopped before both retrieval arms finished (attempted ${attempted}, succeeded ${succeeded}); rerun the same command to resume.`, 1);
+  if (!published) finish(`RESULT: The event study did not start: ${missing}.`, 1);
+  else if (!base || !events) finish(`RESULT: The event study stopped before both retrieval arms finished (attempted ${attempted}, succeeded ${succeeded}); rerun the same command to resume.`, 1);
   else {
     const verdict = retrievalVerdict(base.result, events.result, published, { smoke });
     console.log(`\n${report([digest(base.result, "base"), digest(events.result, "events")])}`);

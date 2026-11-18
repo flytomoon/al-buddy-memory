@@ -15,9 +15,9 @@ const read = (f: string) => readFileSync(join(root, f), "utf8");
 describe("docs — the claims a reader will check", () => {
   it("pins the README's valid-time and current-state benchmark claims to code", () => {
     const readme = read("README.md").replace(/\s+/g, " ");
-    expect(readme).toContain("recordState` now closes a late-learned state at the next state in valid-time order");
+    expect(readme).toContain("`recordState` closes a late-learned state at the next state in valid-time order");
     expect(read("src/state.ts")).toMatch(/const later = states\.filter\(\(n\) => n\.validFrom > when\)/);
-    expect(readme).toContain("the declared subject/aspect used for current-state intent");
+    expect(readme).toContain("recall uses the declared subject/aspect for current-state intent");
     expect(read("src/hybrid-retriever.ts")).toMatch(/searchNodes\(\{ tags: \[STATE_TAG\], validAt/);
     expect(read("src/hybrid-retriever.ts")).toMatch(/if \(options\.stateIntent\)/);
     expect(read("bench/stale-facts/stale-facts.mjs")).toMatch(/validAt: q\.validAt, contentWords: true, expand: true, stateIntent: true,/);
@@ -137,32 +137,58 @@ describe("docs — the claims a reader will check", () => {
   });
 
   /**
-   * The README's LongMemEval table is read from the committed result files: each
-   * score, its judge and its reader must be what the file holds (0.13 release prep).
+   * The README's benchmark table has one row per benchmark, each read from the
+   * result files it links (founder, 2026-11-18: final scores only). Each
+   * score, its judge and its reader must be what the files hold.
    */
-  it("the README's LongMemEval table matches the committed result files", () => {
+  it("the README's benchmark table matches the result files it links", () => {
     const readme = read("README.md");
     const pct = (x: number) => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
-    const row = (file: string) => readme.split("\n").filter((l) => l.startsWith(`| \`${file}\``));
-    for (const file of ["2026-09-30-lme-full-fast", "2026-09-29-lme-full-all", "2026-09-29-longmemeval-full"]) {
-      const result = JSON.parse(read(`bench/results/${file}.json`));
-      expect(result.summary.qa.questions).toBe(500);
-      expect(Object.keys(result.summary.models.answer)).toEqual(["claude-sonnet-5-5"]);
-      expect(Object.keys(result.summary.models.judge)).toEqual(["claude-sonnet-5-5"]);
-      const claudeRow = row(file).find((l) => l.includes("| Claude Sonnet 5.5 |"));
-      expect(claudeRow, file).toContain(`| ${pct(result.summary.qa.overallAccuracy)} | ${pct(result.summary.qa.taskAveragedAccuracy)} |`);
-    }
-    const official = JSON.parse(read("bench/results/2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.summary.json"));
+    const section = readme.match(/\n## Benchmarks\n([\s\S]*?)\n## /)?.[1] ?? "";
+    const rows = section.split("\n").filter((l) => /^\| \[/.test(l));
+    expect(rows).toHaveLength(3);
+    const row = (name: string) => rows.find((l) => l.startsWith(`| [${name}]`)) ?? "";
+    const json = (f: string) => JSON.parse(read(`bench/results/${f}`));
+
+    // LongMemEval: the official judge's overall, Claude Sonnet reading every question.
+    const lme = row("LongMemEval");
+    const run = json("2026-09-30-lme-full-fast.json");
+    const official = json("2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.summary.json");
+    expect([run.summary.qa.questions, official.n]).toEqual([500, 500]);
+    expect(Object.keys(run.summary.models.answer)).toEqual(["claude-sonnet-5-5"]);
     expect(official.model).toBe("gpt-4o-2024-08-06");
-    expect(row("2026-09-30-lme-full-fast").find((l) => l.includes(official.model))).toContain(`| **${pct(official.overall)}** | **${pct(official.taskAveraged)}** |`);
-    const t = official.byType;
-    expect(readme).toContain(
-      `single-session user ${t["single-session-user"].correct} of ${t["single-session-user"].n}, single-session\nassistant ${t["single-session-assistant"].correct} of ${t["single-session-assistant"].n}, preference ${t["single-session-preference"].correct} of ${t["single-session-preference"].n}, multi-session ${t["multi-session"].correct} of ${t["multi-session"].n}, temporal reasoning ${t["temporal-reasoning"].correct} of ${t["temporal-reasoning"].n},\nknowledge update ${t["knowledge-update"].correct} of ${t["knowledge-update"].n}`,
+    expect(lme).toContain(`**${pct(official.overall)}**, graded by the official judge (${official.model}); Claude Sonnet 5.5 reads`);
+    expect(lme).toContain("(bench/results/2026-09-30-lme-full-fast.json)");
+    expect(lme).toContain("(bench/results/2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.summary.json)");
+    expect(section).toContain(`node bench/longmemeval/run.mjs ${run.settings.expand ? "--expand " : ""}--aggregate-top-k ${run.settings.aggregateTopK} --chain-of-note`);
+
+    // LoCoMo: two runs that together answer every question once.
+    const locomo = row("LoCoMo");
+    const parts = ["2026-11-18-locomo.summary.json", "2026-11-18-locomo-2.summary.json"].map(json);
+    expect(parts.flatMap((p) => p.settings.selection.categories).sort()).toEqual([1, 2, 3, 4, 5]);
+    for (const p of parts) {
+      expect(p.dirty).toBe(false);
+      expect(p.summary.errors).toBe(0);
+      expect(Object.keys(p.summary.models.answer)).toEqual(["claude-sonnet-5-5"]);
+      expect(Object.keys(p.summary.models.judge)).toEqual(["claude-sonnet-5-5"]);
+      expect(p.settings).toMatchObject({ expand: true, contentWords: true, neighbours: 34, topK: 40 });
+    }
+    const scored = (key: "published" | "corrected") => parts.reduce((s, p) => ({ correct: s.correct + p.summary.scored[key].correct, n: s.n + p.summary.scored[key].n }), { correct: 0, n: 0 });
+    const corrected = scored("corrected");
+    const published = scored("published");
+    expect([corrected.n, published.n]).toEqual([1540, 1540]);
+    const adversarial = parts.find((p) => p.summary.adversarial.questions > 0).summary.adversarial;
+    expect(adversarial.abstentionJudge.n).toBe(446);
+    expect(locomo).toContain(
+      `**${pct(corrected.correct / corrected.n)}** on the audit-corrected key, ${pct(published.correct / published.n)} on the published key; abstention ${pct(adversarial.abstentionJudge.accuracy)} on the ${adversarial.abstentionJudge.n} adversarial questions`,
     );
-    const codex = JSON.parse(read("bench/results/2026-09-29-longmemeval-full.hypotheses.eval-codex-gpt-6-sol.summary.json"));
-    expect(row("2026-09-29-longmemeval-full").find((l) => l.includes(codex.model))).toContain(`| ${pct(codex.overall)} |`);
-    const timed = JSON.parse(read("bench/results/2026-09-30-lme-full-fast.json")).summary.recall.ms;
-    expect(readme).toContain(`**${timed.p50} ms p50 /\n${timed.p95} ms p95** (library 0.8.3`);
+    expect(locomo).toContain("(1,540 scored questions)");
+    expect(section).toContain("node bench/locomo/run.mjs --expand --strip-speakers --content-words --neighbours 34 --support-check\n");
+
+    // Stale facts: the current value first, now-questions, recordState.
+    const stale = json("2026-11-12-stale-facts.json").summary["current-state"].now;
+    expect(row("Stale facts")).toContain(`(${stale.n} questions about now) | **${pct(stale.currentAt1)}** get the current value first, with states recorded through \`recordState\``);
+    expect(section).toContain("node bench/stale-facts/run.mjs --embedder local\n");
   });
 
   /**

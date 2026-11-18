@@ -6,7 +6,7 @@
 // distractors and LongMemEval filler into one store and one BM25 index, every
 // question asked of al-buddy-memory's recall and of BM25. Retrieval only: no
 // model reads or answers anything; --embedder local runs the on-device
-// embedder. Writes bench/results/<date>-memderive.json. The last line printed
+// embedder. Writes RESULTS_DIR/<date>-memderive.json. The last line printed
 // is "RESULT: …".
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";

@@ -1,11 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { RESULTS_DIR } from "../lib/run-info.mjs";
+import { findResult } from "../lib/run-info.mjs";
 import { digest, evidencePairs, report } from "./compare.mjs";
-import { PUBLISHED, answeredSummary, pairProblems, publishedSets, resultSentence, retrievalVerdict } from "./event-study.mjs";
+import { PUBLISHED, answeredSummary, readPublished, pairProblems, publishedSets, resultSentence, retrievalVerdict } from "./event-study.mjs";
 
 type Shown = { found: number; evidence: number };
+const labelsAt = findResult(PUBLISHED.labels).path;
+/** The official labels live in the private results history; without it (or BENCH_RESULTS_DIR) these tests skip. */
+const withLabels = it.skipIf(labelsAt === null);
 /** A retrieval-only result file: `shown` maps id → [type, found, evidence]. */
 function result(shown: Record<string, [string, number, number]>, { events = false, errors = 0, labels = {} as Record<string, boolean>, extraction = { sessions: 1000, failed: [] as unknown[] } } = {}) {
   const questions = Object.entries(shown).map(([id, [type, found, evidence]]) => ({
@@ -96,11 +97,9 @@ describe("compare.mjs pairs retrieval as well as answers", () => {
 });
 
 describe("the published run the study is measured against", () => {
-  it("has the 17 lost-to-recall questions and the 223 shown every evidence turn that the review names", () => {
-    const sets = publishedSets(
-      JSON.parse(readFileSync(join(RESULTS_DIR, PUBLISHED.result), "utf8")),
-      readFileSync(join(RESULTS_DIR, PUBLISHED.labels), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)),
-    );
+  withLabels("has the 17 lost-to-recall questions and the 223 shown every evidence turn that the review names (official labels from the private history)", () => {
+    const { result, labels } = readPublished();
+    const sets = publishedSets(result, labels);
     expect(sets.lostToRecall).toHaveLength(17);
     expect(sets.lostToRecall.filter((q) => q.type === "multi-session")).toHaveLength(12);
     expect(sets.shownAll).toHaveLength(223);

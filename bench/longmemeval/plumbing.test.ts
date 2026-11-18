@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { REPO_ROOT, isoDate, resultPath, runInfo } from "../lib/run-info.mjs";
+import { REPO_ROOT, findResult, isoDate, mainCheckout, privateHistoryDirs, resolveResultsDir, resultPath, runInfo } from "../lib/run-info.mjs";
 import { CHANNEL_ENV, METERED_ENV, UsageLimitError, answererFromSpec, claudeCli, parseClaudeJson, shellCommand, subscriptionEnv, withoutChannelEnv } from "./answerers.mjs";
 import { downloadFile, fileUrl, pinManifest, readManifest, verifyFile } from "./download.mjs";
 
@@ -187,5 +187,52 @@ describe("what every result file carries", () => {
     expect(first).toBe(join(dir, "2026-09-29-longmemeval.json"));
     writeFileSync(first, "{}");
     expect(resultPath(dir, "2026-09-29", "longmemeval")).toBe(join(dir, "2026-09-29-longmemeval-2.json"));
+    // A results folder that does not exist yet is made, so files copied beside the result have somewhere to go.
+    const fresh = join(dir, "not-yet", "made");
+    expect(resultPath(fresh, "2026-09-29", "x")).toBe(join(fresh, "2026-09-29-x.json"));
+    expect(existsSync(fresh)).toBe(true);
+  });
+});
+
+describe("where results go", () => {
+  const root = "/work/al-buddy-memory";
+  const privateDir = "/work/al-buddy-memory-enterprise/bench/results-history";
+  const none = () => false;
+
+  it("BENCH_RESULTS_DIR first (relative to the repo root), then the private history beside the checkout, else bench/results", () => {
+    expect(resolveResultsDir({ env: { BENCH_RESULTS_DIR: "/runs" }, root, exists: () => true })).toBe("/runs");
+    expect(resolveResultsDir({ env: { BENCH_RESULTS_DIR: "out/runs" }, root, exists: none })).toBe(join(root, "out/runs"));
+    // Blank is unset, not "the repo root".
+    expect(resolveResultsDir({ env: { BENCH_RESULTS_DIR: "  " }, root, exists: (p: string) => p === privateDir })).toBe(privateDir);
+    expect(resolveResultsDir({ env: {}, root, exists: (p: string) => p === privateDir })).toBe(privateDir);
+    expect(resolveResultsDir({ env: {}, root, exists: none })).toBe(join(root, "bench", "results"));
+  });
+
+  it("from a git worktree, finds the private history beside the main checkout", () => {
+    const base = mkdtempSync(join(tmpdir(), "al-results-"));
+    try {
+      const main = join(base, "al-buddy-memory");
+      const wt = join(main, ".claude", "worktrees", "job");
+      const wtGit = join(main, ".git", "worktrees", "job");
+      mkdirSync(wt, { recursive: true });
+      mkdirSync(wtGit, { recursive: true });
+      writeFileSync(join(wt, ".git"), `gitdir: ${wtGit}\n`);
+      writeFileSync(join(wtGit, "commondir"), "../..\n");
+      expect(mainCheckout(wt)).toBe(main);
+      expect(mainCheckout(main)).toBe(main);
+      const history = join(base, "al-buddy-memory-enterprise", "bench", "results-history");
+      expect(privateHistoryDirs(wt)).toContain(history);
+      expect(resolveResultsDir({ env: {}, root: wt })).toBe(join(wt, "bench", "results"));
+      mkdirSync(history, { recursive: true });
+      expect(resolveResultsDir({ env: {}, root: wt })).toBe(history);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("a published input is looked for in each folder in turn, and a miss says where it looked", () => {
+    const found = findResult("a.json", { dirs: ["/x", "/y", "/x"], exists: (p: string) => p === "/y/a.json" });
+    expect(found).toEqual({ path: "/y/a.json", searched: ["/x", "/y"] });
+    expect(findResult("a.json", { dirs: ["/x"], exists: none })).toEqual({ path: null, searched: ["/x"] });
   });
 });

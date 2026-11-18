@@ -16,12 +16,16 @@ docs-accuracy.test.ts. It skips when git or origin/main is not available.
 
 ## Bench results
 
+This repo shows final scores only. bench/results/ holds one result file per
+headline number in the README's Benchmarks table, and nothing else
+(bench/results-attributes.test.ts lists them). Every other run goes to the
+private repo's bench/results-history: the runners write to
+`$BENCH_RESULTS_DIR`, else that folder when it is beside this checkout, else
+bench/results (bench/README.md, "Where results go"). Don't commit a run here
+unless it replaces a headline number.
+
 Result files under bench/results/ (`*.json`, `*.jsonl`) are data, and
 .gitattributes marks them `-diff`, so a branch's diff shows them as
-"Bin 0 -> N bytes" and stays reviewable. Jobs #1003 and #1004 each committed
-1-2 MB sweeps beside their code; the landing review got a 4.8 MB and a 5.6 MB
-diff, and both were held at review. Keep the attribute (bench/results-attributes.test.ts
-pins it). Put the numbers a reviewer needs in the commit message or the doc
-that cites the file, not by pasting result rows. `*.summary.json` stays in
-the diff. A branch made before the attribute must merge main before it lands,
-or its own diff still carries the rows.
+"Bin 0 -> N bytes" and stays reviewable. Keep the attribute
+(bench/results-attributes.test.ts pins it). `*.summary.json` stays in the
+diff.

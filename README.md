@@ -47,7 +47,7 @@ Sources for the cells above, each checked against the project's own code or anno
 
 Recall benchmarks (LOCOMO, LongMemEval, DMR) measure what an agent remembers. **None of them scores a memory system on provenance, invalidation or portability.** This library is built for that axis, and the conformance scorer below is one attempt at measuring it. The table is our reading of each project's own code and public docs, dated above; if we have a cell wrong, a PR with a link fixes it.
 
-We run LongMemEval anyway, so a recall number people recognise sits beside the conformance score rather than in place of it, along with a small benchmark of our own for the part recall benchmarks skip: when a fact changes, does recall return the value that is true now? See [Benchmarks](#benchmarks).
+We run LongMemEval and LoCoMo anyway, so a recall number people recognise sits beside the conformance score rather than in place of it, along with a small benchmark of our own for the part recall benchmarks skip: when a fact changes, does recall return the value that is true now? See [Benchmarks](#benchmarks).
 
 ## Start here
 
@@ -391,65 +391,34 @@ think we declared a trait wrongly for yours, that is a one-line PR too.
 
 ## Benchmarks
 
-The conformance score measures what recall benchmarks leave out; it does not replace them. Two
-harnesses in [bench/](bench/README.md) put numbers beside it, each with its result file, commit and
-settings in [bench/results/](bench/results/):
+The conformance score measures what recall benchmarks leave out; it does not replace them. One
+result per benchmark, each with its result file (the commit it ran, every setting) and the command
+that reproduces it. How each harness works, and what it does not measure, is in
+[bench/](bench/README.md).
 
-- **[LongMemEval](bench/longmemeval/README.md)**, the public recall benchmark: 500 questions over
-  chat histories of about 50 sessions each. Every question gets a fresh store holding its history,
-  one memory per message through the public API, nothing extracted or summarised; recall chooses
-  what the reader sees. The reader and judge prompts, the yes/no rule and the retrieval metrics are
-  the official ones, held to the official code by tests. Our runs read and judge with Claude, through
-  the Claude Code CLI on a subscription, so a run spends no metered API money; every result ships
-  its answers in the official format so anyone can re-judge them, and the table below names the
-  judge of every number. `node bench/longmemeval/run.mjs --limit 50` is a smoke run.
-- **[Stale facts](bench/README.md#stale-facts)**, our own: things about a person that change over
-  time, told to the same store three ways — append-only, append-only recalled with freshness, and
-  through `recordState`, where a newer state closes the old one. It asks whether recall returns the
-  value true now, and the value true at a past instant. No model is called; it is deterministic.
+| Benchmark | Score | Result file |
+|---|---|---|
+| [LongMemEval](bench/longmemeval/README.md) (LongMemEval_S, 500 questions) | **92.8%**, graded by the official judge (gpt-4o-2024-08-06); Claude Sonnet 5.5 reads | [run](bench/results/2026-09-30-lme-full-fast.json), [official judge](bench/results/2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.summary.json) |
+| [LoCoMo](bench/locomo/README.md) (1,540 scored questions) | **87.1%** on the audit-corrected key, 85.7% on the published key; abstention 43.7% on the 446 adversarial questions; Claude Sonnet 5.5 reads and judges | [categories 1 and 5](bench/results/2026-11-18-locomo.summary.json), [categories 2 to 4](bench/results/2026-11-18-locomo-2.summary.json) |
+| [Stale facts](bench/README.md#stale-facts), our own (24 questions about now) | **95.8%** get the current value first, with states recorded through `recordState` | [run](bench/results/2026-11-12-stale-facts.json) |
 
-LongMemEval_S, all 500 questions, every run as committed in [bench/results/](bench/results/).
-Reader: Claude Sonnet 5.5 (`claude-sonnet-5-5`) in every row. No score in this table changed in
-0.13; the newest is the 2026-09-30 run, re-judged on 2026-10-02.
+To reproduce one, after `npm ci && npm run build` and fetching its data (each harness's README
+says how):
 
-| Run ([result file](bench/results/)) | Date | Recall settings | Judge | Overall | Task-averaged | Abstention |
-|---|---|---|---|---|---|---|
-| `2026-09-30-lme-full-fast` | 2026-09-30, re-judged 2026-10-02 | `--expand --aggregate-top-k 40 --chain-of-note`, no reranker | **gpt-4o-2024-08-06**, the official judge (OpenAI API, official prompts, temperature 0) | **92.8%** | **94.4%** | **27 of 30** |
-| `2026-09-30-lme-full-fast` | 2026-09-30 | the same answers | Claude Sonnet 5.5 | 92.6% | 94.4% | 26 of 30 |
-| `2026-09-29-lme-full-all` | 2026-09-29 | the same, plus the MiniLM cross-encoder over all 100 recalled | Claude Sonnet 5.5 | 92.6% | 94.3% | 26 of 30 |
-| `2026-09-29-longmemeval-full` | 2026-09-29 | none: plain hybrid recall, top 20 rounds | Claude Sonnet 5.5 | 88.4% | 91.6% | 25 of 30 |
-| `2026-09-29-longmemeval-full` | 2026-09-29 | the same answers | gpt-6-sol through Codex, official judge prompts | 88.2% | — | 25 of 30 |
+```sh
+# LongMemEval: Claude answers through its CLI, then the official judge re-grades (needs OPENAI_API_KEY)
+node bench/longmemeval/run.mjs --expand --aggregate-top-k 40 --chain-of-note --out lme.json && node bench/longmemeval/regrade-openai.mjs lme.hypotheses.jsonl
+# LoCoMo: all 1,986 questions in one run
+node bench/locomo/run.mjs --expand --strip-speakers --content-words --neighbours 34 --support-check
+# Stale facts: no model call, deterministic
+node bench/stale-facts/run.mjs --embedder local
+```
 
-The 92.8% row is the one to compare with other systems: it is the only one graded by the
-official judge. By type, under that judge: single-session user 69 of 70, single-session
-assistant 54 of 56, preference 29 of 30, multi-session 111 of 133, temporal reasoning 125 of 133,
-knowledge update 76 of 78; and as a row of its own, abstention 27 of 30: the 30 questions whose
-answer is not in the history, where the right answer is to say so. They are also counted inside
-those six types, as the official script counts them. In the 2026-09-30 run the recall call itself took **11.7 ms p50 /
-33.5 ms p95** (library 0.8.3, on a laptop). Recall in 0.13 is again a pure read, as it was
-then; the time has not been re-measured on 0.13. Other systems publish their own numbers with
-other readers and judges, so a gap of a point or two between rows of different projects is not
-a measured difference.
-
-Stale facts, as measured ([result](bench/results/2026-11-12-stale-facts.json); 24 questions about
-now, 11 about a past instant; local hybrid recall with current-state intent for now questions; first 5 results):
-
-| | append-only | append-only + freshness | recordState |
-|---|---|---|---|
-| Now: an outdated value comes first | 50.0% | 16.7% | 0.0% |
-| Now: an outdated value in the first 5 | 91.7% | 87.5% | 0.0% |
-| Now: the current value comes first | 41.7% | 45.8% | 95.8% |
-| Then: a value not true then in the first 5 | 54.5% | 45.5% | 0.0% |
-| Then: the value true then comes first | 63.6% | 45.5% | 72.7% |
-
-The previous [keyword-only run](bench/results/2026-09-29-stale-facts.json) put the current
-state first on 33.3% of now questions. With local embeddings, content-word expansion and the
-declared subject/aspect used for current-state intent, that rises to 95.8%. `recordState` now
-closes a late-learned state at the next state in valid-time order; no past-instant question
-returns another state of the same subject in the first five. These results assume the caller
-identifies current-state intent and supplies the subject/aspect when recording states; the
-benchmark does not measure either classification. Local embeddings run on-device with no API
-charges, but can require a one-time model download.
+Other systems publish their own numbers with other readers and judges, so a gap of a point or two
+between projects is not a measured difference; the LoCoMo judge here is Claude, not the gpt-4o-mini
+most published LoCoMo numbers use. The stale-facts score assumes the caller supplies the
+subject/aspect when it records a state: `recordState` closes a late-learned state at the next state
+in valid-time order, and recall uses the declared subject/aspect for current-state intent.
 
 ## The governance MCP server
 
@@ -545,8 +514,8 @@ no onnxruntime binary for the platform (Intel Macs, for one), no network on firs
 stays keyword-only and the server says so once on stderr. The model loads and runs in a worker
 thread, and the background pass gives the event loop back every 20 ms, so the server keeps
 answering while it indexes. `AL_BUDDY_MEMORY_SEMANTIC=off` never
-loads it. The cross-encoder reranker is not switched on: on the full LongMemEval run it moved the
-overall score by nothing (92.6% with and without) and costs a second model.
+loads it. The cross-encoder reranker is not switched on: it costs a second model, and no published
+score uses it.
 
 **Export.** The `export` tool returns the memory in the [portable format](docs/portable-format.schema.json)
 — inline when it is under 50 KB, otherwise written to an absolute `.json` path you name that does

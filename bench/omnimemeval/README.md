@@ -17,7 +17,7 @@ Pinned to OmniMemEval **`ff13e4a5b12e3c406a81c32bb0834c7e8d73f38e`** (2026-11-17
 | `harness.mjs` | clones the harness, checks out the pin (and refuses any other commit), copies the three files in and patches five registrations: the client registry, the shared search dispatch (`al_buddy_search`, which passes the question's date), LoCoMo's search dispatch (one search per question) and ingestion branch (one store per conversation, photo captions kept), and the libs that take `chat_time`. Every patch is anchored on text that occurs exactly once at the pin; a moved anchor stops it before any file is written |
 | `server.mjs` | the sidecar: one `SqliteMemoryStore` file per benchmark user, per board |
 | `meter.mjs` | the OpenAI-compatible endpoint every reader and judge call goes through: a ledger per board and model, a hard spend cap, and a stub reader and judge for the dry run |
-| `run.mjs` | prepares the harness, starts both, runs each board's own runner script, reads back its grades and the ledger, writes `bench/results/<date>-omnimemeval[-dry].json` |
+| `run.mjs` | prepares the harness, starts both, runs each board's own runner script, reads back its grades and the ledger, writes `<date>-omnimemeval[-dry].json` to the results folder ([where results go](../README.md#where-results-go)) |
 
 **Settings a submitted row has to disclose.** Write: every non-empty message is one memory, as
 said (`UserInput` for the user's turn, `AIInferred` for an assistant's), valid from its
@@ -75,7 +75,7 @@ $8.50.
 
 ## Dry run, 2026-11-18
 
-`bench/results/2026-11-18-omnimemeval-dry.json`. OmniMemEval's own `run_locomo_eval.sh` and
+Its result is in the private run history. OmniMemEval's own `run_locomo_eval.sh` and
 `run_lme_eval.sh` ran steps 1-3 (ingest, search, answer) on the first 2 conversations against the
 sidecar and the stub meter: LoCoMo 233 questions searched and answered (233 success at each stage),
 mean reader prompt 1,402 tokens; LongMemEval 2 questions, 4,507. No API call. Owed, because the job

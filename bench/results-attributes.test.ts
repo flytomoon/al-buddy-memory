@@ -21,6 +21,35 @@ const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encodi
 /** Whether a result file at this path should be left out of diffs. */
 const isRowData = (path: string) => /^bench\/results\/[^/]+\.jsonl?$/.test(path) && !path.endsWith(".summary.json");
 
+/**
+ * The public repo shows final scores only (founder, 2026-11-18): one result
+ * file per README headline number. Every other run goes to the private
+ * history (bench/lib/run-info.mjs RESULTS_DIR); a new headline replaces its
+ * file here and in this list.
+ */
+const HEADLINE_RESULTS = [
+  "bench/results/2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.summary.json",
+  "bench/results/2026-09-30-lme-full-fast.json",
+  "bench/results/2026-11-12-stale-facts.json",
+  "bench/results/2026-11-18-locomo-2.summary.json",
+  "bench/results/2026-11-18-locomo.summary.json",
+];
+
+describe("bench results — headline runs only", () => {
+  it("bench/results holds exactly the headline result files, and the README links each one", (ctx) => {
+    let files: string[];
+    try {
+      files = git("ls-files", "bench/results").split("\n").filter(Boolean);
+    } catch {
+      ctx.skip();
+      return;
+    }
+    expect(files.sort()).toEqual(HEADLINE_RESULTS);
+    const readme = readFileSync(join(root, "README.md"), "utf8");
+    for (const file of HEADLINE_RESULTS) expect(readme, file).toContain(`(${file})`);
+  });
+});
+
 describe("bench results — data, not diff", () => {
   it(".gitattributes leaves result rows out of diffs and keeps summaries in", () => {
     const lines = readFileSync(join(root, ".gitattributes"), "utf8").split("\n").map((l) => l.trim());

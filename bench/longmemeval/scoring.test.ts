@@ -10,7 +10,6 @@ import { ANSWER_TEMPLATES, CHAIN_OF_NOTE_TEMPLATE, answerPrompt, formatHistory, 
 import { digest, pairwise, report } from "./compare.mjs";
 import { instance } from "./fixture.js";
 
-const REPO = join(import.meta.dirname, "..", "..");
 
 /**
  * SHA-256 of the seven official prompt strings — reader con and direct, the
@@ -264,37 +263,6 @@ describe("LongMemEval QA metrics — print_qa_metrics.py, ported", () => {
     expect(summarizeAbstention(rows)).toEqual(s.abstention);
     // None judged: an empty row, never a made-up rate.
     expect(summarizeAbstention([{ question_id: "x", question_type: "multi-session", label: true }])).toEqual({ accuracy: null, correct: 0, n: 0, byType: {} });
-  });
-
-  it("the committed official re-grade holds the abstention row the README publishes", () => {
-    const file = join(REPO, "bench/results/2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.jsonl");
-    const rows = readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    expect(rows).toHaveLength(500);
-    const ab = summarizeAbstention(rows);
-    expect(ab).toMatchObject({ correct: 27, n: 30 });
-    expect(readFileSync(join(REPO, "README.md"), "utf8").replace(/\s+/g, " ")).toContain(`abstention ${ab.correct} of ${ab.n}`);
-  });
-
-  it("every row of the README's LongMemEval table publishes the abstention its own result file holds", () => {
-    const results = (f: string) => join(REPO, "bench/results", f);
-    const jsonl = (f: string) => readFileSync(results(f), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    const questions = (f: string) => JSON.parse(readFileSync(results(f), "utf8")).questions;
-    const rows: [string, string, unknown[]][] = [
-      ["2026-09-30-lme-full-fast", "the official judge", jsonl("2026-09-30-lme-full-fast.hypotheses.eval-gpt-4o-2024-08-06.jsonl")],
-      ["2026-09-30-lme-full-fast", "| Claude Sonnet 5.5 |", questions("2026-09-30-lme-full-fast.json")],
-      ["2026-09-29-lme-full-all", "| Claude Sonnet 5.5 |", questions("2026-09-29-lme-full-all.json")],
-      ["2026-09-29-longmemeval-full", "| Claude Sonnet 5.5 |", questions("2026-09-29-longmemeval-full.json")],
-      ["2026-09-29-longmemeval-full", "through Codex", jsonl("2026-09-29-longmemeval-full.hypotheses.eval-codex-gpt-6-sol.jsonl")],
-    ];
-    const table = readFileSync(join(REPO, "README.md"), "utf8").split("\n").filter((l) => l.startsWith("| `2026-"));
-    expect(table).toHaveLength(rows.length);
-    for (const [run, judge, labelled] of rows) {
-      const line = table.find((l) => l.startsWith(`| \`${run}\``) && l.includes(judge));
-      expect(line, `${run} judged by ${judge}`).toBeDefined();
-      const ab = summarizeAbstention(labelled as { question_id: string; question_type: string; label?: boolean }[]);
-      expect(ab.n).toBe(30);
-      expect(line!.match(/\| \**(\d+) of (\d+)\** \|$/)?.slice(1)).toEqual([String(ab.correct), String(ab.n)]);
-    }
   });
 });
 

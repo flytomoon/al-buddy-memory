@@ -7,7 +7,7 @@ docs/demo/conformance.js
 bench/longmemeval/data/
 # The LoCoMo data and audit key (CC BY-NC; bench/locomo/download.mjs), never committed.
 bench/locomo/data/
-# A benchmark run's partial progress; the finished result goes in bench/results/.
+# A benchmark run's partial progress; the finished result goes to the results folder (bench/README.md).
 bench/results/.progress/
 # OmniMemEval: the paid run's OpenAI key (never committed), and the harness checkout,
 # its data, results, venv and our stores (bench/omnimemeval/run.mjs makes them).

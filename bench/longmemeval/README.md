@@ -77,7 +77,7 @@ the same tokens would have cost at API prices (`notionalCostUsd` — not billed 
 | `--concurrency N` | `4` | Questions in flight. |
 | `--resume` / `--fresh` | | Continue a partial run with identical settings, or discard it. |
 | `--claude-bin` | `claude` | The CLI to run. |
-| `--out file.json` | `bench/results/<date>-longmemeval.json` | An existing result is never overwritten by the default name (`-2`, `-3`, …). |
+| `--out file.json` | `<date>-longmemeval.json` in the [results folder](../README.md#where-results-go) | An existing result is never overwritten by the default name (`-2`, `-3`, …). |
 
 ## What happens to one question
 
@@ -127,20 +127,16 @@ the retrieval metrics to numbers the official `eval_utils.py` produced for 40 ra
 - **A `--limit` run is a sample.** Its numbers are not comparable to a full run's, and its
   task-averaged accuracy is over the types it contains.
 
-## Multi-session: where the questions are lost, and the options that go after them
+## Multi-session: the options that go after it
 
-The full run ([result](../results/2026-09-29-longmemeval-full.json)) got 101 of 133 multi-session
-questions right (75.9%). Of the 32 it missed, **25 were missing at least one evidence turn from the
-20 rounds the reader saw**; 7 were wrong with every piece in front of it. A multi-session question
-needs every piece — "how many weddings this year" is wrong if one wedding is missing — and
-`recall_any@10` (96%) says nothing about that. So four options, each off by default so a run can
-A/B it, and none of which stores anything (they reorder, re-query, show more and re-prompt at read
-time over the raw text):
+A multi-session question needs every piece — "how many weddings this year" is wrong if one wedding
+is missing — and `recall_any@10` says nothing about that. So four options, each off by default so a
+run can compare it, and none of which stores anything (they reorder, re-query, show more and
+re-prompt at read time over the raw text):
 
 1. **`--rerank`** — a local cross-encoder reads the question with each of the 100 recalled
    messages and reorders them (`LocalReranker`, the library's `reranker` option). Long messages are
-   scored in 1,000-character windows, best window wins. Hindsight reports reranking as what took
-   its multi-session score from 21% to 80%.
+   scored in 1,000-character windows, best window wins.
 2. **`--expand`** — the library reads the question (`analyzeQuery`, rules, no model call): a
    period ("in April", "the past two weeks", "last Thursday") resolved against the question date
    favours sessions from then, and the question is searched again without it; a counting question
@@ -149,27 +145,10 @@ time over the raw text):
    / "initially" nudge the latest / earliest session up. The question itself is always searched as
    it is without `--expand`, so expanding only adds candidates.
 3. **`--aggregate-top-k 40`** — a counting question is shown 40 rounds instead of 20 (the official
-   scripts show 50). Its own arm, because it is the one lever measured so far:
+   scripts show 50).
 4. **`--chain-of-note`** — a counting question gets a reader prompt that asks for one dated note per
    relevant session before any arithmetic, then the answer, in the same single call. Not an
    official template, and the result says so.
-
-Measured without a model (retrieval only, 2026-09-29, every multi-session question the official
-retrieval metrics count — 121 of 133): the share of questions where the reader would see **every**
-evidence turn, by how many rounds it is shown.
-
-| Rounds shown | 20 | 30 | 40 | 50 |
-|---|---|---|---|---|
-| Recall as it is (hybrid, 100 messages) | 73.6% | 85.1% | 88.4% | 90.1% |
-| An earlier revision of `expand` | 74.4% | 83.5% | 88.4% | 90.1% |
-
-The first row is this code's recall exactly (recall without `expand` is unchanged). The second is
-not the committed `expand`: it searched the question by its content words only, and the fix has
-not been measured this way yet. Read the table for what it says: 20 rounds leave a
-quarter of multi-session questions without all their evidence, and 40 recover most of them;
-`expand` has not yet shown a gain at equal rounds, and 100 messages cap everything near 90%
-(`--recall-pool` lifts the cap; `--rerank` is what decides whether the extra candidates rise). The
-reranker could not be measured here — its model is a download away.
 
 ### Flagged write-time event study
 
@@ -212,33 +191,19 @@ paired arms under the published settings (`--types multi-session,temporal-reason
    and judging both arms, compared question by question. The official gpt-4o re-grade spends
    OpenAI money and is not run.
 
+It reads the published run's official labels from the private run history (see
+[where results go](../README.md#where-results-go)) and stops before any model call without them.
 Arms run under `bench/results/.progress/event-study/`, so each records a clean tree, and are copied
-into `bench/results/<date>-lme-ms-tr-*.json` with `<date>-lme-ms-tr-event-study.json` (the bar, the
+into the results folder as `<date>-lme-ms-tr-*.json` with `<date>-lme-ms-tr-event-study.json` (the bar, the
 17 one by one, per-type evidence counts, the extraction counts, and the answered pair if run). The
 same command resumes a stopped study. The last line is `RESULT: …`. Extraction is about 12,600
 sessions, one subscription call each; the answered pair adds about 1,060 more. `--limit` or
 `--retrieval` turn it into a smoke run, which says so and is not the study.
 
-They need the Claude CLI and, for `--rerank`, a one-time download from huggingface.co. Each
-multi-session + knowledge-update run is 211 questions, about 420 subscription calls; each full run
-is 500 questions, about 1,000:
+To compare options, run each with its own `--out` and put the files side by side:
 
 ```sh
-npm ci && npm run build && node bench/longmemeval/download.mjs
-D=$(date +%F); R=bench/results; T=multi-session,knowledge-update
-node bench/longmemeval/run.mjs --types $T                      --out $R/$D-lme-ms-ku-baseline.json
-node bench/longmemeval/run.mjs --types $T --rerank minilm      --out $R/$D-lme-ms-ku-rerank.json
-node bench/longmemeval/run.mjs --types $T --expand             --out $R/$D-lme-ms-ku-expand.json
-node bench/longmemeval/run.mjs --types $T --aggregate-top-k 40 --out $R/$D-lme-ms-ku-top40.json
-node bench/longmemeval/run.mjs --types $T --chain-of-note      --out $R/$D-lme-ms-ku-notes.json
-node bench/longmemeval/run.mjs --types $T --rerank minilm --expand --aggregate-top-k 40 --chain-of-note --out $R/$D-lme-ms-ku-all.json
-node bench/longmemeval/compare.mjs $R/$D-lme-ms-ku-{baseline,rerank,expand,top40,notes,all}.json
-# optional: the reranker over twice the candidates
-node bench/longmemeval/run.mjs --types $T --rerank minilm --recall-pool 200 --aggregate-top-k 40 --out $R/$D-lme-ms-ku-rerank200.json
-
-node bench/longmemeval/run.mjs --out $R/$D-lme-full-baseline.json
-node bench/longmemeval/run.mjs --rerank minilm --expand --aggregate-top-k 40 --chain-of-note --out $R/$D-lme-full-all.json
-node bench/longmemeval/compare.mjs $R/$D-lme-full-{baseline,all}.json
+node bench/longmemeval/compare.mjs baseline.json with-option.json
 ```
 
 `compare.mjs` prints accuracy per type side by side, how often the reader saw every evidence turn,
@@ -256,25 +221,6 @@ chain-of-note reader — has to beat the run with all of them off, on the same q
 cost someone can see. That run is `run.mjs` with no option flags: `HybridRetriever.recall` over one
 memory per raw message, nothing extracted, consolidated or derived, nothing reranked or expanded.
 The MCP `recall` tool's default is the same recall with `expand` on (`GovernanceDeps.expand`).
-
-Put side by side by `compare.mjs`, the full runs in `bench/results/` (500 questions, Sonnet
-answering and judging, notional API dollars — not billed on the subscription):
-
-| | Raw baseline (09-29) | Every option, cross-encoder (09-29) | Every option, no cross-encoder (09-30) |
-|---|---|---|---|
-| Overall accuracy | 88.4% | 92.6% | 92.6% |
-| Multi-session | 75.9% | 85.0% | 82.0% |
-| Temporal reasoning | 85.7% | 94.0% | 94.0% |
-| Answer tokens in / out, per question | 17,013 / 353 | 27,383 / 423 | 27,420 / 434 |
-| Notional $ per question (answer + judge) | $0.073 | $0.118 | $0.118 |
-| Recall p50 / p95 | not recorded | not recorded | 11.7 / 33.5 ms |
-
-"Every option" is `--expand --aggregate-top-k 40 --chain-of-note`, with `--rerank minilm` in the
-first. Together they bought 4.2 points for about 60% more answer input tokens a question; with or
-without the cross-encoder, overall accuracy was the same (it moved 3 points up on multi-session
-and 3.8 down on knowledge-update, inside the noise named above). Recall
-time was not recorded before 2026-09-30, so the baseline needs a fresh run to put its latency
-beside the default's.
 
 Without a model, `recall-sweep.mjs` puts the two retrievals side by side over the same memory:
 the raw arm `none` and the shipped default `expand`, with recall p50/p95, how often the reader
@@ -336,21 +282,16 @@ where it stops showing it; the verdict goes in the result file's `gainBar` and i
 
 `--default-bar`, with exactly two arms, holds the second to the bar for switching a recall option
 on by default (review 2026-11-17, build list item 8): over the whole run it must show every
-evidence turn in at least 2 more questions than the first arm, net (what `contentWords` earned on
-its gain set, +3 / −1, whose questions are inside the 500), and no question type may stop showing
+evidence turn in at least 2 more questions than the first arm, net, and no question type may stop showing
 every evidence turn in more than 1 question; lost questions are counted per type, not net, so a
 type's losses are never hidden by its gains. The verdict, with every type's gains and losses, goes
-in the result file's `defaultBar` and is the `RESULT:` line. The run it was built for, about six
-hours on a laptop:
+in the result file's `defaultBar` and is the `RESULT:` line. Over all 500 questions it takes
+hours:
 
 ```sh
 node bench/longmemeval/recall-sweep.mjs --expand --aggregate-top-k 40 \
-  --arm none --arm content-words --default-bar --out bench/results/<date>-lme500-content-words.json
+  --arm none --arm content-words --default-bar
 ```
-
-A PASS makes the switch a candidate, not a decision: the review also asks for the answered
-`run.mjs --limit 50` pair, on both the plain and the multi-session/temporal-reasoning sets, before
-`contentWords` becomes the default.
 
 ### The two ceilings: the reader's and the reranker's
 
@@ -377,9 +318,10 @@ spending on recall or the reader (§ 3 items 5 and 7), one after the other:
    whether the gain exists.
 
 It fetches the oracle file if it is missing; the cross-encoders download on first use. Steps run
-under `bench/results/.progress/ceilings/` and are copied into `bench/results/` as
+under `bench/results/.progress/ceilings/` and are copied into the results folder as
 `<date>-lme-ms-tr-oracle.json` (with its hypotheses) and `<date>-lme50-gain-bge.json`, beside
-`<date>-lme-ceilings.json` (the split and the bar). The same command (same `--prefix`, by default
+`<date>-lme-ceilings.json` (the split and the bar). The split needs the published run's official
+labels from the private run history; without them the reader's ceiling does not start. The same command (same `--prefix`, by default
 today's date) reuses what finished and resumes what did not; `--only reader|rerank` runs one.
 `--limit`, `--answerer`, `--judge`, `--oracle-data`, `--allow-unpinned` or `--sweep-arm` make it a
 smoke run, which says so. The last line is `RESULT: …`.
@@ -390,20 +332,16 @@ The reader is shown at least 20 rounds, **listed by date** (the official reader 
 A cross-encoder that reorders only the best 20 recalled messages reorders messages whose rounds the
 reader sees anyway, in an order the prompt then discards; every message after the 20th keeps its
 place. So the rounds shown can only change through `expand`'s time lists, which are laid over the
-reranked order and can move a round across the cut. No sweep of depth 20 against `none` is
-committed yet, so this paragraph is the argument, not a measurement.
+reranked order and can move a round across the cut.
 
 To change what the reader sees, the cross-encoder has to read deeper than the reader's window and
 pull something up from below it: depth 40 and up. That is where its time goes.
 
-What is committed is a timing of that deeper read: `bench/results/2026-10-15-lme-window-gate-standin.json`,
-a stand-in of the cross-encoder's architecture at depth 30, took 1.5 s per recall at p50 and
-2.9–4.0 s at p95 against a 300 ms budget (2026-10-15; the window gate above). No cross-encoder is on
-by default, and none of the published scores uses one.
+No cross-encoder is on by default, and none of the published scores uses one.
 
 ## The result file
 
-`bench/results/<date>-longmemeval.json` holds the commit and whether the tree was clean, the
+`<date>-longmemeval.json` holds the commit and whether the tree was clean, the
 library version, the dataset file's SHA-256 and whether it matched `dataset.json`, every setting,
 the answerer and judge (CLI version, requested model, and every model id that answered, with call
 counts), the machine (CPU, cores, load average at start and end), and a summary: overall,
