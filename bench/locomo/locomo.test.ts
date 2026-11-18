@@ -9,8 +9,10 @@ import { UsageLimitError } from "../longmemeval/answerers.mjs";
 import { loadAuditKey, loadConversations, parseLocomoDate, readConversation, resolveEvidence, selectQuestions } from "./dataset.mjs";
 import { ensureFiles, fileUrls, localPath } from "./download.mjs";
 import { evaluateQuestion, recallConversation, runLocomo } from "./harness.mjs";
-import { scoreTable, summarize } from "./metrics.mjs";
+import { adjacentTurns, ingestConversation, recallQuery, showTurns } from "./memory.mjs";
+import { compareToBaseline, scoreTable, summarize } from "./metrics.mjs";
 import { JUDGE_SYSTEM, READING_TEMPLATES, adversarialJudgePrompt, answerPrompt, formatContext, judgeLabel, judgePrompt, keywordRule } from "./prompts.mjs";
+import { supportCheck, supportNote } from "./support.mjs";
 
 /** A LoCoMo-shaped sample: three sessions with turns (numbered out of order on purpose), one with a date and no turns. */
 function sample() {
@@ -285,6 +287,110 @@ describe("LoCoMo harness — memory, recall, verdicts and a run", () => {
       succeeded: 0,
       rows: [0, 1, 2].map((i) => ({ question_id: `locomo_0_qa${i}`, error: "building the memory of conv-x failed: disk full" })),
     });
+  });
+});
+
+describe("LoCoMo retrieval options — the query without the speakers' names, and the turns beside a hit", () => {
+  it("recallQuery takes both speakers' names out (whole words, with a possessive), and keeps a question with too little left", () => {
+    expect(recallQuery("What is the name of Ana's puppy?", ["Ana", "Ben"])).toBe("What is the name of puppy?");
+    expect(recallQuery("When did Ben run a charity race with ana?", ["Ana", "Ben"])).toBe("When did run a charity race with ?");
+    expect(recallQuery("Did Anastasia meet Bend's mayor?", ["Ana", "Ben"])).toBe("Did Anastasia meet Bend's mayor?");
+    expect(recallQuery("Where does Ana Lima’s dog sleep?", ["Ana Lima", "Ben"])).toBe("Where does dog sleep?");
+    expect(recallQuery("Ana?", ["Ana", "Ben"])).toBe("Ana?");
+  });
+
+  it("showTurns leads with the first N recalled, then each one's neighbours best-ranked first, then the rest, never past top-k or twice", () => {
+    const t = (diaId: string) => ({ diaId });
+    const [a, b, c, d, a0, a1] = ["a", "b", "c", "d", "a0", "a1"].map(t);
+    const adjacent = new Map([["a", [a1, a0]], ["b", [c]]]);
+    const ids = (xs: { diaId: string }[]) => xs.map((x) => x.diaId);
+    expect(ids(showTurns([a, b, c, d], { topK: 5, neighbours: 2, adjacent }))).toEqual(["a", "b", "a1", "a0", "c"]);
+    expect(ids(showTurns([a, b, c, d], { topK: 3, neighbours: 2, adjacent }))).toEqual(["a", "b", "a1"]);
+    expect(ids(showTurns([a, b, c, d], { topK: 2, neighbours: 0, adjacent }))).toEqual(["a", "b"]);
+    expect(ids(showTurns([a, b, c, d], { topK: 9, neighbours: 1, adjacent: new Map() }))).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("a turn's neighbours are the stored turns beside it in its own session, never across a session", async () => {
+    const memory = await ingestConversation(lib, conversation(), { store });
+    const at = (id: string) => memory.order.find((x: { diaId: string }) => x.diaId === id);
+    expect(adjacentTurns(memory, at("D1:2")).map((x: { diaId: string }) => x.diaId)).toEqual(["D1:3", "D1:1"]);
+    expect(adjacentTurns(memory, at("D1:3")).map((x: { diaId: string }) => x.diaId)).toEqual(["D1:2"]);
+    expect(adjacentTurns(memory, { diaId: "D9:9", session: 9 })).toEqual([]);
+  });
+
+  it("a run with --strip-speakers, --content-words and --neighbours asks the stripped question, records it, and shows a hit's neighbours", async () => {
+    const c = conversation();
+    const { recalled } = await recallConversation(lib, c, c.questions, { store, stripSpeakers: true, contentWords: true, neighbours: 1 });
+    expect(recalled[0]).toMatchObject({ query: "What is the name of puppy?" });
+    const row = await evaluateQuestion(c, recalled[0], { memories: 6, topK: 2, neighbours: 1 });
+    expect(row.recallQuery).toBe("What is the name of puppy?");
+    const top = recalled[0].turns[0];
+    expect(row.shownTurns).toEqual([top.diaId, recalled[0].adjacent.get(top.diaId)[0].diaId]);
+    const plain = await recallConversation(lib, c, c.questions.slice(0, 1), { store });
+    await expect(evaluateQuestion(c, plain.recalled[0], { memories: 6, neighbours: 1 })).rejects.toThrow(/recall with the same neighbours option/);
+    expect((await evaluateQuestion(c, plain.recalled[0], { memories: 6 })).recallQuery).toBeUndefined();
+  });
+});
+
+describe("LoCoMo support check — the thing asked of one speaker, said only by the other", () => {
+  const turn = (speaker: string, text: string) => ({ speaker, text, caption: null });
+  const q = "What did Ana realize after her charity race?";
+
+  it("fires when the other speaker's own turn matches the question and nothing by or to the named one does", () => {
+    const shown = [turn("Ben", "Congrats! I ran a charity race last Saturday."), turn("Ana", "I adopted a puppy named Biscuit yesterday.")];
+    expect(supportCheck(q, ["Ana", "Ben"], shown)).toEqual({ checked: true, person: "Ana", other: "Ben", terms: 4, bestPerson: 0, bestOther: 2, fired: true });
+  });
+
+  it("does not fire when the named one said it, or was told it ('you', 'your', their name), or on one word in common", () => {
+    expect(supportCheck(q, ["Ana", "Ben"], [turn("Ben", "I ran a charity race."), turn("Ana", "After the charity race I realized a lot.")]).fired).toBe(false);
+    expect(supportCheck(q, ["Ana", "Ben"], [turn("Ben", "How was your charity race?")]).fired).toBe(false);
+    expect(supportCheck(q, ["Ana", "Ben"], [turn("Ben", "Ana ran a charity race!")]).fired).toBe(false);
+    expect(supportCheck(q, ["Ana", "Ben"], [turn("Ben", "What a race.")]).fired).toBe(false);
+  });
+
+  it("applies only to a question naming one speaker; a nickname names its speaker", () => {
+    expect(supportCheck("Did Ana and Ben race?", ["Ana", "Ben"], [])).toEqual({ checked: false, why: "names both speakers" });
+    expect(supportCheck("Who won the race?", ["Ana", "Ben"], [])).toEqual({ checked: false, why: "names neither speaker" });
+    expect(supportCheck("What method does Deb suggest Jolene try?", ["Deborah", "Jolene"], [])).toMatchObject({ checked: false, why: "names both speakers" });
+    expect(supportCheck("What did Ana do?", ["Ana", "Ben"], [])).toEqual({ checked: false, why: "no content words" });
+  });
+
+  it("when it fires the note ends the reader's context, after the memories shown word for word; otherwise the prompt is unchanged", async () => {
+    const c = conversation();
+    const { recalled } = await recallConversation(lib, c, c.questions, { store });
+    const prompts: string[] = [];
+    const opts = { memories: 6, support: true, answerer: reader(prompts) };
+    const adversarial = await evaluateQuestion(c, recalled[3], opts);
+    expect(adversarial.supportCheck).toMatchObject({ checked: true, person: "Ana", other: "Ben", fired: true });
+    const note = supportNote({ person: "Ana", other: "Ben" });
+    expect(prompts[0]).toContain(`Ben: Congrats! I ran a charity race last Saturday.\n`);
+    expect(prompts[0]).toContain(`\n\n${note}\n\nQuestion: What did Ana realize after her charity race?`);
+    const puppy = await evaluateQuestion(c, recalled[0], opts);
+    expect(puppy.supportCheck.fired).toBe(false);
+    expect(prompts[1]).toBe(answerPrompt(c, c.questions[0]!, recalled[0].turns.slice(0, 40)));
+    expect((await evaluateQuestion(c, recalled[3], { memories: 6 })).supportCheck).toBeUndefined();
+  });
+
+  it("the summary counts where it ran and fired, by category, and a baseline comparison flags a fall of more than a point", async () => {
+    const c = conversation();
+    const rows = await runLocomo(lib, [c], { store, support: true, answerer: reader(), judge: judge(), abstentionJudge: model(() => "yes"), auditKey: auditKey() }, { concurrency: 1 });
+    const s = summarize(rows);
+    expect(s.supportCheck.byCategory[5]).toEqual({ questions: 1, checked: 1, fired: 1 });
+    expect(s.supportCheck.questions).toBe(5);
+    expect(summarize(rows.map(({ supportCheck: _, ...r }: { supportCheck?: unknown }) => r)).supportCheck).toBeUndefined();
+
+    const before = structuredClone(s);
+    before.scored.byCategory[2].published.accuracy = 0.5;
+    before.scored.byCategory[2].corrected.accuracy = 0.995;
+    before.adversarial.abstentionJudge = { n: 446, correct: 138, accuracy: 0.3094 };
+    before.recall = { ms: { p50: 7.8 } };
+    const cmp = compareToBaseline(s, before);
+    expect(cmp.categories.map((r: { category: number }) => r.category)).toEqual([1, 2, 3, 4, 5]);
+    expect(cmp.categories[1]).toMatchObject({ category: 2, change: { accuracy: -50, corrected: 0.5 }, regressed: true });
+    expect(cmp.categories[4]).toMatchObject({ category: 5, before: { accuracy: 0.3094 }, after: { accuracy: 1 }, change: { accuracy: 69.1, corrected: null }, regressed: false });
+    expect(cmp.recallP50Ms).toEqual({ before: 7.8, after: s.recall.ms.p50 });
+    const onlyFive = summarize(rows.filter((r: { category: number }) => r.category === 5));
+    expect(compareToBaseline(onlyFive, before).categories.map((r: { category: number }) => r.category)).toEqual([5]);
   });
 });
 

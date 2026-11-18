@@ -17,7 +17,8 @@
  *     `answer_prompt_memos` (lines 74-104; `--reading memos`).
  *
  * Not from that file, and said so in every result: the context block (each
- * system there fills `{context}` with its own template; ours is below), and
+ * system there fills `{context}` with its own template; ours is below, and
+ * with `--support-check` it can end with that check's note), and
  * the grading of the 446 adversarial questions, which no published pipeline
  * scores (the audit's "Category 5 evaluation gap"). Those are graded twice:
  * by LongMemEval's official abstention judge prompt (the same one
@@ -69,20 +70,22 @@ export function turnText(turn) {
 export const CONTEXT_TEMPLATE_DESCRIPTION =
   "\"Memories from the conversation between <speaker a> and <speaker b>, oldest first; each line is one message, led by the date of the session it was said in:\" then one line per shown turn, \"[<session date as the dataset writes it>] <speaker>: <text>[ [shares <photo caption>]]\", sorted by session and turn";
 
-export function formatContext(speakers, turns) {
+/** `note`, when given (the support check's, bench/locomo/support.mjs), is a paragraph after the memories; they are shown as they are either way. */
+export function formatContext(speakers, turns, note = null) {
   const sorted = [...turns].sort((a, b) => a.session - b.session || a.position - b.position);
   return [
     `Memories from the conversation between ${speakers[0]} and ${speakers[1]}, oldest first; each line is one message, led by the date of the session it was said in:`,
     "",
     ...sorted.map((t) => `[${t.dateText}] ${turnText(t)}`),
+    ...(note ? ["", note] : []),
   ].join("\n");
 }
 
-/** The reader's prompt for one question, given the turns it is shown. */
-export function answerPrompt(conversation, question, turns, reading = "c25") {
+/** The reader's prompt for one question, given the turns it is shown (and the support check's note, when it fired). */
+export function answerPrompt(conversation, question, turns, reading = "c25", { note = null } = {}) {
   const template = READING_TEMPLATES[reading];
   if (!template) throw new Error(`Unknown reading "${reading}" (use ${Object.keys(READING_TEMPLATES).join(" or ")})`);
-  return fill(template, { context: formatContext(conversation.speakers, turns), question: question.question });
+  return fill(template, { context: formatContext(conversation.speakers, turns, note), question: question.question });
 }
 
 /** The judge's prompt for a scored (non-adversarial) question, against the key's answer or the audit's corrected one. */

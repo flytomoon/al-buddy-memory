@@ -8,24 +8,29 @@ import { loadavg } from "node:os";
 
 import { UsageLimitError } from "../longmemeval/answerers.mjs";
 import { judgeLabel as longMemEvalLabel } from "../longmemeval/prompts.mjs";
-import { ingestConversation, recallTurns } from "./memory.mjs";
+import { adjacentTurns, ingestConversation, recallTurns, showTurns } from "./memory.mjs";
 import { readerInputTokens, retrievalFor } from "./metrics.mjs";
 import { adversarialJudgePrompt, answerPrompt, judgeLabel, judgePrompt, keywordRule } from "./prompts.mjs";
+import { supportCheck, supportNote } from "./support.mjs";
 
 /**
  * Build `conversation`'s memory and recall each of `questions` against it, one
  * at a time (so a recall is never timed while another runs). A question whose
  * recall throws gets `{ error }` and the rest go on; a memory that cannot be
- * built throws.
+ * built throws. With `neighbours`, each recalled item also carries
+ * `adjacent`: the turns beside each recalled turn in its session, for
+ * `showTurns` (looked up after the timed recall, from the conversation's
+ * order; no store read).
  */
-export async function recallConversation(lib, conversation, questions, { embedder, expand = false, recallPool, store } = {}) {
+export async function recallConversation(lib, conversation, questions, { embedder, expand = false, recallPool, store, stripSpeakers = false, contentWords = false, neighbours = 0 } = {}) {
   const memory = await ingestConversation(lib, conversation, { embedder, ...(store ? { store } : {}) });
   try {
     const recalled = [];
     for (const question of questions) {
       try {
-        const r = await recallTurns(memory, conversation, question, { expand, ...(recallPool ? { recallPool } : {}) });
-        recalled.push({ question, ...r, recall: { ...r.recall, load1: Math.round(loadavg()[0] * 100) / 100 } });
+        const r = await recallTurns(memory, conversation, question, { expand, stripSpeakers, contentWords, ...(recallPool ? { recallPool } : {}) });
+        const adjacent = neighbours ? new Map(r.turns.slice(0, neighbours).map((t) => [t.diaId, adjacentTurns(memory, t)])) : undefined;
+        recalled.push({ question, ...r, ...(adjacent ? { adjacent } : {}), recall: { ...r.recall, load1: Math.round(loadavg()[0] * 100) / 100 } });
       } catch (e) {
         recalled.push({ question, error: `recall failed: ${e?.message ?? e}` });
       }
@@ -63,22 +68,31 @@ function baseRow(question, auditKey) {
  * (`labelCorrected`; otherwise the same verdict). An adversarial one is judged
  * by `abstentionJudge` on whether it says the conversation does not hold the
  * answer, and by LoCoMo's keyword rule.
+ *
+ * `neighbours` fills what is shown with the turns beside the first N recalled
+ * (`showTurns`); `support` runs the support check on what is shown, records
+ * it on the row (with no answerer too), and, when it fires, ends the reader's
+ * context with its note.
  */
-export async function evaluateQuestion(conversation, recalled, { memories, topK = 40, reading = "c25", answerer = null, judge = null, abstentionJudge = null, auditKey = null } = {}) {
+export async function evaluateQuestion(conversation, recalled, { memories, topK = 40, neighbours = 0, support = false, reading = "c25", answerer = null, judge = null, abstentionJudge = null, auditKey = null } = {}) {
   const started = Date.now();
   const { question, turns } = recalled;
-  const shown = turns.slice(0, topK);
+  if (neighbours && !recalled.adjacent) throw new Error("neighbours needs the recalled turns' neighbours: recall with the same neighbours option");
+  const shown = showTurns(turns, { topK, neighbours, adjacent: recalled.adjacent });
+  const check = support ? supportCheck(question.question, conversation.speakers, shown) : null;
   const row = {
     ...baseRow(question, auditKey),
     memories,
     memoriesRecalled: recalled.memoriesRecalled,
+    ...(recalled.query !== undefined && recalled.query !== question.question ? { recallQuery: recalled.query } : {}),
     recall: recalled.recall,
     retrieval: retrievalFor(turns.map((t) => t.diaId), shown.map((t) => t.diaId), question.evidence),
     shownTurns: shown.map((t) => t.diaId),
+    ...(check ? { supportCheck: check } : {}),
     reading,
   };
   if (answerer) {
-    const prompt = answerPrompt(conversation, question, shown, reading);
+    const prompt = answerPrompt(conversation, question, shown, reading, { note: check?.fired ? supportNote(check) : null });
     const answer = await answerer.complete(prompt);
     Object.assign(row, {
       promptChars: prompt.length,
