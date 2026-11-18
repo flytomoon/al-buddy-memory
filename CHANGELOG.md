@@ -13,6 +13,13 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **Benchmark: OmniMemEval backend** (`bench/omnimemeval/`). An `al_buddy` client for MemTensor's
+  OmniMemEval harness (pinned to `ff13e4a`), a local sidecar holding one SQLite store per
+  benchmark conversation, and a runner that puts LoCoMo, LongMemEval-S, BEAM 100K, HaluMem and
+  PersonaMem v2 through OmniMemEval's own pipeline, reader (gpt-4.1-mini) and judge (gpt-4o-mini).
+  Every reader and judge call passes a local meter with a hard spend cap (at most $20) and a cost
+  line per board; `--dry-run` swaps in a stub reader and judge and calls no API. Measurement only:
+  no score yet, and nothing in the library changes.
 - **Benchmark: LoCoMo** (`bench/locomo/`). The ten conversations of `snap-research/locomo` and the
   independent audit's corrections, each pinned by commit and SHA-256; one memory per turn, every
   question of a conversation recalled against the same store. All 1,540 scored questions are judged
