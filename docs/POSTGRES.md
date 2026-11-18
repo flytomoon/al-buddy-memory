@@ -50,7 +50,7 @@ A write locks its tenant's row, reads only the rows it acts on, applies the same
 
 Each lookup is by key or by an index `initialize` creates: versions and embeddings by fact, edges by either endpoint, and a GIN index over `contextualMetadata.derivedFrom` that holds only conclusions. A write's cost therefore depends on how much it touches (a fact's versions, its conclusions, its edges), not on how many facts the tenant holds. The governed handle asks the store for a fact's conclusions by the same index before an erasure or an invalidation (`nodesRestingOn`), rather than listing the tenant.
 
-Measured with `node bench/postgres-writes/run.mjs 1000,10000,100000 20` after `npm run build` (in-process PGlite with pgvector, Apple silicon, Node 25; median of 20 writes, each on its own block of ten facts shaped like every other; result in [`bench/results/2026-10-08-postgres-writes.json`](../bench/results/2026-10-08-postgres-writes.json)):
+Measured with `node bench/postgres-writes/run.mjs 1000,10000,100000 20` after `npm run build` (in-process PGlite with pgvector, Apple silicon, Node 25; median of 20 writes, each on its own block of ten facts shaped like every other; result `2026-10-08-postgres-writes.json`, in the private run history):
 
 | Write | 1,000 facts | 10,000 | 100,000 | Rows read |
 |---|---|---|---|---|

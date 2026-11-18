@@ -35,7 +35,9 @@ describe("WorkerEmbedder — the model off the event loop", () => {
     clearInterval(timer);
     expect(vectors).toEqual([[2, 1], [4, 1]]);
     // 150 ms of work in the worker: an in-thread embedder would allow zero ticks.
-    expect(ticks).toBeGreaterThanOrEqual(10);
+    // How many more than zero depends on the machine's load (a loaded gate saw 4
+    // of a nominal 30), so the test holds the line that tells the two apart.
+    expect(ticks).toBeGreaterThan(0);
     await e.close();
   });
 

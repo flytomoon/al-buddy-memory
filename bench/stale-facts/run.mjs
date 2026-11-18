@@ -5,7 +5,7 @@
 // the same store three ways — append-only, append-only recalled with
 // freshness, and recordState — and the same questions asked of each. No model
 // is called unless --embedder local is given (the on-device embedder). Writes
-// bench/results/<date>-stale-facts.json.
+// RESULTS_DIR/<date>-stale-facts.json.
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

@@ -33,7 +33,8 @@
 // Fetches the oracle file first if it is missing (download.mjs, checked
 // against dataset.json); the cross-encoders download on first use. Arms are
 // written under bench/results/.progress/ceilings/ while they run, so each
-// records a clean tree, and copied into bench/results/ at the end beside
+// records a clean tree, and copied into the results folder (RESULTS_DIR, see
+// bench/README.md) at the end beside
 // `<date>-lme-ceilings.json`, the split and the bar. Rerunning the same command
 // (same --prefix, by default today's date) reuses what finished and resumes
 // what did not. The last line is `RESULT: …`.
@@ -43,11 +44,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { REPO_ROOT, RESULTS_DIR, isoDate, runInfo, writeJson } from "../lib/run-info.mjs";
+import { PROGRESS_DIR, REPO_ROOT, RESULTS_DIR, isoDate, runInfo, writeJson } from "../lib/run-info.mjs";
 import { gainBarSentence } from "./arms.mjs";
 import { loadInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest } from "./download.mjs";
-import { PUBLISHED } from "./event-study.mjs";
+import { PUBLISHED, readPublished } from "./event-study.mjs";
 import { historyRoundCount } from "./memory.mjs";
 
 export const CEILING_TYPES = ["multi-session", "temporal-reasoning"];
@@ -195,7 +196,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   }
   const smoke = args.limit !== undefined || args["allow-unpinned"] || args.answerer !== undefined || args.judge !== undefined || args["sweep-arm"] !== undefined || args["oracle-data"] !== undefined;
   const prefix = args.prefix ?? `${isoDate()}${smoke ? "-smoke" : ""}`;
-  const workDir = join(RESULTS_DIR, ".progress", "ceilings");
+  const workDir = join(PROGRESS_DIR, "ceilings");
   mkdirSync(workDir, { recursive: true });
   const node = (script, flags) => spawnSync(process.execPath, [join(REPO_ROOT, script), ...flags], { stdio: "inherit", cwd: REPO_ROOT });
   const why = (r) => (r.error ? r.error.message : `exit ${r.status}`);
@@ -241,7 +242,20 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   // --- 1. the reader's ceiling ------------------------------------------------
   let reader = null;
   let split = null;
+  // The split needs the published run and its official labels: checked before any model call.
+  let published = null;
+  let publishedMissing = null;
   if (args.only !== "rerank") {
+    try {
+      published = readPublished();
+    } catch (err) {
+      publishedMissing = err.message;
+    }
+  }
+  if (publishedMissing) {
+    attempted += 1;
+    console.log(`The reader's ceiling cannot run: ${publishedMissing}.`);
+  } else if (args.only !== "rerank") {
     const oracleData = args["oracle-data"] ?? join(DATA_DIR, manifest.files.oracle.path);
     let haveData = existsSync(oracleData);
     if (!haveData && args["oracle-data"] === undefined) {
@@ -263,9 +277,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       }
       if (reader) {
         const historyRounds = new Map(loadInstances(oracleData).filter((x) => CEILING_TYPES.includes(x.question_type)).map((x) => [x.question_id, historyRoundCount(x)]));
-        const published = JSON.parse(readFileSync(join(RESULTS_DIR, PUBLISHED.result), "utf8"));
-        const officialRows = readFileSync(join(RESULTS_DIR, PUBLISHED.labels), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-        split = readerSplit(published, officialRows, reader.result, { historyRounds });
+        split = readerSplit(published.result, published.labels, reader.result, { historyRounds });
         // A smoke run covers a few questions, so most of the published ones are "not in the oracle run" by design.
         if (smoke) split.status = "smoke";
       }
@@ -285,8 +297,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     }
   }
 
-  // --- into bench/results/, and the verdicts ----------------------------------
+  // --- into the results folder, and the verdicts ------------------------------
   const files = {};
+  mkdirSync(RESULTS_DIR, { recursive: true });
   for (const [name, s] of [["lme-ms-tr-oracle", reader], ["lme50-gain-bge", rerank]]) {
     if (!s) continue;
     if (!s.complete) {
@@ -303,12 +316,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   }
   const rerankText = rerank ? gainBarSentence(rerank.result.gainBar, { questions: rerank.result.questions.length, againstMsP50: rerank.result.summary[rerank.result.gainBar.against]?.recall?.ms?.p50 ?? null }) : null;
   const clauses = [];
-  if (args.only !== "rerank") clauses.push(split ? `Reader: ${readerSentence(split, { answerer: reader.result.answerer, judge: reader.result.judge })}` : "Reader: the oracle run did not finish");
+  if (args.only !== "rerank") clauses.push(split ? `Reader: ${readerSentence(split, { answerer: reader.result.answerer, judge: reader.result.judge })}` : publishedMissing ? `Reader: not run, ${publishedMissing}` : "Reader: the oracle run did not finish");
   if (args.only !== "reader") clauses.push(rerank ? `Reranker: ${rerankText}` : "Reranker: the sweep did not finish");
   const head = smoke ? "Smoke run only, not the checks. " : "";
   const sentence =
     succeeded === 0
-      ? `RESULT: ${head}No check finished (attempted ${attempted}, succeeded 0); rerun the same command to resume.`
+      ? `RESULT: ${head}No check finished (attempted ${attempted}, succeeded 0); ${publishedMissing && args.only === "reader" ? `the reader's ceiling needs the published run: ${publishedMissing}` : "rerun the same command to resume"}.`
       : `RESULT: ${head}${clauses.join(". ")}.`;
   const summaryPath = finalPath("lme-ceilings");
   // Nothing finished, nothing to record: no summary file that holds no result.

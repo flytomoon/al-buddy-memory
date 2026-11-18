@@ -6,7 +6,7 @@
 // what recall shows it, and the judge grades the answer — against the
 // published key and, for the 99 answers the independent audit corrects,
 // against the corrected key too. The 446 adversarial questions are reported
-// beside the 1,540, never in them. Writes bench/results/<date>-locomo-full.json
+// beside the 1,540, never in them. Writes RESULTS_DIR/<date>-locomo-full.json
 // for every question answered and judged, <date>-locomo.json for anything less
 // (settings, model ids, commit, every count, every answer), and beside it the
 // same name with .summary.json (the scoreboard, no per-question rows). The
@@ -18,7 +18,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
+import { PROGRESS_DIR, RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { DEFAULT_SYSTEM_PROMPT, UsageLimitError, answererFromSpec, runProcess, subscriptionEnv } from "../longmemeval/answerers.mjs";
 import { sha256File } from "../longmemeval/download.mjs";
 import { SCORING_SOURCE as LONGMEMEVAL_JUDGE_SOURCE } from "../longmemeval/prompts.mjs";
@@ -198,8 +198,8 @@ const runKey = createHash("sha256")
   .update(JSON.stringify({ pins, commit: info.commit, settings: { ...settings, concurrency: undefined }, answererInfo, judgeInfo, abstentionJudgeInfo, ids: questions.map((q) => q.question_id) }))
   .digest("hex")
   .slice(0, 16);
-const progressPath = join(RESULTS_DIR, ".progress", `locomo-${runKey}.jsonl`);
-mkdirSync(join(RESULTS_DIR, ".progress"), { recursive: true });
+const progressPath = join(PROGRESS_DIR, `locomo-${runKey}.jsonl`);
+mkdirSync(PROGRESS_DIR, { recursive: true });
 /**
  * Each question's row in the progress file: the latest one, except that an
  * error never replaces a good row (a retried question appends a new row).

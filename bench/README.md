@@ -1,8 +1,31 @@
 # Benchmarks
 
-Each one measures one thing, and says what it does not measure. Results go in
-[`results/`](results/), one dated JSON file per run, carrying the commit it ran, whether the tree
-was clean, and every setting.
+Each one measures one thing, and says what it does not measure. Every run writes one dated JSON
+file, carrying the commit it ran, whether the tree was clean, and every setting; a second run on
+the same day gets `-2`, then `-3`, and nothing is overwritten.
+
+## Where results go
+
+[`results/`](results/) here holds only the run behind each headline number in the
+[README's Benchmarks table](../README.md#benchmarks). Every other run goes to the results folder,
+which the runners pick in this order:
+
+1. `$BENCH_RESULTS_DIR`, when set (a relative path is read from the repository root);
+2. `../al-buddy-memory-enterprise/bench/results-history`, when that folder exists beside this
+   checkout (or, from a git worktree, beside its main checkout): the private run history;
+3. `bench/results` here, so a contributor without the private repo still gets their results.
+
+```sh
+BENCH_RESULTS_DIR=~/bench-runs node bench/stale-facts/run.mjs --embedder local
+```
+
+`--out` still names one file outright. A run in flight keeps its progress (for `--resume`) in
+`bench/results/.progress/` in this checkout, which git ignores, wherever the result goes. The
+scripts that compare against the published LongMemEval run (`longmemeval/event-study.mjs`,
+`longmemeval/ceilings.mjs`) read its official labels from the private history, and say so and stop
+before any model call when they cannot find them.
+
+## The harnesses
 
 | | Measures | Model calls |
 |---|---|---|

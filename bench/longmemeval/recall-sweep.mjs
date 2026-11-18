@@ -27,7 +27,7 @@
 //                             memory: same ids, anchors and vectors, so ties fall the same way
 // e.g. `--arm none --arm expand --arm build:../base/dist --arm content-words --arm expand+minilm:q8:30`.
 //
-// Writes bench/results/<date>-lme-recall-sweep.json: per arm, the recall call's
+// Writes RESULTS_DIR/<date>-lme-recall-sweep.json: per arm, the recall call's
 // wall-clock and CPU time, the share of recalls within --budget-ms, the
 // official retrieval averages, how often the reader would see every evidence
 // turn, in how many questions it would see the same rounds as the first arm,
@@ -53,7 +53,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
+import { PROGRESS_DIR, RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { corpusOf, isAbstention, loadInstances, parseSessionDate, retrievalSkipReason, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
 import { DEFAULT_BAR, armRecallSettings, defaultBarCheck, defaultBarSentence, gainBarCheck, gainBarSentence, parseArm, shownChars, summarizeShownChars } from "./arms.mjs";
@@ -190,8 +190,8 @@ const runKey = createHash("sha256")
   .update(JSON.stringify({ dataSha256, commit: info.commit, settings, ids: instances.map((x) => x.question_id) }))
   .digest("hex")
   .slice(0, 16);
-const progressPath = join(RESULTS_DIR, ".progress", `recall-sweep-${runKey}.jsonl`);
-mkdirSync(join(RESULTS_DIR, ".progress"), { recursive: true });
+const progressPath = join(PROGRESS_DIR, `recall-sweep-${runKey}.jsonl`);
+mkdirSync(PROGRESS_DIR, { recursive: true });
 const done = new Set();
 if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== "") {
   if (args.fresh) writeFileSync(progressPath, "");

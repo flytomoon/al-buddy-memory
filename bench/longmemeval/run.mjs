@@ -4,7 +4,7 @@
 // Runs LongMemEval against this library: every question gets a fresh store
 // holding its history, recall picks what the reader sees, an answerer answers,
 // and the official judge prompt grades the answer. Writes
-// bench/results/<date>-longmemeval.json (settings, model ids, commit, per-type
+// RESULTS_DIR/<date>-longmemeval.json (settings, model ids, commit, per-type
 // and retrieval numbers, every answer) and, beside it, the answers in the
 // official hypothesis format so the official evaluate_qa.py can re-judge them.
 // See bench/longmemeval/README.md for every flag and what the numbers mean.
@@ -15,7 +15,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
+import { PROGRESS_DIR, RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
 import { answererFromSpec, runProcess, subscriptionEnv } from "./answerers.mjs";
 import { loadInstances, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
@@ -201,8 +201,8 @@ const runKey = createHash("sha256")
   .update(JSON.stringify({ dataSha256, commit: info.commit, settings: { ...settings, concurrency: undefined }, answererInfo, judgeInfo, ids: instances.map((x) => x.question_id) }))
   .digest("hex")
   .slice(0, 16);
-const progressPath = join(RESULTS_DIR, ".progress", `longmemeval-${runKey}.jsonl`);
-mkdirSync(join(RESULTS_DIR, ".progress"), { recursive: true });
+const progressPath = join(PROGRESS_DIR, `longmemeval-${runKey}.jsonl`);
+mkdirSync(PROGRESS_DIR, { recursive: true });
 const done = new Map();
 if (existsSync(progressPath) && readFileSync(progressPath, "utf8").trim() !== "") {
   if (args.fresh) writeFileSync(progressPath, "");
