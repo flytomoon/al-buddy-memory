@@ -145,7 +145,7 @@ function defaultGit(args, cwd) {
  * out our own earlier patches, which are re-applied); then copies and
  * patches. Returns what it did, per file.
  */
-export function prepareHarness(dir, { git = defaultGit, log = () => {} } = {}) {
+export function prepareHarness(dir, { git = defaultGit, log = () => {}, copies = COPIES } = {}) {
   if (!existsSync(join(dir, ".git"))) {
     mkdirSync(dirname(dir), { recursive: true });
     log(`cloning ${OMNIMEMEVAL.repo} into ${dir}`);
@@ -163,7 +163,7 @@ export function prepareHarness(dir, { git = defaultGit, log = () => {} } = {}) {
   const at = checkedOutCommit(dir);
   if (at !== OMNIMEMEVAL.commit) throw new Error(`OmniMemEval in ${dir} is at ${at}, not the pinned ${OMNIMEMEVAL.commit}`);
   const done = [];
-  for (const c of COPIES) {
+  for (const c of copies) {
     const to = join(dir, c.to);
     mkdirSync(dirname(to), { recursive: true });
     copyFileSync(join(ADAPTER_DIR, c.from), to);

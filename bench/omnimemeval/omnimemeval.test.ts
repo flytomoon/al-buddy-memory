@@ -274,10 +274,14 @@ describe("harness patches", () => {
     const noGit = () => {
       throw new Error("git should not run: the checkout is at the pin");
     };
-    const r = prepareHarness(dir, { git: noGit });
+    // The real targets include env_examples/.env.al_buddy; sandboxes (the landing gate's too) refuse
+    // writing any ".env.*" path, so the test copies to the same places with the dot taken out.
+    expect(COPIES.map((c: { to: string }) => c.to)).toContain("env_examples/.env.al_buddy");
+    const copies = COPIES.map((c: { from: string; to: string }) => ({ ...c, to: c.to.replace("/.env.", "/env.") }));
+    const r = prepareHarness(dir, { git: noGit, copies });
     expect(r.files.filter((f: { status: string }) => f.status === "applied")).toHaveLength(PATCHES.length);
-    for (const c of COPIES) expect(existsSync(join(dir, c.to))).toBe(true);
-    expect(prepareHarness(dir, { git: noGit }).files.filter((f: { status: string }) => f.status === "already")).toHaveLength(PATCHES.length);
+    for (const c of copies) expect(existsSync(join(dir, c.to))).toBe(true);
+    expect(prepareHarness(dir, { git: noGit, copies }).files.filter((f: { status: string }) => f.status === "already")).toHaveLength(PATCHES.length);
     // A tree where one anchor is missing: no file is written.
     const broken = tmp();
     mkdirSync(join(broken, ".git"));
@@ -286,7 +290,7 @@ describe("harness patches", () => {
       mkdirSync(join(broken, f, ".."), { recursive: true });
       writeFileSync(join(broken, f), f === PATCHES[PATCHES.length - 1].file ? "moved\n" : c);
     }
-    expect(() => prepareHarness(broken, { git: noGit })).toThrow(/exactly once/);
+    expect(() => prepareHarness(broken, { git: noGit, copies })).toThrow(/exactly once/);
     expect(readFileSync(join(broken, PATCHES[0].file), "utf8")).toBe(files.get(PATCHES[0].file));
     const other = tmp();
     mkdirSync(join(other, ".git"));
@@ -334,7 +338,8 @@ describe("runner", () => {
   });
 
   it("reads the key file without echoing it, quotes and comments allowed", () => {
-    const p = join(tmp(), ".env.omnimemeval");
+    // Not ".env.omnimemeval": sandboxes refuse any ".env.*" path; the parser does not care about the name.
+    const p = join(tmp(), "key-file.txt");
     writeFileSync(p, '# key\nOPENAI_API_KEY="sk-abc" # mine\nexport OTHER=1\n');
     expect(readEnvFile(p)).toEqual({ OPENAI_API_KEY: "sk-abc", OTHER: "1" });
   });
