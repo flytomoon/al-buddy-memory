@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Al for Everyone — an AI that learns you, on the AI you choose</title>
+<meta name="description" content="Al is a personal AI that learns you, helps run your life and teaches you anything — on the AI model you choose. Your memory is yours: see it, edit it, forget it, export it, switch models. Free, or Pro at $9.99/month. Join the waitlist.">
+<link rel="canonical" href="https://albuddy.com/al-for-everyone/">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Al Buddy">
+<meta property="og:url" content="https://albuddy.com/al-for-everyone/">
+<meta property="og:title" content="Al for Everyone — an AI that learns you, on the AI you choose">
+<meta property="og:description" content="Assistant, teacher and friend in one. Your memory is yours: see, edit, forget, export, switch models. Join the waitlist.">
+<meta property="og:image" content="https://albuddy.com/al-icon.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Al for Everyone">
+<meta name="twitter:description" content="An Al that learns you, helps run your life and teaches you anything — on the AI you choose.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/al-icon.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Al for Everyone",
+      "alternateName": "Al Buddy",
+      "url": "https://albuddy.com/al-for-everyone/",
+      "applicationCategory": "LifestyleApplication",
+      "operatingSystem": "iOS, Web",
+      "description": "A personal AI that learns you, helps run your life and teaches you anything, on the AI model you choose. Your memory is yours: see, edit, forget, export it, and switch models.",
+      "offers": [
+        { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "availability": "https://schema.org/PreOrder" },
+        { "@type": "Offer", "name": "Pro", "price": "9.99", "priceCurrency": "USD", "availability": "https://schema.org/PreOrder",
+          "priceSpecification": { "@type": "UnitPriceSpecification", "price": "9.99", "priceCurrency": "USD", "unitText": "MONTH" } }
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        { "@type": "Question", "name": "What is Al for Everyone?",
+          "acceptedAnswer": { "@type": "Answer", "text": "A personal AI that is your assistant, your teacher and your friend. It learns you over time, helps run your life and teaches you anything, on the AI model you choose." } },
+        { "@type": "Question", "name": "Who owns my memory?",
+          "acceptedAnswer": { "@type": "Answer", "text": "You do. You can see everything Al remembers, edit it, make it forget, export it, and switch to a different AI model without losing it." } },
+        { "@type": "Question", "name": "How much does it cost?",
+          "acceptedAnswer": { "@type": "Answer", "text": "There will be a Free plan and a Pro plan at $9.99 a month. It is not available yet: join the waitlist to hear first." } }
+      ]
+    }
+  ]
+}
+</script>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1d1f; --muted:#5f5f66; --card:#ffffff; --line:#e4e1da; --accent:#2f6fde; --accent-fg:#fff; --ok:#1d7a3e; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121214; --fg:#f2f2f4; --muted:#a3a3ad; --card:#1c1c20; --line:#2e2e34; --accent:#6c9cff; --accent-fg:#0b1020; --ok:#6fd08c; --bad:#ff8a80; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 72px; }
+  a { color: var(--accent); }
+  .eyebrow { color: var(--muted); font-weight: 600; letter-spacing: .02em; margin: 0 0 8px; }
+  h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.12; margin: 0 0 16px; letter-spacing: -0.01em; }
+  h2 { font-size: 24px; margin: 48px 0 16px; }
+  .lede { color: var(--muted); font-size: 19px; margin: 0 0 28px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 19px; }
+  .card p { margin: 0; color: var(--muted); }
+  ul.yours { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  ul.yours li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  ul.yours b { display: block; }
+  ul.yours span { color: var(--muted); font-size: 15px; }
+  .card p.price { color: var(--fg); }
+  .price { font-size: 30px; font-weight: 700; margin: 4px 0 8px; }
+  .price small { font-size: 16px; font-weight: 500; color: var(--muted); }
+  form { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; }
+  label { font-weight: 600; }
+  input[type=email] { width: 100%; font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  fieldset { border: 0; padding: 0; margin: 0; }
+  legend { font-weight: 600; margin-bottom: 8px; }
+  .choices { display: flex; gap: 10px; flex-wrap: wrap; }
+  .choices label { font-weight: 500; display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; }
+  .optional { color: var(--muted); font-weight: 400; }
+  button { font: inherit; font-weight: 600; padding: 12px 18px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-fg); cursor: pointer; justify-self: start; }
+  button[disabled] { opacity: .6; cursor: default; }
+  .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+  #status { min-height: 1.5em; margin: 0; }
+  #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+  footer { margin-top: 56px; color: var(--muted); font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Al for Everyone · coming soon</p>
+  <h1>An Al that learns you, helps run your life and teaches you anything — on the AI you choose</h1>
+  <p class="lede">Al (said like “pal”) is one personal AI for the three things you actually need: getting things done, learning, and someone to talk to.</p>
+
+  <section aria-labelledby="uses">
+    <h2 id="uses">Three uses, one Al</h2>
+    <div class="grid">
+      <div class="card"><h3>Assistant</h3><p>Helps run your life: plans, reminders, the to-dos and follow-ups you'd otherwise drop.</p></div>
+      <div class="card"><h3>Teacher</h3><p>Teaches you anything, at your pace, and remembers what you already know.</p></div>
+      <div class="card"><h3>Friend</h3><p>Someone to think out loud with, who remembers what matters to you.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="yours">
+    <h2 id="yours">Your memory is yours</h2>
+    <ul class="yours">
+      <li><b>See</b><span>Everything Al remembers about you.</span></li>
+      <li><b>Edit</b><span>Fix anything it got wrong.</span></li>
+      <li><b>Forget</b><span>Make it forget, for real.</span></li>
+      <li><b>Export</b><span>Take your memory with you.</span></li>
+      <li><b>Switch models</b><span>Change AI without starting over.</span></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="pricing">
+    <h2 id="pricing">Pricing</h2>
+    <div class="grid">
+      <div class="card"><h3>Free</h3><p class="price">$0</p><p>Al as your assistant, teacher and friend, with a memory you own.</p></div>
+      <div class="card"><h3>Pro</h3><p class="price">$9.99 <small>/ month</small></p><p>More of everything for people who use Al every day.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="join">
+    <h2 id="join">Join the waitlist</h2>
+    <form id="signup" novalidate>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+      </div>
+      <fieldset>
+        <legend>Would you pay $8–10/month for this? <span class="optional">(optional)</span></legend>
+        <div class="choices">
+          <label><input type="radio" name="pay" value="yes"> Yes</label>
+          <label><input type="radio" name="pay" value="maybe"> Maybe</label>
+          <label><input type="radio" name="pay" value="no"> No</label>
+        </div>
+      </fieldset>
+      <div class="hp" aria-hidden="true"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
+      <button type="submit" id="go">Join the waitlist</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+    <p class="optional">One email when it's ready. We never sell or hand over your address.</p>
+  </section>
+
+  <footer>Al Buddy · <a href="/">albuddy.com</a></footer>
+</main>
+<script>
+(() => {
+  const ENDPOINT = "https://pxcfvyh7jt5ufcw2telmflacve0mccsu.lambda-url.us-west-2.on.aws/";
+  const form = document.getElementById("signup");
+  const go = document.getElementById("go");
+  const status = document.getElementById("status");
+  let busy = false, done = false;
+  const say = (text, cls) => { status.textContent = text; status.className = cls || ""; };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (busy || done) return; // one press per signup: refused while it runs and after it lands
+    const email = form.email.value.trim();
+    if (!email) { say("Enter your email first.", "bad"); return; }
+    const picked = form.querySelector('input[name="pay"]:checked');
+    busy = true; go.disabled = true; say("Joining…");
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, tag: "al-for-everyone", pay: picked ? picked.value : "", website: form.website.value }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok) {
+        done = true;
+        go.textContent = "You're on the list";
+        say(out.already ? "You were already on the list — nothing changed." : "You're on the list. We'll email you when it's ready.", "ok");
+      } else {
+        say(out.error || "That didn't go through. Try again?", "bad");
+      }
+    } catch {
+      say("Couldn't reach us. Check your connection and try again.", "bad");
+    } finally {
+      busy = false;
+      if (!done) go.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
