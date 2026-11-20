@@ -33,9 +33,11 @@ one conversation's store at a time, deleted after.
 ```sh
 npm ci && npm run build
 node bench/omnimemeval/run.mjs --dry-run                    # stub reader and judge, 2 conversations a board, $0
-echo 'OPENAI_API_KEY=sk-...' > bench/.env.omnimemeval      # gitignored; read only by the meter
+${EDITOR:-vi} bench/.env.omnimemeval                        # add OPENAI_API_KEY=<your key>
 node bench/omnimemeval/run.mjs --max-usd 20                 # the five boards, paid
 ```
+
+Git ignores `bench/.env.omnimemeval`. The meter reads the key from that file.
 
 The runner builds a Python venv in the harness from its own `requirements_user_memory.txt`
 (Python 3.12 or 3.11, or `uv`), takes LoCoMo and LongMemEval from our pinned, checksummed copies

@@ -37,6 +37,9 @@ before any model call when they cannot find them.
 | [`stale-facts/`](stale-facts/) | When a fact changes, whether recall returns the value true now — and the value true then | none |
 | [`memderive/`](memderive/) | Derived state (counts, totals, sets, histories) over facts that change: whether recall returns every event the answer needs, beside plain and stemmed BM25 | none (on-device embedder) |
 
+For paid OmniMemEval runs, put the OpenAI key in `bench/.env.omnimemeval`. Git ignores this
+file. See [OmniMemEval setup](omnimemeval/README.md#running-it).
+
 ## Stale facts
 
 Recall benchmarks ask whether a memory can find a fact. They rarely ask whether it finds the fact
