@@ -3,8 +3,7 @@
 [OmniMemEval](https://github.com/MemTensor/OmniMemEval) runs every memory backend through one
 harness with one reader (`gpt-4.1-mini-2025-04-14`) and one judge (`gpt-4o-mini-2024-07-18`), on
 five user-memory boards: LoCoMo, LongMemEval-S, BEAM, PersonaMem v2 and HaluMem. Its tables have
-contributor-run rows; this directory is what it takes to add ours (item 4 of
-`docs/reviews/2026-11-17-fable-memory-top-tier.md`).
+contributor-run rows. This directory contains the adapter and runner for al-buddy-memory.
 
 Pinned to OmniMemEval **`ff13e4a5b12e3c406a81c32bb0834c7e8d73f38e`** (2026-11-17), in `pin.mjs`.
 

@@ -165,16 +165,13 @@ release was measured to change it, and none of the new benchmark flags is eviden
   the plain 50, and a median 10–14 ms less wall-clock and 29–31 ms less CPU per recall. It stays
   off until the full 500 and an answered run agree. The benchmark takes it as `--content-words`;
   `recall-sweep.mjs` as the arm part `content-words`.
-- **Benchmark: the reranker behind the time-window gate** ([review § 5](docs/reviews/recall-quality-vs-latency-2026-10.md), change 5). `run.mjs
+- **Benchmark: the reranker behind the time-window gate.** `run.mjs
   --rerank-when window` lets the cross-encoder read only questions that name a period ("last
   Saturday", "in April"); every other question recalls with `rerank: false`, exactly as with no
   reranker. `recall-sweep.mjs` takes it as a `:window` suffix on a cross-encoder arm
   (`minilm:q8:30:window`) and holds such an arm to its bar against the same arm without the
   cross-encoder (window recalls p95 within `--budget-ms`, evidence gained on them, the other
-  questions' rounds and time unchanged), as its `RESULT:` line. Measured with a stand-in of the
-  same architecture (review § 9): a window recall at depth 30 took 1.5 s at p50 and 2.9–4.0 s at
-  p95, against a 300 ms budget, while every other question kept its rounds and its time. The
-  library does not change and no reranker is switched on.
+  questions' rounds and time unchanged), as its `RESULT:` line. The option is benchmark-only.
 
 ### Changed
 
@@ -191,8 +188,6 @@ release was measured to change it, and none of the new benchmark flags is eviden
   itself superseded before this one arrived; it used to look only at states still open. Only the
   state that held at `at` (and any the call `replaces`) is closed by the new one; "unchanged" now means the same text as the
   state that held at `at`, not the newest one.
-- **The npm package no longer carries `docs/research/` or `docs/reviews/`.** They are internal
-  analysis, and stay on GitHub.
 
 ### Behaviour change
 
@@ -439,19 +434,16 @@ release was measured to change it, and none of the new benchmark flags is eviden
 
 ### Security
 
-- **The connector's sign-in only sends codes to Claude, ChatGPT or this machine** (security review
-  2026-10-08). Registering an app whose redirect is anywhere else is refused, a client registered
+- **The connector's sign-in only sends codes to Claude, ChatGPT or this machine.**
+  Registering an app whose redirect is anywhere else is refused, a client registered
   earlier is held to the same list at sign-in, and the consent page says where access goes.
   `allowedRedirectOrigins` (or `AL_BUDDY_MEMORY_REDIRECT_ORIGINS`) sets the list.
 
-- **Security review of the enterprise surface** (Postgres store, data boundaries, erasure
-  receipts, incremental writes, OIDC sign-in): `docs/SECURITY-REVIEW-2026-10.md` lists what was
-  checked, found and fixed, and what was not covered. Besides the two behaviour changes above, an
-  erase or an invalidation refused because of a conclusion the actor cannot see no longer names
-  that conclusion or the policy's reason about it, in the error or in an erasure receipt, and
+- **Governance and sign-in.** An erase or an invalidation refused because of a conclusion the
+  actor cannot see no longer names that conclusion or the policy's reason in the error or receipt.
   `docs/SIGN-IN.md`'s example now refuses tenants the server does not serve.
-- **A stranger's wrong passphrases no longer lock the owner out of the connector** (review
-  2026-10-08, M3). Five from one app lock that app for 15 minutes; twenty from all apps within
+- **A stranger's wrong passphrases no longer lock the owner out of the connector.**
+  Five from one app lock that app for 15 minutes; twenty from all apps within
   15 minutes still lock every app, so registering fresh apps buys no extra guesses. Each lock
   writes one line to the connector log (the app's name, which lock, until when). It used to be
   one counter: five wrong passphrases from anyone locked the page for everyone, silently.
@@ -767,9 +759,7 @@ command line, and the package installs as a Claude Code plugin.
 
 ## 0.5.1 — 2026-09-22
 
-Fixes from a post-release review of 0.5.0. Every fix started as a test that failed on
-0.5.0; the write-ups are in [docs/RESILIENCE-LEDGER.md](docs/RESILIENCE-LEDGER.md). No
-schema change.
+This patch fixes issues in 0.5.0 without a schema change.
 
 ### Fixed
 
@@ -885,10 +875,7 @@ release exists so the package page on npm matches the repository.
 
 ## 0.4.2 — 2026-09-19
 
-Alongside it, six fixes to the **MCP surface** — the only surface most people
-will ever touch — which carry no schema change of their own. Full write-ups of
-everything here, with the measurements, are in
-[docs/RESILIENCE-LEDGER.md](docs/RESILIENCE-LEDGER.md).
+This release also includes fixes to the **MCP surface** that require no schema changes.
 
 ### Added
 
@@ -1019,9 +1006,7 @@ everything here, with the measurements, are in
   is inside the budget is the recall rule and the remember rule — the two that
   decide whether the memory is used at all. What falls outside it is the
   invalidate rule and the pin rule, so a client that truncates at 512 gets a
-  memory it will read from and write to, but not retire from. The claim is left
-  here rather than removed, per `docs/RESILIENCE-LEDGER.md`; shortening the string
-  to fit is open, and tracked in that file's section C.
+  memory it will read from and write to, but not retire from.
 - **Every fact written through the MCP server records which app wrote it:**
   `contextualMetadata.origin = { app, appVersion, via: "mcp" }`, taken from the
   connection handshake rather than from anything the model says. `remember` and

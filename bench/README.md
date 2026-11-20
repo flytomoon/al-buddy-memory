@@ -104,6 +104,6 @@ What it does not show, said plainly:
 
 - It is our dataset, written to test one claim of the MemDerive paper (arXiv 2610.25373) as it was
   described to us. The paper and its data could not be read where this was written, so this is
-  not MemDerive. See [docs/research/memderive-2026-10.md](../docs/research/memderive-2026-10.md).
+  not MemDerive.
 - It scores retrieval. Whether a reader then counts or adds correctly is not measured.
 - 36 questions: one question is 2.8 points.
