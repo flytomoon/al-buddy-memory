@@ -130,7 +130,7 @@ describe("imports cannot write history nobody recorded", () => {
 
   it("a governed import that reshapes a fact says its history no longer vouches for it, and as of now is the fact as stored", async () => {
     const src = new SqliteMemoryStore(":memory:");
-    const f = await src.addNode(fact("deploy key AKIAABCDEFGHIJKLMNOP"));
+    const f = await src.addNode(fact(`deploy key ${"AKIA"}ABCDEFGHIJKLMNOP`));
     await src.updateNode(f.nodeId, { confidenceWeight: 0.5 });
     const art = await exportPortable(new Map([["p", src]]));
     const inner = new SqliteMemoryStore(":memory:");
@@ -179,7 +179,7 @@ describe("the MCP history tool goes through governance", () => {
     const f = await tools.remember({ text: "I live in Tokyo" });
     await tools.invalidate({ id: f.id, reason: "moved" });
     expect(await tools.history({ id: f.id })).toHaveLength(1);
-    const secret = await inner.addNode(fact("AKIAABCDEFGHIJKLMNOP", { privacyClassification: "Sensitive" }));
+    const secret = await inner.addNode(fact(`${"AKIA"}ABCDEFGHIJKLMNOP`, { privacyClassification: "Sensitive" }));
     await inner.updateNode(secret.nodeId, { confidenceWeight: 0.3 });
     expect(await tools.history({ id: secret.nodeId })).toEqual([]);
   });

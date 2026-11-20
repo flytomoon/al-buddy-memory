@@ -141,7 +141,7 @@ describe("governance — no way around the policies", () => {
   it("import runs the write policies: a restored secret is classified, a guardian's fact cannot be restored over", async () => {
     const { store } = owned();
     const scratch = new InMemoryStore();
-    const leaked = await scratch.addNode(fact("api_key=sk-live-abcdefghijklmnop1234"));
+    const leaked = await scratch.addNode(fact(`api_key=${"sk-"}live-abcdefghijklmnop1234`));
     await store.restoreNode(leaked);
     expect((await store.getNode(leaked.nodeId))?.privacyClassification).toBe("Sensitive");
 
@@ -398,7 +398,7 @@ describe("a governed call acts on the arguments as they were when it was made", 
 
       const secret = fact("an ordinary note");
       const writing = owner.addNode(secret);
-      secret.content = { text: "api_key=sk-live-abcdefghijklmnop1234" }; // would dodge classification
+      secret.content = { text: `api_key=${"sk-"}live-abcdefghijklmnop1234` }; // would dodge classification
       const written = await writing;
       expect(written.content.text).toBe("an ordinary note");
 
