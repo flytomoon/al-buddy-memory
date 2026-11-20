@@ -51,6 +51,10 @@
     "bin",
     "dist",
     "docs",
+    "!docs/internal",
+    "!docs/DECISION-2026-07-07.md",
+    "!docs/RESILIENCE-LEDGER.md",
+    "!docs/SECURITY-REVIEW-2026-10.md",
     "!docs/integrations/SUBMISSIONS.md",
     "!docs/research",
     "!docs/reviews"

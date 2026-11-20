@@ -13,6 +13,21 @@ const root = join(dirname(new URL(import.meta.url).pathname), "..");
 const read = (f: string) => readFileSync(join(root, f), "utf8");
 
 describe("docs — the claims a reader will check", () => {
+  it("links the README's node fields to the public schema specification", () => {
+    expect(read("README.md")).toContain("The [memory schema specification](docs/SPEC.md) defines the memory node fields.");
+    expect(read("docs/SPEC.md")).toContain("## Node Type Reference");
+    expect(read("src/types/memory.ts")).toMatch(/export interface MemoryNode \{/);
+  });
+
+  it("links the SECURITY.md policy claim to the governed store", () => {
+    expect(read("SECURITY.md")).toContain("[governance policies](docs/GOVERNANCE.md) can refuse writes, hide reads and gate exports");
+    const governed = read("src/governance/governed-store.ts");
+    expect(governed).toContain("await p.beforeWrite(current, ctx)");
+    expect(governed).toContain("await p.beforeRead(current, ctx)");
+    expect(governed).toContain("await p.beforeExport(current, ctx)");
+    expect(governed).toContain("await opts.audit.record(event)");
+  });
+
   it("pins the README's valid-time and current-state benchmark claims to code", () => {
     const readme = read("README.md").replace(/\s+/g, " ");
     expect(readme).toContain("`recordState` closes a late-learned state at the next state in valid-time order");

@@ -10,7 +10,6 @@ Everything named in `code font` below is exported by this package unless it is
 explicitly marked *(app side)*, which means the reference app implements it and
 you would write your own.
 
-**Decision record:** [Memory architecture decision](./DECISION-2026-07-07.md)
 **The contract:** [SPEC.md](./SPEC.md)
 
 ## The loop

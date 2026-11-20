@@ -2,7 +2,6 @@
 
 **Version:** 1.1.0
 **Governance:** every node carries privacy classification, retention tier, provenance and an encryption key reference as required fields — governance is in the schema, not in a policy document beside it.
-**Decision record:** [Memory architecture decision (2026-07-07)](./DECISION-2026-07-07.md)
 **Implementation file:** `src/types/memory.ts`
 
 ---
@@ -191,7 +190,7 @@ The raw text stays the only thing either reads.
 
 Vectors live in a dedicated {@link MemoryEmbedding} side store keyed by `(nodeId, model)`, each tagged with the model + version that produced it. Since 0.8.1 a vector is stored as little-endian float32 bytes when that is exact, and as JSON text otherwise; readers accept both. Inline `MemoryNode.embedding` is deprecated. `content.text` is the only source of truth.
 
-**Why:** Embedding models change; two models' vectors are not comparable. Keeping vectors inline welds the memory to one model and one moment. As a separate, per-model cache, upgrading the embedding model is a re-index (`setEmbedding` again), never a data-loss migration — the memory itself is untouched. This is the portability insurance called out in the [decision record](./DECISION-2026-07-07.md).
+**Why:** Embedding models change; two models' vectors are not comparable. Keeping vectors inline welds the memory to one model and one moment. As a separate, per-model cache, upgrading the embedding model is a re-index (`setEmbedding` again), never a data-loss migration — the memory itself is untouched.
 
 ---
 

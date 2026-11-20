@@ -107,7 +107,7 @@ console.log(snapshot.formatVersion);
 inner.close();
 ```
 
-Full contract: [docs/SPEC.md](docs/SPEC.md). Design record: [docs/DECISION-2026-07-07.md](docs/DECISION-2026-07-07.md).
+The [memory schema specification](docs/SPEC.md) defines the memory node fields.
 
 ---
 

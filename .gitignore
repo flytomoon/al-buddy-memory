@@ -17,3 +17,14 @@ bench/omnimemeval/.harness.lock
 # The Claude Desktop extension build (npm run build:mcpb).
 build/
 .gstack/
+
+# Internal documents and working output
+/.steward/
+/docs/internal/
+/docs/reviews/
+/docs/research/
+/docs/RESILIENCE-LEDGER.md
+/docs/SECURITY-REVIEW-2026-10.md
+/docs/DECISION-2026-07-07.md
+/docs/integrations/SUBMISSIONS.md
+/out/

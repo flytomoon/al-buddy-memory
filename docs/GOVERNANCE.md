@@ -139,8 +139,7 @@ holds the HMAC key — or, with no key, anyone who can write the file — can re
 whole chain, and a restored backup carries a self-consistent chain of its own. What
 distinguishes a rewrite or a restored backup from the real history is the anchored head
 disagreeing with it, and nothing else. And it says nothing about whether a policy *decision*
-was still true when the write landed: that is authorisation across processes, and it is
-open (`docs/RESILIENCE-LEDGER.md`, section C).
+was still true when the write landed in another process.
 
 **One writer per log, not one writer per memory.** A chain in a *file* has exactly one
 writer, but a person legitimately runs two assistants against one memory. Before the table the
