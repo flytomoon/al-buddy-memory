@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { PROGRESS_DIR, RESULTS_DIR, REPO_ROOT, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
-import { answererFromSpec, runProcess, subscriptionEnv } from "./answerers.mjs";
+import { LIMIT_EXIT_CODE, UsageLimitError, answererFromSpec, runProcess, subscriptionEnv } from "./answerers.mjs";
 import { loadInstances, selectInstances } from "./dataset.mjs";
 import { DATA_DIR, readManifest, sha256File } from "./download.mjs";
 import { runInstances, summarize } from "./harness.mjs";
@@ -234,6 +234,9 @@ const onRow = (row) => {
   console.log(`[${finished}/${instances.length}] ${row.question_id} ${row.question_type}${t === undefined ? "" : ` session recall@10=${t}`}${row.recall ? ` recall ${Math.round(row.recall.ms)}ms` : ""} ${verdict}${row.ms ? ` (${(row.ms / 1000).toFixed(1)}s)` : ""}`);
 };
 let stopped = null;
+// A stopped run exits 2, or LIMIT_EXIT_CODE when a usage limit stopped it, so a caller (event-study.mjs
+// --wait-on-limit) can tell a limit it may wait out from a failure it must not retry blindly.
+const stopExitCode = (e) => (e instanceof UsageLimitError ? LIMIT_EXIT_CODE : 2);
 if (extractor) {
   // Every session of every selected question, extracted once, `--concurrency` wide. Sessions already in
   // the cache cost nothing and are counted, so the stats describe the whole run, resumed or not.
@@ -253,7 +256,7 @@ if (extractor) {
     if (stats.sessions > 0 && stats.extracted === 0) fail(`Event extraction: attempted ${stats.called} session(s), succeeded 0; nothing to measure.`);
   } catch (e) {
     console.error(`\nStopped during event extraction: ${e.message}\nAttempted ${e.attempted ?? 0} session(s), succeeded ${e.succeeded ?? 0}; extracted sessions are kept in ${args["events-cache"] ?? "(no --events-cache: nothing kept)"}. Run the same command with --resume to continue.`);
-    process.exit(2);
+    process.exit(stopExitCode(e));
   }
 }
 try {
@@ -268,7 +271,7 @@ try {
 }
 if (stopped) {
   console.error(`\nStopped: ${stopped.message}\nAttempted ${stopped.attempted} question(s), succeeded ${stopped.succeeded}; progress is kept in ${progressPath}. Run the same command with --resume to continue.`);
-  process.exit(2);
+  process.exit(stopExitCode(stopped));
 }
 
 // --- the result ----------------------------------------------------------------

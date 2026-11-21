@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { findResult } from "../lib/run-info.mjs";
 import { digest, evidencePairs, report } from "./compare.mjs";
-import { PUBLISHED, answeredSummary, readPublished, pairProblems, publishedSets, resultSentence, retrievalVerdict } from "./event-study.mjs";
+import { LIMIT_EXIT_CODE } from "./answerers.mjs";
+import { MAX_LIMIT_WAITS, PUBLISHED, answeredSummary, armExitAction, readPublished, pairProblems, publishedSets, resultSentence, retrievalVerdict } from "./event-study.mjs";
 
 type Shown = { found: number; evidence: number };
 const labelsAt = findResult(PUBLISHED.labels).path;
@@ -104,5 +105,19 @@ describe("the published run the study is measured against", () => {
     expect(sets.lostToRecall.filter((q) => q.type === "multi-session")).toHaveLength(12);
     expect(sets.shownAll).toHaveLength(223);
     expect(sets.correctByType).toEqual({ "multi-session": { correct: 111, n: 133 }, "temporal-reasoning": { correct: 125, n: 133 } });
+  });
+});
+
+describe("an arm a usage limit stopped (--wait-on-limit)", () => {
+  it("waits out a limit only when waiting is on and waits are left", () => {
+    expect(armExitAction(0, { waitMinutes: 60 })).toBe("done");
+    expect(armExitAction(LIMIT_EXIT_CODE, { waitMinutes: 60, waits: 0 })).toBe("wait");
+    expect(armExitAction(LIMIT_EXIT_CODE, { waitMinutes: 60, waits: MAX_LIMIT_WAITS - 1 })).toBe("wait");
+    expect(armExitAction(LIMIT_EXIT_CODE, { waitMinutes: 60, waits: MAX_LIMIT_WAITS })).toBe("stop");
+    expect(armExitAction(LIMIT_EXIT_CODE, { waitMinutes: 0 })).toBe("stop");
+  });
+  it("never retries a run that failed for another reason, or was killed", () => {
+    for (const status of [1, 2, null]) expect(armExitAction(status, { waitMinutes: 60 })).toBe("stop");
+    expect(LIMIT_EXIT_CODE).not.toBe(2);
   });
 });
