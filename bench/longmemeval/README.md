@@ -196,7 +196,10 @@ It reads the published run's official labels from the private run history (see
 Arms run under `bench/results/.progress/event-study/`, so each records a clean tree, and are copied
 into the results folder as `<date>-lme-ms-tr-*.json` with `<date>-lme-ms-tr-event-study.json` (the bar, the
 17 one by one, per-type evidence counts, the extraction counts, and the answered pair if run). The
-same command resumes a stopped study. The last line is `RESULT: …`. Extraction is about 12,600
+same command resumes a stopped study. With `--wait-on-limit N` it does that itself when a usage
+limit stops an arm: it waits N minutes and resumes the arm, at most 24 times over the study
+(`run.mjs` exits 3 at a usage limit, 2 for any other stop, and only a limit is waited out). The
+last line is `RESULT: …`. Extraction is about 12,600
 sessions, one subscription call each; the answered pair adds about 1,060 more. `--limit` or
 `--retrieval` turn it into a smoke run, which says so and is not the study.
 

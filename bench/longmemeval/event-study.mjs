@@ -22,6 +22,9 @@
 // (RESULTS_DIR, see bench/README.md) with the
 // study's summary at the end. Rerunning the same command reuses finished arms,
 // resumes a partial one and the extraction cache, and retries failed sessions.
+// With --wait-on-limit N, an arm a usage limit stopped is restarted after N
+// minutes, at most MAX_LIMIT_WAITS times over the whole study; without it the
+// study stops at the first limit and the same command resumes it.
 // The last line is `RESULT: …`.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -30,6 +33,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { PROGRESS_DIR, REPO_ROOT, RESULTS_DIR, findResult, isoDate, resultPath, runInfo, writeJson } from "../lib/run-info.mjs";
+import { LIMIT_EXIT_CODE } from "./answerers.mjs";
 import { digest, evidencePairs, pairwise, report } from "./compare.mjs";
 
 export const STUDY_TYPES = ["multi-session", "temporal-reasoning"];
@@ -60,6 +64,20 @@ export function readPublished() {
 export const BAR = { minGained: 6, maxLost: 0 };
 /** More failed session extractions than this share makes the study incomplete, not a result. */
 export const MAX_FAILED_SESSION_SHARE = 0.01;
+/** With --wait-on-limit, the most usage-limit waits over the whole study (a day at 60 minutes). */
+export const MAX_LIMIT_WAITS = 24;
+
+/**
+ * What to do when an arm's run.mjs exits with `status`: "done" (0), "wait" (a usage
+ * limit stopped it, waiting is on and waits are left), or "stop" (any other
+ * failure, a limit with waiting off, or no waits left). Only a limit is waited
+ * out: a run that failed for another reason would fail the same way again.
+ */
+export function armExitAction(status, { waitMinutes = 0, waits = 0, maxWaits = MAX_LIMIT_WAITS } = {}) {
+  if (status === 0) return "done";
+  if (status === LIMIT_EXIT_CODE && waitMinutes > 0 && waits < maxWaits) return "wait";
+  return "stop";
+}
 
 /**
  * From the published run and its official labels, over `types`: the questions
@@ -184,8 +202,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       concurrency: { type: "string", default: "4" },
       "events-model": { type: "string" },
       "events-extractor": { type: "string" },
+      "wait-on-limit": { type: "string", default: "0" },
     },
   });
+  const waitMinutes = Number(args["wait-on-limit"]);
+  if (!Number.isFinite(waitMinutes) || waitMinutes < 0) {
+    console.error(`--wait-on-limit must be a number of minutes >= 0 (got ${args["wait-on-limit"]})`);
+    process.exit(1);
+  }
+  let waits = 0;
   // --limit and --retrieval are for checking the plumbing: the result says it is a smoke run.
   const smoke = args.limit !== undefined || args.retrieval !== undefined;
   const prefix = args.prefix ?? `${isoDate()}-lme-ms-tr${smoke ? "-smoke" : ""}`;
@@ -213,11 +238,22 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     const out = join(workDir, `${prefix}-${name}.json`);
     if (existsSync(out)) console.log(`\n== ${name}: reusing ${out}`);
     else {
-      console.log(`\n== ${name}: node bench/longmemeval/run.mjs ${[...common, ...flags].join(" ")}`);
-      const r = spawnSync(process.execPath, [join(REPO_ROOT, "bench/longmemeval/run.mjs"), ...common, ...flags, "--resume", "--out", out], { stdio: "inherit", cwd: REPO_ROOT });
-      if (r.error || r.status !== 0 || !existsSync(out)) {
-        console.log(`The ${name} arm did not finish (${r.error ? r.error.message : `exit ${r.status}`}); its progress is kept, so the same command resumes it.`);
-        return null;
+      for (;;) {
+        console.log(`\n== ${name}: node bench/longmemeval/run.mjs ${[...common, ...flags].join(" ")}`);
+        const r = spawnSync(process.execPath, [join(REPO_ROOT, "bench/longmemeval/run.mjs"), ...common, ...flags, "--resume", "--out", out], { stdio: "inherit", cwd: REPO_ROOT });
+        const action = r.error ? "stop" : armExitAction(r.status, { waitMinutes, waits });
+        if (action === "wait") {
+          waits += 1;
+          console.log(`The ${name} arm stopped at a usage limit; waiting ${waitMinutes} min before resuming it (wait ${waits} of ${MAX_LIMIT_WAITS}).`);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMinutes * 60_000);
+          continue;
+        }
+        if (action === "stop" || !existsSync(out)) {
+          const why = r.error ? r.error.message : r.status === LIMIT_EXIT_CODE ? `a usage limit${waitMinutes > 0 ? `, after ${waits} wait(s)` : "; --wait-on-limit waits one out"}` : `exit ${r.status}`;
+          console.log(`The ${name} arm did not finish (${why}); its progress is kept, so the same command resumes it.`);
+          return null;
+        }
+        break;
       }
     }
     const result = JSON.parse(readFileSync(out, "utf8"));

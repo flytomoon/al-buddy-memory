@@ -29,6 +29,9 @@ export const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 /** The subscription stopped answering (usage limit). Retrying burns nothing but time; the run stops and can resume. */
 export class UsageLimitError extends Error {}
 
+/** run.mjs's exit code when a usage limit stopped it (any other stop exits 2); the run resumes with --resume. */
+export const LIMIT_EXIT_CODE = 3;
+
 /**
  * A chat channel's state: TELEGRAM_STATE_DIR points at a bot's directory, token
  * included. A CLI child that inherited it could pick the channel up, so no

@@ -13,6 +13,10 @@ earlier were GitHub releases only.
 
 ### Added
 
+- **Benchmark: the event study waits out a usage limit** (`bench/longmemeval/event-study.mjs
+  --wait-on-limit N`). An arm stopped by a subscription usage limit is resumed after N minutes, at
+  most 24 times; any other failure still stops the study. `run.mjs` now exits 3 when a usage limit
+  stopped it (2 for any other stop). Measurement only: nothing in the library changes.
 - **Benchmark: OmniMemEval backend** (`bench/omnimemeval/`). An `al_buddy` client for MemTensor's
   OmniMemEval harness (pinned to `ff13e4a`), a local sidecar holding one SQLite store per
   benchmark conversation, and a runner that puts LoCoMo, LongMemEval-S, BEAM 100K, HaluMem and
